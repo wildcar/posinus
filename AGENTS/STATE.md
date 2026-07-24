@@ -20,31 +20,33 @@ a publish-ready retelling, and posts them to the platforms.
   media dir. Canonical form is `prepared_item.retold_body_md`; no HTML page anymore. LIVE
   on prod (every 15 min).
 - `publisher.py` posts prepared news, fully automatically by timer, to Telegram @posinus,
-  wildcar.ru (Эгея) and a VK community wall; each platform enables only when its secret is
-  set. Renders each format from the stored markdown; idempotent per `(news_id, platform)`.
-  Paces NEW posts to at most one per `PUB_MIN_INTERVAL_MINUTES` (default 120); a platform
-  that keeps failing is retried up to `PUB_MAX_ATTEMPTS` (8), then given up on so it can't
-  block the queue (item finalized «Опубликовано» best-effort). DEPLOYED and live on prod.
-  LIVE STATUS: Telegram + wildcar.ru work (news 6775 posted); VK fails — the configured
-  token is a COMMUNITY token, a USER token of a group admin is required (error 27).
+  wildcar.ru (Эгея) and the VK community wall @positivenus; each platform enables only when
+  its secret is set. Renders each format from the stored markdown; idempotent per
+  `(news_id, platform)`. Paces NEW posts to at most one per `PUB_MIN_INTERVAL_MINUTES`
+  (default 120); a failing platform is retried up to `PUB_MAX_ATTEMPTS` (8), then given up
+  on so it can't block the queue. LIVE on prod: Telegram + wildcar.ru + VK all working.
+- VK works end-to-end now: a classic `vk1.` USER token of a group admin (obtained via the
+  grandfathered Kate Mobile app_id) sits in the env with `VK_GROUP_ID=233237778`; post
+  wall-233237778_2 landed through the pipeline. `vk_call` targets `api.vk.ru` in the repo.
 
 ## Next
 
-1. Owner: **redeploy** (`sudo bash deploy/install.sh`) to pick up the 2h pacing +
-   give-up-on-failing-platform fix (and the markdown change). The own DB auto-migrates
-   on first open (adds `retold_body_md`, no model calls).
-2. Owner: fix VK — get a USER access token of a group admin (scope photos,wall,groups)
-   and put it + `VK_GROUP_ID` in the env file; the current token is a community token
-   (error 27). Or blank `VK_ACCESS_TOKEN` to disable VK cleanly.
-3. Prompt calibration and soft profiles («Россия» / «Международное»).
+1. Owner: redeploy (`sudo bash deploy/install.sh`) so prod's `publisher.py` matches the
+   repo — the `api.vk.com` → `api.vk.ru` switch, plus the 2h pacing / give-up / markdown
+   changes if an earlier redeploy hasn't already landed them. Prod still calls api.vk.com
+   until then (works, but is being phased out); after redeploy, run one `--news-id` post to
+   confirm the photo path works on api.vk.ru, easy to revert if not.
+2. Prompt calibration and soft profiles («Россия» / «Международное»).
 
 ## Open questions
 
-- Which VK community + numeric `VK_GROUP_ID` (owner picks; env-driven).
 - Long-term model choice; deepseek-chat is only the test model (swap via env file).
 
 ## Resolved
 
+- VK live: publisher posts to @positivenus with a classic user admin token; the community
+  (214/27) and VK ID `vk2.a`/1051 dead ends are documented in `docs/services.md`
+  (owner, 2026-07-24).
 - Publish at most one NEW news per 2h (`PUB_MIN_INTERVAL_MINUTES=120`); a failing platform
   is given up after `PUB_MAX_ATTEMPTS` so it can't block the queue (owner, 2026-07-23).
 - Prepared retelling is stored as markdown, not HTML: no platform consumes HTML, and it

@@ -16,6 +16,9 @@ MEMORY.md = durable facts/agreements; current state -> STATE.md; iteration log -
   denied by permission policy on 2026-07-14 and again on 2026-07-15 even after the
   owner approved the permanent deploy in chat. Why: granting access to prod data must
   be executed by the owner personally — prepare an installer and hand it over instead.
+- Commit and push to `main` without asking, immediately after a verified change (owner,
+  2026-07-24). Why: the owner runs a fast solo loop here and treats an unpushed change as
+  unfinished; branch/PR ceremony is unwanted on this repo.
 
 ## Project facts
 
@@ -32,13 +35,18 @@ MEMORY.md = durable facts/agreements; current state -> STATE.md; iteration log -
   same contract limit. The evaluator only supplies the `not_positive` verdict.
 - Publication targets (owner, 2026-07-23): Telegram channel @posinus (numeric chat id
   `-1003795927410`, bot `buyvbot`); site wildcar.ru — an Эгея («Позитивные новости») blog
-  on a SEPARATE host `95.165.109.250`, login `wildcar`; VK community wall. MAX was dropped —
+  on a SEPARATE host `95.165.109.250`, login `wildcar`; VK community wall @positivenus
+  (`VK_GROUP_ID=233237778`). MAX was dropped —
   owner cannot create a MAX bot (needs a verified org/self-employed profile), chose VK.
 - The publisher's publish mechanisms were ported from `~/repo/hermes` (`send_tg.py`,
   `wildcar_publish_*.py`), which have posted to these platforms manually for months. Those
   secrets live in `~/.hermes/.env` (Telegram) and `hermes/egeya.txt` (Эгея password, login
   in line 1 only if the file has ≥2 lines else default `wildcar`) — but `newsevaluator`
   can't read keeper's home, so the owner must copy them into the evaluator env file.
-- VK: posting a photo to a community wall needs a USER access token of a group admin
-  (scope photos,wall,groups); a community token fails `photos.getWallUploadServer` with
-  error 27. `VK_GROUP_ID` is the positive numeric id; post with `owner_id=-<id>` + `from_group=1`.
+- VK: wall posting needs a classic `vk1.` USER token of a group admin (scope
+  photos,wall,groups). A community token fails (`wall.post` 214, `photos.getWallUploadServer`
+  27); a VK ID `vk2.a.` token (id.vk.ru PKCE / "Log in with VK") fails with 1051 — auth-only,
+  no API methods. VK ID won't mint API tokens for new apps and the old endpoint rejects
+  id.vk.ru apps, so the working token comes from the grandfathered Kate Mobile app_id
+  (`2685278`) via the legacy implicit flow (non-expiring). Post with `owner_id=-<id>` +
+  `from_group=1`. Full recipe: `docs/services.md` «VK: the token type matters».

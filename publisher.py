@@ -443,7 +443,7 @@ def vk_call(cfg: PublisherConfig, method: str, params: dict[str, Any]) -> Any:
     query["access_token"] = cfg.vk_token
     query["v"] = cfg.vk_api_version
     payload = _post_json_result(
-        f"https://api.vk.com/method/{method}",
+        f"https://api.vk.ru/method/{method}",
         urllib.parse.urlencode(query).encode("utf-8"),
         "application/x-www-form-urlencoded",
         HTTP_TIMEOUT,
@@ -489,7 +489,7 @@ def publish_vk(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
         "message": message, "attachments": attachment,
     })
     post_id = response.get("post_id")
-    return f"https://vk.com/wall-{cfg.vk_group_id}_{post_id}"
+    return f"https://vk.ru/wall-{cfg.vk_group_id}_{post_id}"
 
 
 # --------------------------------------------------------------- platform: site

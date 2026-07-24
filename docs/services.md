@@ -91,13 +91,34 @@ so systemd does not flip to `failed` on transient errors.
 
 ### VK: the token type matters
 
-`photos.getWallUploadServer` returns error 27 ("Group authorization failed: method is
-unavailable with group auth") when given a **community** token. Uploading a wall photo
-needs a **user** access token of a group admin (scope `photos,wall,groups`). If a user
-token is not available: switch VK to a link-card post (attach the wildcar.ru article URL,
-which works with a community token) or blank `VK_ACCESS_TOKEN` to disable VK. A failing VK
-does not hold up Telegram or the site — it is retried `PUB_MAX_ATTEMPTS` times and given
-up on.
+Wall posting needs a **classic user access token** of a group admin (the token string
+starts with `vk1.`, scope `photos,wall,groups`). The other token types are dead ends, and
+each fails with its own error code — worth knowing so the code tells you which mistake you
+made:
+
+- **community** token (the one the community admin page hands you, so the easy wrong turn)
+  → `wall.post` error 214 and `photos.getWallUploadServer` error 27, both "method is
+  unavailable with group auth".
+- **VK ID** token (string starts with `vk2.a.`, issued by the `id.vk.ru` OAuth 2.1 / PKCE
+  flow — i.e. "Log in with VK") → error 1051 "method is unavailable with current profile
+  type". It authenticates a person; it does not call VK API methods at all.
+
+Getting a classic token is the awkward part in 2025+: VK ID no longer mints API-capable
+tokens for freshly created apps, and the old `oauth.vk.ru` endpoint rejects apps created on
+`id.vk.ru`. The route that still works is the legacy implicit flow through a grandfathered
+app_id — Kate Mobile (`2685278`) — authorized in a browser by the group admin. It returns a
+non-expiring `vk1.` token that `wall.post` and `photos.*` accept:
+
+    https://oauth.vk.ru/authorize?client_id=2685278&scope=wall,groups,photos,offline&response_type=token&display=page&redirect_uri=https://oauth.vk.ru/blank.html&v=5.199
+
+The token lands in the address bar after the redirect to `blank.html`. Put it in
+`VK_ACCESS_TOKEN` (with `VK_GROUP_ID`, the positive numeric id). It is broad-scoped and
+long-lived — treat it like a password, keep it only in the env file.
+
+If a user token is ever unavailable, switch VK to a link-card post (attach the wildcar.ru
+article URL, which works with a community token) or blank `VK_ACCESS_TOKEN` to disable VK.
+A failing VK does not hold up Telegram or the site — it is retried `PUB_MAX_ATTEMPTS` times
+and given up on.
 
 ## Operational commands
 

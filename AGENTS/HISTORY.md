@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-24 · Publisher on api.vk.ru; document the VK token maze
+- What: `vk_call` and the returned wall URL now use `api.vk.ru` (not `api.vk.com`), ahead of VK's endpoint migration. `docs/services.md` «VK: the token type matters» now covers all three failure modes (community → 214/27; VK ID `vk2.a` → 1051, auth-only) and the working recipe: a classic `vk1.` user token via the grandfathered Kate Mobile app_id (`2685278`), non-expiring.
+- Why: VK went live on prod with a real user admin token (post wall-233237778_2); the `vk2.a`/1051 trap was undocumented and cost hours, and api.vk.com is being phased out.
+- Files: publisher.py, docs/services.md, AGENTS/{STATE,MEMORY}.md
+- Next: owner redeploys (`install.sh`) so prod calls api.vk.ru.
+
 ## 2026-07-24 · Document the preparer & publisher services
 - What: New `docs/services.md` — operational reference for both services (systemd units + timers, env config incl. PREP_BATCH / PUB_BATCH / PUB_MIN_INTERVAL_MINUTES / PUB_MAX_ATTEMPTS, own-DB tables, media layout, ops commands, the VK error-27 gotcha, throttle + best-effort give-up notes). Registered in the AGENTS.md document map; `AGENTS/ENV.md` points to it.
 - Why: Owner asked to save service info in the repo docs.
