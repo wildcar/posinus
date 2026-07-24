@@ -3,6 +3,9 @@
 Host facts, tools, credentials, and command cheat-sheet for this project.
 Update whenever a new tool, credential, or host-specific quirk is learned.
 
+> Running services (preparer, publisher): their units, timers, config env vars,
+> storage tables, ops commands and gotchas live in `docs/services.md`.
+
 ## Host
 
 - **Dev**: Linux (kernel 6.8) / bash / user `keeper` / repo at `/home/keeper/repo/positive-news-evaluator`

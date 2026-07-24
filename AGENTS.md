@@ -25,6 +25,7 @@ positive-news-evaluator — AI agent that scores news collected by Positive News
 | `AGENTS/ENV.md` | Host, tools, credentials, command cheat-sheet. Read on demand. |
 | `README.md` | Public-facing readme: what the project is, how to run it locally. |
 | `docs/` | Domain / reference docs. Read on demand when a task touches that area. |
+| `docs/services.md` | Operational reference for the preparer & publisher services: systemd units/timers, env config, own-DB tables, ops commands, gotchas. |
 | `docs/adr/` | Architecture Decision Records — one file per significant decision (see `docs/adr/TEMPLATE.md`). |
 | `.claude/skills/humanizer-ru/SKILL.md` | Vendored humanizer-ru skill — mandatory for all Russian prose (see Language Rules). |
 
