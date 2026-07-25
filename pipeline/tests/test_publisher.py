@@ -224,6 +224,35 @@ class OwnDbTests(unittest.TestCase):
         self.assertEqual(con.execute("SELECT COUNT(*) FROM publication").fetchone()[0], 0)
         con.close()
 
+    def test_lead_image_follows_a_moved_media_dir(self):
+        """Absolute paths go stale when media moves; the file is found anyway."""
+        media = Path(self.tmp.name) / "media"
+        (media / "42").mkdir(parents=True)
+        (media / "42" / "1.jpg").write_bytes(b"pretend jpeg")
+        con = open_own_db(self.path)
+        con.execute("INSERT INTO prepared_item (news_id, status) VALUES (42, 'prepared')")
+        con.execute(
+            "INSERT INTO illustration (news_id, position, file_path) VALUES (42, 1, ?)",
+            ("/var/lib/news-evaluator/media/42/1.jpg",),
+        )
+        con.commit()
+
+        self.assertIsNone(publisher.lead_image_path(con, 42))
+        self.assertEqual(publisher.lead_image_path(con, 42, str(media)),
+                         str(media / "42" / "1.jpg"))
+        con.close()
+
+    def test_lead_image_none_when_the_file_is_gone_everywhere(self):
+        con = open_own_db(self.path)
+        con.execute("INSERT INTO prepared_item (news_id, status) VALUES (43, 'prepared')")
+        con.execute(
+            "INSERT INTO illustration (news_id, position, file_path) VALUES (43, 1, ?)",
+            ("/gone/43/1.jpg",),
+        )
+        con.commit()
+        self.assertIsNone(publisher.lead_image_path(con, 43, str(Path(self.tmp.name) / "media")))
+        con.close()
+
     def test_mark_published(self):
         con = open_own_db(self.path)
         con.execute("INSERT INTO prepared_item (news_id, status) VALUES (9, 'prepared')")

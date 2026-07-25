@@ -50,11 +50,18 @@ a publish-ready retelling, and posts them to the platforms.
 - LIVE on prod since 2026-07-25 19:57 UTC (commit `3f50691`): the pipeline DB reports
   `journal_mode = wal`. The mode flipped on the first open after the update, verified with a
   `publisher.py --dry-run` that sent nothing.
-- Prod backlog on 2026-07-25: 118 items `prepared` against 11 `published`. At one new post per
-  `PUB_MIN_INTERVAL_MINUTES` (120) that is over a week of queue, and it grows faster than it
-  drains. Order of exit is preparation time, so a strong item waits behind average ones and
-  anything older than a couple of days goes out stale. This is the queue screen argued for in
-  `../docs/ui-concept.md` (3.7), and it is now a live problem, not a hypothetical one.
+- Prod backlog on 2026-07-25: 118 items `prepared` against 11 `published`. Order of exit is
+  preparation time, so a strong item waits behind average ones and anything older than a couple
+  of days goes out stale. This is the queue screen argued for in `../docs/ui-concept.md` (3.7),
+  and it is now a live problem, not a hypothetical one. `PUB_MIN_INTERVAL_MINUTES=60` was added
+  to `/etc/posinus/pipeline.env` on 2026-07-25 (owner's call) to drain it twice as fast; the
+  file had no `PUB_*` key at all before, so everything else still runs on code defaults.
+- Posts went out without pictures because `illustration.file_path` is absolute and the posinus
+  rename left 336 rows (116 news items, 112 of them still queued) pointing at
+  `/var/lib/news-evaluator/media/...`. The files themselves were moved and all 336 are present
+  under `/var/lib/posinus/pipeline/media/`, so nothing was lost. Fixed in code, not in data:
+  the publisher falls back to `MEDIA_DIR/<news_id>/<filename>`. The stale rows can be rewritten
+  later for tidiness; they no longer change behavior.
 - One VK row is a dead tail, not a live failure: news 6775, 24 attempts, error 27 (group auth),
   accumulated before the classic user token was installed. 15 VK posts are `ok`, so the token
   works; the item is past `PUB_MAX_ATTEMPTS` and finalizes best-effort on the next real run.

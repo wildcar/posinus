@@ -42,7 +42,12 @@ that records an already-sent post. That write retries on a lock and, if it still
 drops an `unrecorded-<news_id>-<platform>-<timestamp>.txt` marker next to the DB and
 fails the run: the post is public with no row, and the next run would send it twice.
 
-Images live in `/var/lib/posinus/pipeline/media/<news_id>/`. There are no HTML pages: the
+Images live in `/var/lib/posinus/pipeline/media/<news_id>/`. `illustration.file_path` is
+absolute, so it goes stale when the media directory moves: the posinus rename left 336 rows
+pointing at `/var/lib/news-evaluator/media/...`, and those items published as text with no
+picture. The publisher now falls back to `MEDIA_DIR/<news_id>/<filename>` when the stored path
+is gone and logs the substitution, so a move heals itself; a picture that is missing in both
+places logs a warning and the post goes out without it. There are no HTML pages: the
 retelling is markdown in `prepared_item.retold_body_md`. An older DB auto-migrates on open
 (`migrate_own_db` adds `retold_body_md` and backfills it from the previously stored HTML,
 no model calls, no manual step).
@@ -84,9 +89,12 @@ Pacing and robustness (config):
 
 - `PUB_BATCH` (default 1) — max **new** items started per run. Retries of already-public
   items are not limited by this.
-- `PUB_MIN_INTERVAL_MINUTES` (default 120) — a **new** item is published at most this
-  often, measured from the last successful post to any platform. Finishing an
-  already-public item on its remaining platforms is not throttled (it is the same news).
+- `PUB_MIN_INTERVAL_MINUTES` (default 120, **60 on prod** since 2026-07-25) — a **new** item
+  is published at most this often, measured from the last successful post to any platform.
+  Finishing an already-public item on its remaining platforms is not throttled (it is the
+  same news). Prod runs 60 because the prepared backlog reached 118 items.
+- `MEDIA_DIR` — where the preparer put the images; the publisher uses it to find an
+  illustration whose stored absolute path no longer exists.
 - `PUB_MAX_ATTEMPTS` (default 8) — a failing platform is retried this many times, then
   given up on; the item is finalized «Опубликовано» best-effort with whatever platforms
   succeeded. This is why a broken platform can never block the rest of the queue.

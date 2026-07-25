@@ -99,6 +99,7 @@ class PublishError(RuntimeError):
 @dataclass
 class PublisherConfig:
     own_db: str = "/var/lib/posinus/pipeline/evaluator.sqlite3"
+    media_dir: str = "/var/lib/posinus/pipeline/media"
     user_agent: str = "PositiveNewsEvaluator/0.1 (+mailto:mail@wildcar.ru)"
     # Telegram
     tg_token: str = ""
@@ -122,6 +123,7 @@ class PublisherConfig:
     def from_env(cls, env: dict[str, str] = os.environ) -> "PublisherConfig":
         cfg = cls()
         cfg.own_db = env.get("EVALUATOR_DB_PATH", cfg.own_db)
+        cfg.media_dir = env.get("MEDIA_DIR", cfg.media_dir)
         cfg.user_agent = env.get("PUBLISHER_USER_AGENT", env.get("PREPARER_USER_AGENT", cfg.user_agent))
         cfg.tg_token = env.get("TELEGRAM_BOT_TOKEN", cfg.tg_token)
         cfg.tg_chat = env.get("TELEGRAM_CHAT_ID", cfg.tg_chat)
@@ -619,13 +621,30 @@ def last_success_at(con: sqlite3.Connection) -> str | None:
     return row["t"] if row and row["t"] else None
 
 
-def lead_image_path(con: sqlite3.Connection, news_id: int) -> str | None:
+def lead_image_path(con: sqlite3.Connection, news_id: int, media_dir: str | None = None) -> str | None:
+    """Path of the leading illustration, or None when there is no usable file.
+
+    `illustration.file_path` is absolute, so it goes stale whenever the media
+    directory moves - the posinus rename left 336 rows pointing at
+    `/var/lib/news-evaluator/media/...`, and every one of those items published
+    without a picture. When the stored path is gone, the same file is looked up
+    under the configured media directory before giving up.
+    """
     row = con.execute(
         "SELECT file_path FROM illustration WHERE news_id = ? ORDER BY position ASC LIMIT 1",
         (news_id,),
     ).fetchone()
-    if row and row["file_path"] and Path(row["file_path"]).exists():
-        return row["file_path"]
+    if not row or not row["file_path"]:
+        return None
+    stored = Path(row["file_path"])
+    if stored.exists():
+        return str(stored)
+    if media_dir:
+        moved = Path(media_dir) / str(news_id) / stored.name
+        if moved.exists():
+            log.info("news %s: illustration moved, %s is now %s", news_id, stored, moved)
+            return str(moved)
+    log.warning("news %s: illustration %s is missing, posting without a picture", news_id, stored)
     return None
 
 
@@ -691,13 +710,13 @@ def mark_published(con: sqlite3.Connection, news_id: int) -> None:
         )
 
 
-def build_item(own: sqlite3.Connection, row: sqlite3.Row) -> PreparedNews:
+def build_item(own: sqlite3.Connection, row: sqlite3.Row, media_dir: str | None = None) -> PreparedNews:
     title, paragraphs, source_url, source_name = parse_markdown(row["retold_body_md"] or "")
     return PreparedNews(
         news_id=row["news_id"],
         title=title or (row["retold_title"] or ""),
         paragraphs=paragraphs,
-        lead_image=lead_image_path(own, row["news_id"]),
+        lead_image=lead_image_path(own, row["news_id"], media_dir),
         source_url=source_url,
         source_name=source_name,
     )
@@ -768,7 +787,7 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None) -> in
             if not appeared and only is None and (throttled_new or new_posted >= limit):
                 continue
 
-            item = build_item(own, row)
+            item = build_item(own, row, cfg.media_dir)
             for platform in pending:
                 try:
                     url = ADAPTERS[platform](cfg, item, dry_run)

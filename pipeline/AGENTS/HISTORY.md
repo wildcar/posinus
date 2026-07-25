@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-25 · Publish with the picture again after the media directory moved
+- What: `lead_image_path` falls back to `MEDIA_DIR/<news_id>/<filename>` when the stored absolute path is gone, logs the substitution, and warns when the file is missing everywhere; `PublisherConfig` gained `media_dir` (`MEDIA_DIR`). Two tests (82 total). Prod also got `PUB_MIN_INTERVAL_MINUTES=60` in the env file, owner's call against the 118-item backlog.
+- Why: the posinus rename moved the media tree but left 336 `illustration.file_path` rows on `/var/lib/news-evaluator/media/...`, so 116 news items (112 still queued) published as text with no picture. All 336 files exist at the new path, so this is a stale string, not lost data - and fixing it in code makes the next move heal itself.
+- Files: pipeline/publisher.py, pipeline/tests/test_publisher.py, pipeline/AGENTS/SPEC.md, pipeline/docs/services.md, pipeline/deploy/pipeline.env.example
+- Next: rewrite the 336 stale rows for tidiness; queue ordering (docs/ui-concept.md 3.7).
+
 ## 2026-07-25 · WAL and a retried write, so a reader cannot cause duplicate posts
 - What: `open_own_db` (preparer, publisher) sets `journal_mode = WAL` and `busy_timeout = 30000`; `record_publication` retries a locked write with the same backoff as `evaluator.write_review` and, on final failure of an `ok` send, writes an `unrecorded-<news_id>-<platform>-<ts>.txt` marker and lets the run fail. Three tests added (80 total).
 - Why: the DB was in rollback-journal mode, where an open reader blocks a commit. The publisher sends the post BEFORE recording it, so a lost write means the next run posts again - a duplicate in Telegram, VK and on the site. Dormant today, live the moment the planned operator UI reads this DB.
