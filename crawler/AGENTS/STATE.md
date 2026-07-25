@@ -29,6 +29,8 @@ Operate a single-host multilingual news crawler whose source list improves from 
 - Agent-authored Russian text follows `.claude/skills/humanizer-ru/SKILL.md`; collected article content stays verbatim.
 - Retention: `purge_rejected_content(days=3)` tombstones news with a `not_positive` verdict and no `positive` one (skipped/undecided/never-reviewed/selected are kept), wired into `maintenance`. Committed, not yet deployed. The external evaluator's backfill already ran on prod (latest reviews: 120 positive, 6108 not_positive), so the first prod run will tombstone ~4230 rejected items older than 3 days.
 
+- Prod runs commit `454a811` as of 2026-07-25 22:32 UTC; migrations `0008` and `0009` applied,
+  all pipeline timers and the four mailbox `.path` units active.
 - The dashboard's live half refreshes itself once a minute from `fragment/dashboard/` (401 on an
   expired session, 204 when nothing changed, no polling in a hidden tab).
 - The publication queue goes out by «сила», not by preparation time, since 2026-07-25

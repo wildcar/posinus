@@ -53,7 +53,11 @@ a publish-ready retelling, and posts them to the platforms.
 - `notify.py` since 2026-07-25: hourly alarms (broken platform, a silent day inside an open
   window, an empty queue) and a daily digest at 09:00 Moscow, both through the existing bot.
   Silent until the owner puts their own chat id in `NOTIFY_CHAT_ID` — never the public channel.
-  Needs `install.sh` for the two new timers.
+  LIVE on prod (commit `454a811`, both timers enabled, hourly check runs and logs that no chat id
+  is set). A dry run against prod data immediately earned its keep: the first version called VK
+  broken from the dead 24-attempt row left over from the old token, so alarms now count only
+  failures from the last 24 hours — a false alarm on day one is how a notification channel dies.
+  Owner action left: put a chat id in `/etc/posinus/pipeline.env`.
 - Since 2026-07-25 the publisher takes the queue in the order the crawler computes
   (`exchange_publication_order`: operator rank, then strength, then preparation time), skipping
   held and dropped items. LIVE on prod at commit `db2c1a9`, verified by a run that read the plan
