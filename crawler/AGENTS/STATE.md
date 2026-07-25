@@ -27,7 +27,7 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 ## Next
 
-1. Owner: run `sudo bash /opt/posinus/crawler/deploy/migrate-to-posinus.sh` (after a `--dry-run`) to move prod onto the posinus names. It stops the services, renames the group and users, moves `/opt`, `/etc`, `/var/lib`, `/var/log`, rewrites the env files and installs the new units. Everything below waits on it, because the update script now asserts posinus paths.
+1. Owner: run `sudo bash ~keeper/repo/posinus/crawler/deploy/migrate-to-posinus.sh` (after a `--dry-run`) to move prod onto the posinus names. It stops the services, renames the group and users, moves `/opt`, `/etc`, `/var/lib`, `/var/log`, rewrites the env files and installs the new units. Everything below waits on it, because the update script now asserts posinus paths.
 2. Deploy the rejected-news retention; expect the first maintenance run to tombstone ~4230 items.
 3. Watch live translation errors; malformed model formatting now gets one automatic correction attempt.
 4. Register every local SQLite client service in `/etc/posinus/update-services` and create the UI operator if still pending.

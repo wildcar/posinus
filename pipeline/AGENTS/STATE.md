@@ -37,8 +37,8 @@ a publish-ready retelling, and posts them to the platforms.
 ## Next
 
 1. Owner: run the prod migration, in this order. It replaces the old redeploy step.
-   `sudo bash /opt/posinus/crawler/deploy/migrate-to-posinus.sh` (dry run first, then
-   `--apply`), then `sudo bash /opt/posinus/pipeline/deploy/install.sh` to recreate the three
+   `sudo bash ~keeper/repo/posinus/crawler/deploy/migrate-to-posinus.sh` (dry run first, then
+   `--apply`), then `sudo bash /opt/posinus/pipeline/deploy/install.sh` (that one does live under /opt, after the migration) to recreate the three
    timers under their new names. The migration also lands the code prod is still missing:
    `api.vk.com` → `api.vk.ru`, the 2h pacing, the give-up rule, the markdown retelling.
 2. After the migration, post one item with `--news-id` to confirm the VK photo upload path

@@ -5,6 +5,11 @@
 #   sudo bash migrate-to-posinus.sh              # dry run: prints the plan, changes nothing
 #   sudo bash migrate-to-posinus.sh --apply      # performs the migration
 #
+# Run it from a development checkout, NOT from /opt/posinus: this script is what creates
+# /opt/posinus, by cloning REPO_URL there. It does not read anything from its own directory.
+#
+#   sudo bash ~keeper/repo/posinus/crawler/deploy/migrate-to-posinus.sh --apply
+#
 # It renames the service group and users (the GIDs and UIDs are kept, so file ownership
 # follows automatically), moves /opt, /etc, /var/lib and /var/log into the posinus names,
 # rewrites both env files, and installs the renamed systemd units.
