@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-25 · Publish the strongest item next, not the one prepared first
+- What: `load_plan` reads `exchange_publication_order` from the crawler DB (read-only, 5s timeout) and `order_queue` sorts prepared items by the operator's rank, then strength, then preparation time as a stable tie-break, skipping held and dropped ones. An unreachable crawler DB or a missing view means an empty plan and the previous behaviour, which is the whole point of the fallback. 5 tests added, 109 pass. Crawler side (table, view, screen actions) in the same commit.
+- Why: 124 prepared items were going out in preparation order — the worst available signal, since it records when the machine got round to an item rather than how good it is.
+- Files: pipeline/publisher.py, pipeline/tests/test_publisher.py, pipeline/AGENTS/SPEC.md, ../docs/contracts/database-contract.md
+- Next: Telegram notifications (8.7).
+
 ## 2026-07-25 · One row per run: what the machine did, in the database
 - What: New stdlib-only `runlog.py` — a `service_run` row opened when a run starts and closed when it ends, with counters and the effective configuration (never a secret). All three scripts record through it, including the backfill service; a dry run leaves no row. Recording never breaks a run: every failure there is swallowed and logged, including an unopenable database. `install.sh` also hands group `posinus` read access to the DB, its `-wal`/`-shm` sidecars and the media tree, with setgid and default ACLs so files created later stay readable. 5 tests added, 104 pass. Crawler side (read-only connection, «Машина» block, backup) in the same commit.
 - Why: step 3 of `../docs/ui-concept.md`. «Что делала машина» was answerable only through `journalctl`, which the operator UI cannot read; and the files that matter for access are the ones SQLite creates next week, not the ones present at install time.

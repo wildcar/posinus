@@ -73,8 +73,8 @@ def test_queue_carries_age_strength_and_expected_time(operator, source, make_new
 
     items, config = broadcast.queue()
 
-    assert [item.news_id for item in items] == [plain.pk, strong.pk]  # preparation order, as the publisher does
-    assert items[1].strength > items[0].strength                      # but the strong one is stronger
+    assert [item.news_id for item in items] == [strong.pk, plain.pk]  # by strength, not by preparation time
+    assert items[0].strength > items[1].strength
     assert config["min_interval_minutes"] == 60
     assert items[0].expected_at < items[1].expected_at
     assert (items[1].expected_at - items[0].expected_at) == timedelta(minutes=60)
@@ -226,3 +226,75 @@ def test_feed_mix_counts_source_shares(operator, source, make_news, pipeline):
 
     assert mix["total"] == 3
     assert mix["sources"][0] == {"name": "Alpha", "count": 2, "share": 67}
+
+
+@pytest.mark.django_db
+def test_operator_can_move_an_item_up_past_a_stronger_one(operator, source, make_news, make_review, pipeline):
+    strong = make_news("Strong", source, day=10, seed="o1")
+    make_review(strong, {"positivity": 9, "uniqueness": 9}, key="o1")
+    weak = make_news("Weak but urgent", source, day=10, seed="o2")
+    make_review(weak, {"positivity": 8, "uniqueness": 1}, key="o2")
+    for item in (strong, weak):
+        pipeline(
+            "INSERT INTO prepared_item (news_id, status, retold_title, prepared_at) VALUES (?, 'prepared', 'T', ?)",
+            (item.pk, "2026-07-24T10:00:00+00:00"),
+        )
+
+    assert [i.news_id for i in broadcast.queue()[0]] == [strong.pk, weak.pk]
+
+    operator.post(reverse("queue_action"), {"news_id": weak.pk, "action": "up"})
+
+    assert [i.news_id for i in broadcast.queue()[0]] == [weak.pk, strong.pk]
+    from collector.models import OperatorEvent
+
+    assert OperatorEvent.objects.filter(event_type="queue_changed").exists()
+
+
+@pytest.mark.django_db
+def test_held_and_dropped_items_leave_the_queue_and_can_come_back(operator, source, make_news, pipeline):
+    item = make_news("Postponed", source, day=10, seed="h1")
+    pipeline(
+        "INSERT INTO prepared_item (news_id, status, retold_title, prepared_at) VALUES (?, 'prepared', 'T', ?)",
+        (item.pk, "2026-07-24T10:00:00+00:00"),
+    )
+
+    operator.post(reverse("queue_action"), {"news_id": item.pk, "action": "hold"})
+    assert broadcast.queue()[0] == []
+    assert "отложена до" in broadcast.held_items()[0]["state"]
+
+    operator.post(reverse("queue_action"), {"news_id": item.pk, "action": "drop"})
+    assert "снята с очереди" in broadcast.held_items()[0]["state"]
+
+    operator.post(reverse("queue_action"), {"news_id": item.pk, "action": "restore"})
+    assert [i.news_id for i in broadcast.queue()[0]] == [item.pk]
+    assert broadcast.held_items() == []
+
+
+@pytest.mark.django_db
+def test_the_view_gives_the_publisher_the_same_order(operator, source, make_news, make_review, pipeline):
+    """The publisher reads exchange_publication_order; it must agree with the screen."""
+    from django.db import connection
+
+    strong = make_news("Strong", source, day=10, seed="v1")
+    make_review(strong, {"positivity": 9, "uniqueness": 9, "interestingness": 8}, key="v1")
+    weak = make_news("Weak", source, day=10, seed="v2")
+    make_review(weak, {"positivity": 8, "uniqueness": 1, "interestingness": 2}, key="v2")
+    operator.post(reverse("queue_action"), {"news_id": weak.pk, "action": "up"})
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT news_id, strength, operator_rank FROM exchange_publication_order ORDER BY operator_rank, strength DESC"
+        )
+        rows = cursor.fetchall()
+
+    assert [row[0] for row in rows] == [weak.pk, strong.pk]
+    assert rows[1][1] > rows[0][1]   # the strong one really is stronger
+    assert rows[0][2] == -1          # and it is the operator's hand that moved it
+
+
+@pytest.mark.django_db
+def test_queue_action_rejects_nonsense(operator):
+    response = operator.post(reverse("queue_action"), {"news_id": "abc", "action": "explode"}, follow=True)
+
+    assert response.status_code == 200
+    assert "Непонятное действие" in response.content.decode()

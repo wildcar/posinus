@@ -284,6 +284,32 @@ class SelectionBound(models.Model):
         return f"{self.profile_id}:{self.characteristic_id} {self.kind} {self.value}"
 
 
+class PublicationPlan(models.Model):
+    """The operator's edits to the order news items go out in.
+
+    The queue itself lives in the pipeline's database; this table holds only what
+    a human decided about it — moved up, held until tomorrow, taken off. The
+    pipeline reads both together through `exchange_publication_order`, which also
+    carries the automatic order («сила» of the news). A row exists only for an
+    item the operator actually touched.
+    """
+
+    news_item = models.OneToOneField(
+        NewsItem, on_delete=models.CASCADE, related_name="publication_plan", db_column="news_id"
+    )
+    rank = models.IntegerField(
+        default=0, help_text="Ниже — раньше. 0 значит «как решит порядок по силе»."
+    )
+    hold_until = models.DateTimeField(null=True, blank=True)
+    dropped_at = models.DateTimeField(null=True, blank=True)
+    note = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "exchange_publication_plan"
+        ordering = ["rank", "news_item_id"]
+
+
 class EvaluationScore(models.Model):
     review_event = models.ForeignKey(ReviewEvent, on_delete=models.PROTECT, related_name="evaluation_scores")
     characteristic = models.ForeignKey(

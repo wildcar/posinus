@@ -84,6 +84,14 @@ WHERE status = 'prepared'
 ORDER BY prepared_at ASC, news_id ASC
 """
 
+# The order to take them in, from the crawler DB: «сила» of each news item plus
+# whatever the operator changed by hand. Preparation time is the fallback and the
+# worst signal there is — it says when the machine got round to the item.
+PLAN_SQL = """
+SELECT news_id, strength, operator_rank, hold_until, dropped_at
+FROM exchange_publication_order
+"""
+
 PUBLICATION_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS publication (
     news_id INTEGER NOT NULL REFERENCES prepared_item(news_id) ON DELETE CASCADE,
@@ -136,6 +144,8 @@ class PublisherConfig:
     # Request mailbox: the web UI drops files here, systemd .path units pick
     # them up. Also holds the `pause` file, see read_pause.
     requests_dir: str = "/var/lib/posinus/pipeline/requests"
+    # The crawler DB, read-only: it carries the publication order (see PLAN_SQL).
+    news_db: str = "/var/lib/posinus/posinus.sqlite3"
 
     @classmethod
     def from_env(cls, env: dict[str, str] = os.environ) -> "PublisherConfig":
@@ -159,6 +169,7 @@ class PublisherConfig:
         cfg.window_end = env.get("PUB_WINDOW_END", cfg.window_end).strip()
         cfg.window_tz = env.get("PUB_WINDOW_TZ", cfg.window_tz).strip() or "UTC"
         cfg.requests_dir = env.get("REQUESTS_DIR", cfg.requests_dir)
+        cfg.news_db = env.get("NEWS_DB_PATH", cfg.news_db)
         return cfg
 
     def enabled_platforms(self) -> list[str]:
@@ -724,6 +735,68 @@ def open_own_db(path: str) -> sqlite3.Connection:
     return con
 
 
+@dataclass
+class PlanRow:
+    """What the crawler says about one news item's place in the queue."""
+    strength: float = 0.0
+    operator_rank: int = 0
+    hold_until: str | None = None
+    dropped_at: str | None = None
+
+
+def load_plan(news_db: str) -> dict[int, PlanRow]:
+    """Read the publication order from the crawler DB; empty on any problem.
+
+    An empty plan is not a failure: the publisher then falls back to preparation
+    order, exactly as it behaved before this existed. Read-only, short timeout —
+    this must never delay a post, let alone block the crawler.
+    """
+    try:
+        con = sqlite3.connect(f"file:{news_db}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error as exc:
+        log.warning("cannot open the crawler DB for the queue order: %s", exc)
+        return {}
+    try:
+        con.row_factory = sqlite3.Row
+        con.execute("PRAGMA query_only = ON")
+        return {
+            row["news_id"]: PlanRow(
+                strength=float(row["strength"] or 0),
+                operator_rank=int(row["operator_rank"] or 0),
+                hold_until=row["hold_until"],
+                dropped_at=row["dropped_at"],
+            )
+            for row in con.execute(PLAN_SQL)
+        }
+    except sqlite3.Error as exc:
+        # An older crawler has no such view; order by preparation time as before.
+        log.warning("no publication order available (%s); falling back to preparation order", exc)
+        return {}
+    finally:
+        con.close()
+
+
+def order_queue(rows: list[sqlite3.Row], plan: dict[int, PlanRow], now: datetime) -> list[sqlite3.Row]:
+    """Strongest first, operator's hand first of all, held and dropped items out.
+
+    Sort key: the operator's rank (negative goes up, positive goes down, 0 means
+    «decide by strength»), then strength descending, then preparation order as the
+    final tie-break so the result is stable.
+    """
+    ordered = []
+    for position, row in enumerate(rows):
+        entry = plan.get(row["news_id"], PlanRow())
+        if entry.dropped_at:
+            continue
+        if entry.hold_until:
+            held_until = _parse_moment(entry.hold_until)
+            if held_until and held_until > now:
+                continue
+        ordered.append(((entry.operator_rank, -entry.strength, position), row))
+    ordered.sort(key=lambda pair: pair[0])
+    return [row for _, row in ordered]
+
+
 def publication_status(con: sqlite3.Connection, news_id: int) -> dict[str, str]:
     return {row["platform"]: row["status"]
             for row in con.execute("SELECT platform, status FROM publication WHERE news_id = ?", (news_id,))}
@@ -886,7 +959,7 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None,
 
     own = open_own_db(cfg.own_db)
     try:
-        prepared = own.execute(PREPARED_SQL).fetchall()
+        prepared = order_queue(own.execute(PREPARED_SQL).fetchall(), load_plan(cfg.news_db), now)
         last_ok = last_success_at(own)
         throttled_new = False
         if last_ok:

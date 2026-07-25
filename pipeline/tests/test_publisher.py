@@ -538,5 +538,61 @@ class PauseAndWindowTests(unittest.TestCase):
         self.assertEqual(off_state, (True, None))
 
 
+class QueueOrderTests(unittest.TestCase):
+    """Strongest first, the operator's hand above that, held items not at all."""
+
+    class Row(dict):
+        def __getitem__(self, key):
+            return dict.__getitem__(self, key)
+
+    def _rows(self, *news_ids):
+        return [self.Row(news_id=news_id) for news_id in news_ids]
+
+    def setUp(self):
+        self.now = datetime(2026, 7, 25, 12, 0, tzinfo=timezone.utc)
+
+    def test_strength_beats_preparation_order(self):
+        plan = {
+            1: publisher.PlanRow(strength=3.0),
+            2: publisher.PlanRow(strength=8.5),
+            3: publisher.PlanRow(strength=6.0),
+        }
+
+        ordered = publisher.order_queue(self._rows(1, 2, 3), plan, self.now)
+
+        self.assertEqual([row["news_id"] for row in ordered], [2, 3, 1])
+
+    def test_operator_rank_wins_over_strength(self):
+        plan = {
+            1: publisher.PlanRow(strength=3.0, operator_rank=-1),   # moved up
+            2: publisher.PlanRow(strength=8.5),
+            3: publisher.PlanRow(strength=6.0, operator_rank=1),    # moved down
+        }
+
+        ordered = publisher.order_queue(self._rows(1, 2, 3), plan, self.now)
+
+        self.assertEqual([row["news_id"] for row in ordered], [1, 2, 3])
+
+    def test_held_and_dropped_items_leave_the_queue(self):
+        plan = {
+            1: publisher.PlanRow(strength=9.0, hold_until="2026-07-25T18:00:00+00:00"),
+            2: publisher.PlanRow(strength=8.0, dropped_at="2026-07-25T09:00:00+00:00"),
+            3: publisher.PlanRow(strength=1.0, hold_until="2026-07-25T09:00:00+00:00"),  # hold expired
+        }
+
+        ordered = publisher.order_queue(self._rows(1, 2, 3), plan, self.now)
+
+        self.assertEqual([row["news_id"] for row in ordered], [3])
+
+    def test_no_plan_keeps_preparation_order(self):
+        """An older crawler, or a DB the publisher cannot read: behave as before."""
+        ordered = publisher.order_queue(self._rows(5, 6, 7), {}, self.now)
+
+        self.assertEqual([row["news_id"] for row in ordered], [5, 6, 7])
+
+    def test_missing_crawler_db_is_not_fatal(self):
+        self.assertEqual(publisher.load_plan("/nonexistent/posinus.sqlite3"), {})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7,7 +7,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Count, Exists, Min, OuterRef
+from django.db.models import Count, Exists, Max, Min, OuterRef
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -21,6 +21,7 @@ from .models import (
     LatestReview,
     NewsItem,
     OperatorEvent,
+    PublicationPlan,
     ReviewEvent,
     SelectionBound,
     Source,
@@ -514,6 +515,57 @@ def broadcast(request):
         "collector/broadcast.html",
         {"tab": tab, "pipeline_error": error, "pause": pause, "mailbox_error": mailbox_error, **state},
     )
+
+
+QUEUE_ACTIONS = {
+    "up": "поднята выше",
+    "down": "опущена ниже",
+    "hold": "отложена на сутки",
+    "drop": "снята с очереди",
+    "restore": "возвращена в очередь",
+}
+
+
+@login_required
+@require_POST
+def queue_action(request):
+    """Move one news item in the publication queue, or take it out of it.
+
+    The plan lives in the crawler's own database and the publisher reads it
+    through `exchange_publication_order`; nothing here touches the pipeline's
+    data. «Выше» and «ниже» are relative on purpose — the operator moves one
+    story past the others, not renumbers a list.
+    """
+    action = request.POST.get("action", "")
+    news_id = request.POST.get("news_id", "")
+    if action not in QUEUE_ACTIONS or not news_id.isdigit():
+        messages.error(request, "Непонятное действие с очередью.")
+        return redirect("broadcast")
+
+    item = get_object_or_404(NewsItem, pk=int(news_id))
+    plan, _ = PublicationPlan.objects.get_or_create(news_item=item)
+    now = timezone.now()
+    if action == "up":
+        top = PublicationPlan.objects.aggregate(low=Min("rank"))["low"] or 0
+        plan.rank = min(top, 0) - 1
+    elif action == "down":
+        bottom = PublicationPlan.objects.aggregate(high=Max("rank"))["high"] or 0
+        plan.rank = max(bottom, 0) + 1
+    elif action == "hold":
+        plan.hold_until = now + timezone.timedelta(days=1)
+    elif action == "drop":
+        plan.dropped_at = now
+    else:
+        plan.rank, plan.hold_until, plan.dropped_at = 0, None, None
+    plan.save()
+
+    OperatorEvent.objects.create(
+        event_type="queue_changed",
+        message=f"Новость {item.pk} {QUEUE_ACTIONS[action]}",
+        details={"news_id": item.pk, "action": action, "rank": plan.rank},
+    )
+    messages.success(request, f"Новость {QUEUE_ACTIONS[action]}. Публикатор увидит это в ближайший прогон.")
+    return redirect("broadcast")
 
 
 @login_required

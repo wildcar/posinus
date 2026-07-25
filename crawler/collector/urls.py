@@ -15,6 +15,7 @@ urlpatterns = [
     path("news/<int:pk>/translate/", views.news_translate, name="news_translate"),
     path("news/<int:pk>/select/", views.news_select, name="news_select"),
     path("broadcast/", views.broadcast, name="broadcast"),
+    path("broadcast/queue/", views.queue_action, name="queue_action"),
     path("selection/", views.selection, name="selection"),
     path("selection/apply/", views.selection_apply, name="selection_apply"),
     path("selection/rescore/", views.selection_rescore, name="selection_rescore"),

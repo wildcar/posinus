@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 from django.conf import settings
 
-from collector.models import LatestEvaluationScore, NewsItem
+from collector.models import LatestEvaluationScore, NewsItem, PublicationPlan
 from collector.services.pipeline_db import PipelineUnavailable, fetch_all
 
 PLATFORM_TITLES = {"telegram": "Telegram", "site": "wildcar.ru", "vk": "ВКонтакте"}
@@ -81,6 +81,13 @@ class QueueItem:
     strength: float
     images: int
     expected_at: datetime | None = None
+    rank: int = 0
+    hold_until: datetime | None = None
+    note: str = ""
+
+    @property
+    def moved(self) -> bool:
+        return self.rank != 0 or self.hold_until is not None
 
 
 @dataclass
@@ -221,9 +228,14 @@ def queue() -> tuple[list[QueueItem], dict]:
     news = _news_for(news_ids)
     now = datetime.now(timezone.utc)
 
+    plans = {plan.news_item_id: plan for plan in PublicationPlan.objects.filter(news_item_id__in=news_ids)}
+
     items = []
     for row in rows:
         item = news.get(row["news_id"])
+        plan = plans.get(row["news_id"])
+        if plan is not None and plan.dropped_at:
+            continue
         published = item.published_at or item.first_seen_at if item else None
         items.append(
             QueueItem(
@@ -233,8 +245,18 @@ def queue() -> tuple[list[QueueItem], dict]:
                 age_days=(now - published).days if published else None,
                 strength=strength(scores.get(row["news_id"], {})),
                 images=row["images"],
+                rank=plan.rank if plan else 0,
+                hold_until=plan.hold_until if plan else None,
+                note=plan.note if plan else "",
             )
         )
+
+    # The same order the publisher will take: the operator's hand first, then
+    # strength, then preparation time as a stable tie-break. One rule, two
+    # readers — the view `exchange_publication_order` is what the publisher reads.
+    now_local = now
+    items = [item for item in items if not (item.hold_until and item.hold_until > now_local)]
+    items.sort(key=lambda item: (item.rank, -item.strength, item.prepared_at or now_local))
 
     config = publisher_settings()
     last_ok = None
@@ -314,6 +336,24 @@ def failed_preparations() -> list[dict]:
     ]
 
 
+def held_items() -> list[dict]:
+    """What the operator took out of the queue, and how to put it back."""
+    now = datetime.now(timezone.utc)
+    rows = []
+    plans = PublicationPlan.objects.select_related("news_item").exclude(
+        hold_until__isnull=True, dropped_at__isnull=True
+    )
+    for plan in plans:
+        if plan.dropped_at:
+            state = f"снята с очереди {plan.dropped_at:%d.%m %H:%M}"
+        elif plan.hold_until and plan.hold_until > now:
+            state = f"отложена до {plan.hold_until:%d.%m %H:%M}"
+        else:
+            continue
+        rows.append({"news_id": plan.news_item_id, "title": plan.news_item.title, "state": state})
+    return rows
+
+
 def broadcast_state() -> tuple[dict, str]:
     """Everything the «Эфир» screen shows, or the reason it shows nothing."""
     try:
@@ -324,6 +364,7 @@ def broadcast_state() -> tuple[dict, str]:
             "published": published(),
             "platforms": platforms(),
             "failed": failed_preparations(),
+            "held": held_items(),
         }, ""
     except PipelineUnavailable as exc:
         return {}, str(exc)

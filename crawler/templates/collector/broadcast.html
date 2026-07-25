@@ -11,6 +11,9 @@
 .post{display:flex;gap:.8rem;align-items:baseline;padding:.5rem 0;border-bottom:1px solid #e5eaee}
 .post .when{color:#61717d;font-size:.9rem;min-width:4rem}
 .post .links a{margin-right:.6rem;font-size:.9rem}
+.row-actions form{display:flex;gap:.25rem}
+.row-actions button{padding:.25rem .5rem;font-size:.8rem;background:#e5edf2;color:#17324d}
+.held td{color:#61717d}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem}
 </style>
 {% endblock %}
@@ -34,22 +37,52 @@
 {% elif tab == "queue" %}
 <div class="card">
   <p>В очереди {{ queue|length }}{% if config.window %}, окно выхода {{ config.window }}{% endif %}{% if config.min_interval_minutes %}, не чаще одного поста в {{ config.min_interval_minutes }} минут{% endif %}.</p>
-  <p class="muted">Порядок пока задаёт время подготовки: так работает публикатор. Колонка «сила» показывает, каким порядок стал бы по оценкам новости.</p>
+  <p class="muted">Порядок задаёт сила новости: половина её - лучшая сильная сторона, остальное позитивность и интересность. Ваши правки идут поверх и всегда главнее.</p>
 </div>
 <table>
-  <tr><th>Выйдет</th><th>Заголовок</th><th class="num">Возраст</th><th class="num">Сила</th><th class="num">Картинок</th></tr>
+  <tr><th>Выйдет</th><th>Заголовок</th><th class="num">Возраст</th><th class="num">Сила</th><th class="num">Картинок</th><th>Действия</th></tr>
   {% for item in queue %}
   <tr>
     <td class="num">{{ item.expected_at|date:"d.m H:i"|default:"—" }}</td>
-    <td><a href="{% url 'news_detail' item.news_id %}">{{ item.title }}</a></td>
+    <td>
+      <a href="{% url 'news_detail' item.news_id %}">{{ item.title }}</a>
+      {% if item.moved %}<span class="pill">передвинута вручную</span>{% endif %}
+    </td>
     <td class="num">{% if item.age_days is not None %}{{ item.age_days }} дн.{% else %}—{% endif %}</td>
     <td class="num queue-strength">{{ item.strength }}</td>
     <td class="num">{{ item.images }}</td>
+    <td class="row-actions">
+      <form method="post" action="{% url 'queue_action' %}">{% csrf_token %}
+        <input type="hidden" name="news_id" value="{{ item.news_id }}">
+        <button name="action" value="up" title="Поднять выше">выше</button>
+        <button name="action" value="down" title="Опустить ниже">ниже</button>
+        <button name="action" value="hold" title="Отложить на сутки">отложить</button>
+        <button name="action" value="drop" title="Снять с очереди">снять</button>
+      </form>
+    </td>
   </tr>
   {% empty %}
-  <tr><td colspan="5" class="muted">Очередь пуста.</td></tr>
+  <tr><td colspan="6" class="muted">Очередь пуста.</td></tr>
   {% endfor %}
 </table>
+{% if held %}
+<h2>Отложенные и снятые</h2>
+<table>
+  <tr><th>Новость</th><th>Что с ней</th><th>Действие</th></tr>
+  {% for row in held %}
+  <tr class="held">
+    <td><a href="{% url 'news_detail' row.news_id %}">{{ row.title }}</a></td>
+    <td>{{ row.state }}</td>
+    <td>
+      <form method="post" action="{% url 'queue_action' %}">{% csrf_token %}
+        <input type="hidden" name="news_id" value="{{ row.news_id }}">
+        <button name="action" value="restore">вернуть в очередь</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
 {% if failed %}
 <h2>Не удалось подготовить</h2>
 <p class="muted">Эти новости вернутся в очередь сами: подготовка повторится в следующий прогон.</p>

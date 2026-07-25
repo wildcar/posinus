@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-25 · The queue goes out by strength, and the operator can move it
+- What: New `exchange_publication_plan` table (operator's edits) plus the `exchange_publication_order` view (migration `0009`), which computes «сила» in SQL — half the best strong side, then positivity and interestingness — and joins the plan onto it. «Эфир» gained per-row actions (выше, ниже, отложить на сутки, снять) and a list of held or dropped items with «вернуть в очередь»; every change is an operator event. The publisher reads the same view. 4 tests added, 101 pass. Pipeline side in the same commit.
+- Why: step 4 / 3.7 of `../docs/ui-concept.md`, and a live problem — 124 prepared items going out in preparation order, so a strong evening story waited behind three average ones and left days later as stale news.
+- Files: crawler/collector/{models,views,urls}.py, crawler/collector/migrations/0009_publication_plan.py, crawler/collector/services/broadcast.py, crawler/templates/collector/broadcast.html, crawler/tests/test_broadcast.py, crawler/AGENTS/SPEC.md, ../docs/contracts/database-contract.md
+- Next: Telegram notifications and the minute refresh, then step 5 (the flow and the card).
+
 ## 2026-07-25 · «Эфир» and a dashboard that answers questions
 - What: New «Эфир» screen (`broadcast.py` + three tabs): the queue in the order the publisher will really take it, with the expected time of exit derived from the interval and window the publisher recorded on its last run, the age of each item and its «сила» from the scores; the published feed with a live link per platform; a card per platform with successes, failures and the last error. The dashboard gained «Сейчас» (today's numbers, each a link, each with «обычно» from the last two weeks), «Требует внимания» (broken platform, looping preparation, paused source — «Всё в порядке» when empty) and «Состав ленты за 30 дней» by source. 11 tests added, 97 pass.
 - Why: step 4 of `../docs/ui-concept.md`. «Что вышло вчера» took three clicks and no answer, and the 124-item queue was invisible from the UI entirely. Reading the publisher's own recorded config instead of keeping a second copy of the interval means the times on screen cannot drift from the ones it uses.
