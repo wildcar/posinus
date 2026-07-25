@@ -30,6 +30,10 @@ to time: merge duplicates, drop stale entries.
   commit in `crawler/AGENTS/STATE.md`. Prod is the same machine as dev, so nothing is remote
   about it. The one thing that stays the owner's is creating system principals and running
   `pipeline/deploy/install.sh`.
+- Give the owner a complete runnable command, never prose like «перезапустите posinus-web»
+  (owner, 2026-07-25). Why: a half-instruction makes them reconstruct the exact invocation.
+  Better still, run it: the only host actions reserved for the owner are creating system
+  principals and granting them access to prod data (`useradd`, `usermod -aG posinus`).
 - User-facing conversation and the operator UI are Russian; code and new technical
   documentation are English, to keep maintenance consistent.
 - Prefer simple single-host operation over speculative scaling. Additional infrastructure
