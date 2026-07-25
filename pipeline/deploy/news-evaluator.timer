@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the news evaluator every 10 minutes
+
+[Timer]
+OnBootSec=3min
+# Counted from the last service start; a long batch simply delays the next one.
+OnUnitActiveSec=10min
+RandomizedDelaySec=1min
+
+[Install]
+WantedBy=timers.target

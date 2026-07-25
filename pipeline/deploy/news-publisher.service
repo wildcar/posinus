@@ -1,0 +1,20 @@
+[Unit]
+Description=Positive News Publisher (one batch)
+# Needs the network for the platform APIs; reads the crawler DB for source URLs.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=newsevaluator
+Group=newsevaluator
+SupplementaryGroups=newscrawler
+# Group access to the crawler DB sidecar files (-wal/-shm) per the contract.
+UMask=0007
+# Small batch on purpose: prepared news trickle into the public channel/site
+# instead of flooding it. Raise in /etc if you want the backlog to drain faster.
+Environment=PUB_BATCH=1
+EnvironmentFile=/etc/news-evaluator/news-evaluator.env
+ExecStart=/usr/bin/python3 /opt/news-evaluator/publisher.py --limit ${PUB_BATCH}
+NoNewPrivileges=true
+# No PrivateTmp: reads media from /var/lib/news-evaluator, owned by this user.

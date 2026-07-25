@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the news preparer every 15 minutes
+
+[Timer]
+OnBootSec=8min
+# Counted from the last service start; a long batch simply delays the next one.
+OnUnitActiveSec=15min
+RandomizedDelaySec=1min
+
+[Install]
+WantedBy=timers.target

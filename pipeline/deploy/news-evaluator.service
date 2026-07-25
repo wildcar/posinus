@@ -1,0 +1,19 @@
+[Unit]
+Description=Positive News Evaluator (one batch)
+# The router serves the model; the crawler DB must exist before we touch it.
+After=network-online.target model-router-mcp.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=newsevaluator
+Group=newsevaluator
+SupplementaryGroups=newscrawler
+# Group access to the crawler DB sidecar files (-wal/-shm) per the contract.
+UMask=0007
+# Defaults; /etc file overrides them.
+Environment=EVALUATOR_BATCH=25
+EnvironmentFile=/etc/news-evaluator/news-evaluator.env
+ExecStart=/usr/bin/python3 /opt/news-evaluator/evaluator.py --limit ${EVALUATOR_BATCH}
+NoNewPrivileges=true
+PrivateTmp=true

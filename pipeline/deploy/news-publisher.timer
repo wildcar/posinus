@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the news publisher every 30 minutes
+
+[Timer]
+OnBootSec=12min
+# Counted from the last service start; a slow batch simply delays the next one.
+OnUnitActiveSec=30min
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target
