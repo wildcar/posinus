@@ -15,7 +15,7 @@ def test_detail_shows_score_heat_cells(operator, source, make_news, make_review)
     make_review(item, {"positivity": 8, "negativity": 1, "cuteness": 0}, key="d1-e1")
     html = operator.get(reverse("news_detail", args=[item.pk])).content.decode()
     assert "Баллы по характеристикам" in html
-    assert "Отборщик: evaluator" in html
+    assert "Отборщик: news-evaluator" in html
     assert 'class="heat heat-8"' in html
     assert "Позитивность" in html and "Милота" in html
     # Category headings from the seeded characteristic set

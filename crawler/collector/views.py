@@ -1,5 +1,6 @@
 import logging
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Exists, Min, OuterRef
@@ -13,6 +14,7 @@ from .models import (
     CrawlRun,
     EvaluationCharacteristic,
     LatestEvaluationScore,
+    LatestReview,
     NewsItem,
     OperatorEvent,
     ReviewEvent,
@@ -116,11 +118,16 @@ def news_list(request):
         primary_source=Min("occurrences__source__name"),
     )
 
+    # Decisions are matched against the latest event of each news/selector pair.
+    # The raw event table would also match superseded verdicts: the contract
+    # corrects a decision by appending an event, so one news item can carry
+    # 'skipped' and 'not_positive' in its history and would show up under both.
     decision = request.GET.get("decision", "")
     if decision == "unreviewed":
         items = items.filter(review_events__isnull=True)
     elif decision:
-        items = items.filter(review_events__decision=decision)
+        latest = LatestReview.objects.filter(news_id=OuterRef("pk"), decision=decision)
+        items = items.filter(Exists(latest))
 
     raw_source = request.GET.get("source", "")
     selected_source = int(raw_source) if raw_source.isdigit() else None
@@ -130,6 +137,10 @@ def news_list(request):
     # Every characteristic renders as a dual-threshold slider; only ranges
     # narrower than 0..10 filter. A narrowed range requires a matching row in
     # the latest evaluation of the news item, so unevaluated news drops out.
+    # Only the configured evaluator's scores count: the operator's manual review
+    # snapshots those same scores under its own selector name, and matching both
+    # copies would make one evaluation look like two.
+    score_selector = settings.POSINUS_MANUAL_SCORE_SELECTOR
     score_groups: dict[str, list[dict]] = {}
     for characteristic in EvaluationCharacteristic.objects.all():
         low = _score_bound(request.GET.get(f"{characteristic.key}_min"), SCORE_MIN)
@@ -140,6 +151,7 @@ def news_list(request):
         if active:
             latest_scores = LatestEvaluationScore.objects.filter(
                 news_id=OuterRef("pk"),
+                selector_name=score_selector,
                 characteristic_key=characteristic.key,
                 value__gte=low,
                 value__lte=high,

@@ -39,7 +39,7 @@ def make_news(db):
 
 @pytest.fixture
 def make_review(db):
-    def factory(item, scores, key, decision="positive", selector="evaluator"):
+    def factory(item, scores, key, decision="positive", selector="news-evaluator"):
         event = ReviewEvent.objects.create(
             news_item=item, decision=decision, selector_name=selector, idempotency_key=key
         )

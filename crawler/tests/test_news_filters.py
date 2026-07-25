@@ -92,6 +92,42 @@ def test_score_filter_uses_latest_event(operator, corpus, make_review):
 
 
 @pytest.mark.django_db
+def test_decision_filter_uses_latest_event(operator, corpus, make_review):
+    """A corrected verdict must not leave the news item under its old decision."""
+    make_review(corpus["old_alpha"], {"positivity": 2}, key="e4", decision="not_positive")
+    assert _ids(operator.get(reverse("news_list"), {"decision": "positive"})) == [
+        corpus["new_beta"].pk
+    ]
+    assert _ids(operator.get(reverse("news_list"), {"decision": "not_positive"})) == [
+        corpus["old_alpha"].pk
+    ]
+
+
+@pytest.mark.django_db
+def test_decision_filter_lists_a_news_item_once(operator, corpus, make_review):
+    """Two events of the same verdict must not duplicate the row."""
+    make_review(corpus["old_alpha"], {"positivity": 2}, key="e5", decision="not_positive")
+    make_review(corpus["old_alpha"], {"positivity": 2}, key="e6", decision="not_positive",
+                selector="second-evaluator")
+    assert _ids(operator.get(reverse("news_list"), {"decision": "not_positive"})) == [
+        corpus["old_alpha"].pk
+    ]
+
+
+@pytest.mark.django_db
+def test_score_filter_ignores_the_operator_snapshot(operator, corpus, make_review):
+    """The manual review copies the evaluator's scores; they must count once.
+
+    An operator snapshot carrying a different value must not make the news item
+    match a range its actual evaluation misses.
+    """
+    make_review(corpus["new_beta"], {"positivity": 9}, key="e7", selector="operator:operator")
+    assert _ids(operator.get(reverse("news_list"), {"positivity_min": "8"})) == [
+        corpus["old_alpha"].pk
+    ]
+
+
+@pytest.mark.django_db
 def test_invalid_parameters_fall_back_to_defaults(operator, corpus):
     response = operator.get(
         reverse("news_list"),

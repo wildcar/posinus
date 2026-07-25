@@ -177,6 +177,30 @@ class ReviewEvent(models.Model):
         indexes = [models.Index(fields=["news_item", "selector_name", "-created_at"], name="idx_review_latest")]
 
 
+class LatestReview(models.Model):
+    """Read-only mapping of the exchange_latest_reviews SQL view.
+
+    One row per news/selector pair: the newest event of that pair. Filtering the
+    raw event table instead would match corrected decisions too, because the
+    contract fixes a verdict by appending a new event rather than updating the
+    old one. Never write through it.
+    """
+
+    id = models.IntegerField(primary_key=True)
+    news_id = models.IntegerField()
+    decision = models.CharField(max_length=16)
+    score = models.FloatField(null=True)
+    reason = models.TextField()
+    selector_name = models.CharField(max_length=200)
+    selector_version = models.CharField(max_length=200)
+    idempotency_key = models.CharField(max_length=300)
+    created_at = models.DateTimeField()
+
+    class Meta:
+        managed = False
+        db_table = "exchange_latest_reviews"
+
+
 class EvaluationCharacteristic(models.Model):
     class ThresholdDirection(models.TextChoices):
         LOWER_BOUND = "lower_bound", "Не ниже порога"

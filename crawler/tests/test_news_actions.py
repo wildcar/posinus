@@ -95,10 +95,9 @@ def test_translation_service_retries_invalid_format(monkeypatch, source, make_ne
 
 @pytest.mark.django_db
 def test_select_action_snapshots_scores_and_is_idempotent(
-    operator, settings, source, make_news, make_review
+    operator, source, make_news, make_review
 ):
     item = make_news("Selected news", source, day=10, seed="action-selected")
-    settings.POSINUS_MANUAL_SCORE_SELECTOR = "evaluator"
     make_review(item, {"positivity": 8, "negativity": 1}, key="automatic")
     url = reverse("news_select", args=[item.pk])
 

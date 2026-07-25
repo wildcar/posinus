@@ -26,6 +26,14 @@ Operate a single-host multilingual news crawler whose source list improves from 
 - Agent-authored Russian text follows `.claude/skills/humanizer-ru/SKILL.md`; collected article content stays verbatim.
 - Retention: `purge_rejected_content(days=3)` tombstones news with a `not_positive` verdict and no `positive` one (skipped/undecided/never-reviewed/selected are kept), wired into `maintenance`. Committed, not yet deployed. The external evaluator's backfill already ran on prod (latest reviews: 120 positive, 6108 not_positive), so the first prod run will tombstone ~4230 rejected items older than 3 days.
 
+- Two news-list filter defects fixed on 2026-07-25, both found while reviewing the operator UI
+  concept. The decision filter matched the raw event table, so a news item whose verdict was
+  corrected (the pipeline's backfill did exactly that) matched both its old and its new
+  decision; it now goes through the `exchange_latest_reviews` view, mapped by the new unmanaged
+  `LatestReview` model, with a state-only migration `0007_latestreview`. Score ranges now
+  filter on `POSINUS_MANUAL_SCORE_SELECTOR` so the operator snapshot is not counted as a second
+  evaluation. 52 tests pass; the `make_review` fixture now defaults to `news-evaluator`.
+
 ## Next
 
 1. Deploy the rejected-news retention; expect the first maintenance run to tombstone ~4230 items.

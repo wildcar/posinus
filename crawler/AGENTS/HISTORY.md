@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-25 · News list filters read the latest verdict, not every event
+- What: The decision filter now matches the `exchange_latest_reviews` view through a new unmanaged `LatestReview` model (state-only migration `0007_latestreview`) via `Exists`, and score ranges filter on `POSINUS_MANUAL_SCORE_SELECTOR`. Three tests added; the `make_review` fixture defaults to `news-evaluator`, which two tests asserted on. 52 pass.
+- Why: The contract corrects a verdict by appending an event, so filtering the raw table matched superseded decisions (a news item with `skipped` then `not_positive` showed up under both) and the join duplicated rows. The manual review snapshots the evaluator's scores under `operator:*`, so axis filters were matching one evaluation twice. Found while reviewing the operator UI concept.
+- Files: crawler/collector/{models,views}.py, crawler/collector/migrations/0007_latestreview.py, crawler/tests/{conftest,test_news_filters,test_news_actions,test_news_detail}.py, crawler/AGENTS/SPEC.md
+- Next: remaining step 0 of docs/ui-concept.md - Paginator with an honest count, `proxy_read_timeout 120s`, renaming the «Отобрано» button.
+
 ## 2026-07-25 · Prod migrated to posinus; Nginx static path fixed
 - What: Ran the posinus migration on the host: one checkout at `/opt/posinus`, `/etc/posinus/crawler.env`, `/var/lib/posinus/posinus.sqlite3`, `POSINUS_*`, `posinus-web`/`posinus-worker` under user `posinus`. Found and fixed a gap the script had missed — Nginx still aliased `/static/` to `/opt/newscrawler/staticfiles/`, so pages returned 200 while every CSS and JS file 404'd; the script now repoints and reloads Nginx itself. Removed the `.pre-posinus` rollback trees and both old local clones.
 - Why: The split repositories and the newscrawler naming were retired; a half-renamed host is worse than either end state.
