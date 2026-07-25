@@ -29,7 +29,10 @@ Operate a single-host multilingual news crawler whose source list improves from 
 - Step 0 of `../docs/ui-concept.md` is done as of 2026-07-25: the news list pages by 50 with the
   real total and filter-preserving links (no more `[:200]` slice), Nginx read/send timeouts are
   120s so the synchronous translation call is not cut off at 60s, and the operator button reads
-  «Отправить в публикацию» with a line about what it triggers. 54 tests pass.
+  «Отправить в публикацию» with a line about what it triggers. 54 tests pass. LIVE on prod
+  (commit `5cc1966`, 2026-07-25 20:29 UTC); the live Nginx site `/etc/nginx/sites-available/newscrawler`
+  was edited to 120s and reloaded, backup `newscrawler.bak-20260725`. Verified: web and worker
+  active, HTTPS `/login/` 200, no migrations pending.
 - Two news-list filter defects fixed on 2026-07-25, both found while reviewing the operator UI
   concept. The decision filter matched the raw event table, so a news item whose verdict was
   corrected (the pipeline's backfill did exactly that) matched both its old and its new
