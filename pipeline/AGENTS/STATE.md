@@ -50,6 +50,15 @@ a publish-ready retelling, and posts them to the platforms.
 - LIVE on prod since 2026-07-25 19:57 UTC (commit `3f50691`): the pipeline DB reports
   `journal_mode = wal`. The mode flipped on the first open after the update, verified with a
   `publisher.py --dry-run` that sent nothing.
+- Since 2026-07-25 the publisher has two safety catches, both from step 1 of
+  `../docs/ui-concept.md`. The stop cock: a `pause` file in `REQUESTS_DIR`
+  (`/var/lib/posinus/pipeline/requests`) holds every send, expires by itself and fails towards
+  «paused» when unreadable; the crawler UI writes it. The publication window: a new item only
+  appears between `PUB_WINDOW_START` and `PUB_WINDOW_END` in `PUB_WINDOW_TZ` (08:00–22:00
+  Europe/Moscow), while retries of an already-public item ignore it. 92 tests pass. NOT on prod
+  yet in the operational sense: the code ships with the next crawler update, but the mailbox
+  directory and the three `.path` units need `pipeline/deploy/install.sh`, which is the owner's
+  to run. Without the directory the publisher simply never sees a pause.
 - Prod backlog on 2026-07-25: 118 items `prepared` against 11 `published`. Order of exit is
   preparation time, so a strong item waits behind average ones and anything older than a couple
   of days goes out stale. This is the queue screen argued for in `../docs/ui-concept.md` (3.7),

@@ -42,6 +42,17 @@ done
 install -d -o posinus-pipeline -g posinus-pipeline -m 0750 /var/lib/posinus/pipeline
 install -d -o posinus-pipeline -g posinus-pipeline -m 0750 /var/lib/posinus/pipeline/media
 
+# Request mailbox: the web (user posinus) drops a file here, a .path unit starts
+# the matching service within a second, and the service removes the file before
+# it works. The same directory holds the `pause` file — the stop cock. Group
+# posinus with setgid, so files created by the web stay group-readable for the
+# pipeline user and vice versa.
+install -d -o posinus-pipeline -g posinus -m 2770 /var/lib/posinus/pipeline/requests
+# The pipeline directory itself must be traversable by the web user, otherwise
+# it cannot reach the mailbox inside it.
+chgrp posinus /var/lib/posinus/pipeline
+chmod 0710 /var/lib/posinus/pipeline
+
 install -d -m 0755 /etc/posinus
 ENV_FILE=/etc/posinus/pipeline.env
 if [ ! -f "$ENV_FILE" ]; then
@@ -73,10 +84,16 @@ install -m 0644 "$REPO_DIR/deploy/posinus-preparer.service" /etc/systemd/system/
 install -m 0644 "$REPO_DIR/deploy/posinus-preparer.timer" /etc/systemd/system/posinus-preparer.timer
 install -m 0644 "$REPO_DIR/deploy/posinus-publisher.service" /etc/systemd/system/posinus-publisher.service
 install -m 0644 "$REPO_DIR/deploy/posinus-publisher.timer" /etc/systemd/system/posinus-publisher.timer
+for unit in posinus-evaluator-run.path posinus-preparer-run.path posinus-publisher-run.path; do
+    install -m 0644 "$REPO_DIR/deploy/$unit" "/etc/systemd/system/$unit"
+done
 systemctl daemon-reload
 systemctl enable --now posinus-evaluator.timer
 systemctl enable --now posinus-preparer.timer
 systemctl enable --now posinus-publisher.timer
+systemctl enable --now posinus-evaluator-run.path
+systemctl enable --now posinus-preparer-run.path
+systemctl enable --now posinus-publisher-run.path
 
 # The crawler's update script stops every service listed here before touching
 # the DB schema (both open the crawler DB).

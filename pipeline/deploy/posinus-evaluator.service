@@ -14,6 +14,9 @@ UMask=0007
 # Defaults; /etc file overrides them.
 Environment=EVALUATOR_BATCH=25
 EnvironmentFile=/etc/posinus/pipeline.env
+# Drop the operator's request first: the .path unit retriggers while the
+# file exists, and a run that started already covers a second click.
+ExecStartPre=-/bin/rm -f /var/lib/posinus/pipeline/requests/run-evaluator
 ExecStart=/usr/bin/python3 /opt/posinus/pipeline/evaluator.py --limit ${EVALUATOR_BATCH}
 NoNewPrivileges=true
 PrivateTmp=true

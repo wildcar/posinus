@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-25 · Stop cock, publication window and the request mailbox
+- What: The publisher reads a `pause` file in `REQUESTS_DIR` at the start of a run and sends nothing while it is there (an unreadable or malformed file counts as paused; an expired one is deleted and publication resumes). A new item also waits for the publication window, `PUB_WINDOW_START`–`PUB_WINDOW_END` in `PUB_WINDOW_TZ`, default 08:00–22:00 Europe/Moscow; retries of an already-public item ignore the window. `install.sh` creates the mailbox (group `posinus`, setgid, 2770) and installs three `.path` units that start a service when the web drops `run-<name>`; each service removes the request in `ExecStartPre`. 12 tests added, 92 pass.
+- Why: step 1 of `../docs/ui-concept.md`. The publisher knew one rule, 120 minutes since the last post, and would happily post a kitten at 03:40 or during a day of mourning. The mailbox is also the fundament for running a service from the web without sudo and without a second job queue.
+- Files: pipeline/publisher.py, pipeline/deploy/{install.sh,posinus-*-run.path,posinus-*.service,pipeline.env.example}, pipeline/tests/test_publisher.py, pipeline/AGENTS/SPEC.md, pipeline/docs/services.md
+- Next: owner runs `pipeline/deploy/install.sh` so the mailbox and the path units exist on prod; then the queue screen (3.7).
+
 ## 2026-07-25 · Publish with the picture again after the media directory moved
 - What: `lead_image_path` falls back to `MEDIA_DIR/<news_id>/<filename>` when the stored absolute path is gone, logs the substitution, and warns when the file is missing everywhere; `PublisherConfig` gained `media_dir` (`MEDIA_DIR`). Two tests (82 total). Prod also got `PUB_MIN_INTERVAL_MINUTES=60` in the env file, owner's call against the 118-item backlog.
 - Why: the posinus rename moved the media tree but left 336 `illustration.file_path` rows on `/var/lib/news-evaluator/media/...`, so 116 news items (112 still queued) published as text with no picture. All 336 files exist at the new path, so this is a stale string, not lost data - and fixing it in code makes the next move heal itself.

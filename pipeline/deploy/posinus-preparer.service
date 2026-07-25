@@ -14,6 +14,9 @@ UMask=0007
 # Defaults; /etc file overrides them.
 Environment=PREP_BATCH=5
 EnvironmentFile=/etc/posinus/pipeline.env
+# Drop the operator's request first: the .path unit retriggers while the
+# file exists, and a run that started already covers a second click.
+ExecStartPre=-/bin/rm -f /var/lib/posinus/pipeline/requests/run-preparer
 ExecStart=/usr/bin/python3 /opt/posinus/pipeline/preparer.py --limit ${PREP_BATCH}
 NoNewPrivileges=true
 # No PrivateTmp: writes go to /var/lib/posinus/pipeline, owned by this user.

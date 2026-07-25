@@ -279,7 +279,8 @@ class RunLoopTests(unittest.TestCase):
         own.commit()
         own.close()
         # telegram + site enabled, vk off
-        self.cfg = PublisherConfig(own_db=self.own_path, tg_token="tok", site_password="pw")
+        # window off: these tests must behave the same whatever time they run at
+        self.cfg = PublisherConfig(own_db=self.own_path, window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="tok", site_password="pw")
         self._orig = dict(publisher.ADAPTERS)
 
     def tearDown(self):
@@ -375,7 +376,7 @@ class ThrottleAndRetryTests(unittest.TestCase):
         con.close()
         calls = []
         publisher.ADAPTERS["telegram"] = lambda c, i, d: (calls.append(i.news_id), "u")[1]
-        publisher.run(PublisherConfig(own_db=self.own_path, tg_token="t"), limit=1, dry_run=False, only=None)
+        publisher.run(PublisherConfig(own_db=self.own_path, window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="t"), limit=1, dry_run=False, only=None)
         self.assertEqual(calls, [])  # last post 5 min ago (< 120) -> new item held back
 
     def test_new_item_allowed_when_last_post_old(self):
@@ -386,7 +387,7 @@ class ThrottleAndRetryTests(unittest.TestCase):
         con.close()
         calls = []
         publisher.ADAPTERS["telegram"] = lambda c, i, d: (calls.append(i.news_id), "u")[1]
-        publisher.run(PublisherConfig(own_db=self.own_path, tg_token="t"), limit=1, dry_run=False, only=None)
+        publisher.run(PublisherConfig(own_db=self.own_path, window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="t"), limit=1, dry_run=False, only=None)
         self.assertEqual(calls, [1])  # last post 3h ago (> 120) -> allowed
 
     def test_only_one_new_item_per_run(self):
@@ -397,7 +398,7 @@ class ThrottleAndRetryTests(unittest.TestCase):
         con.close()
         calls = []
         publisher.ADAPTERS["telegram"] = lambda c, i, d: (calls.append(i.news_id), "u")[1]
-        publisher.run(PublisherConfig(own_db=self.own_path, tg_token="t"), limit=1, dry_run=False, only=None)
+        publisher.run(PublisherConfig(own_db=self.own_path, window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="t"), limit=1, dry_run=False, only=None)
         self.assertEqual(calls, [1])  # only the first (oldest) new item; the second waits
 
     def test_failing_platform_gives_up_and_does_not_block_others(self):
@@ -414,7 +415,7 @@ class ThrottleAndRetryTests(unittest.TestCase):
         calls = []
         publisher.ADAPTERS["telegram"] = lambda c, i, d: (calls.append(("tg", i.news_id)), "u")[1]
         publisher.ADAPTERS["site"] = lambda c, i, d: (calls.append(("site", i.news_id)), "u")[1]
-        cfg = PublisherConfig(own_db=self.own_path, tg_token="t", site_password="p", max_attempts=8)
+        cfg = PublisherConfig(own_db=self.own_path, window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="t", site_password="p", max_attempts=8)
         publisher.run(cfg, limit=1, dry_run=False, only=None)
         con = open_own_db(self.own_path)
         # item 1 gave up on the exhausted platform and was finalized, not retried
@@ -432,8 +433,109 @@ class ThrottleAndRetryTests(unittest.TestCase):
         con.close()
         calls = []
         publisher.ADAPTERS["telegram"] = lambda c, i, d: (calls.append(i.news_id), "u")[1]
-        publisher.run(PublisherConfig(own_db=self.own_path, tg_token="t"), limit=1, dry_run=False, only=1)
+        publisher.run(PublisherConfig(own_db=self.own_path, window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="t"), limit=1, dry_run=False, only=1)
         self.assertEqual(calls, [1])  # explicit --news-id bypasses the rate limit
+
+
+class PauseAndWindowTests(unittest.TestCase):
+    """Stop cock in the mailbox and the publication window."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.own_path = str(Path(self.tmp.name) / "own.sqlite3")
+        self.requests_dir = Path(self.tmp.name) / "requests"
+        self.requests_dir.mkdir()
+        con = open_own_db(self.own_path)
+        con.execute(
+            "INSERT INTO prepared_item (news_id, status, retold_title, retold_body_md, prepared_at) "
+            "VALUES (1, 'prepared', 'T', ?, '2026-07-23T10:00:00')",
+            ("# T\n\nтекст\n\nИсточник: [s.test](https://s.test/1)",),
+        )
+        con.commit()
+        con.close()
+        self._orig = dict(publisher.ADAPTERS)
+
+    def tearDown(self):
+        publisher.ADAPTERS.clear()
+        publisher.ADAPTERS.update(self._orig)
+        self.tmp.cleanup()
+
+    def _cfg(self, **kw):
+        base = dict(own_db=self.own_path, tg_token="t", window_start="",
+                    requests_dir=str(self.requests_dir))
+        base.update(kw)
+        return PublisherConfig(**base)
+
+    def _write_pause(self, text):
+        (self.requests_dir / publisher.PAUSE_FILE).write_text(text, encoding="utf-8")
+
+    def _run(self, cfg=None, only=None):
+        calls: list[int] = []
+        publisher.ADAPTERS["telegram"] = lambda c, i, d: (calls.append(i.news_id), "u")[1]
+        publisher.run(cfg or self._cfg(), limit=1, dry_run=False, only=only)
+        return calls
+
+    def test_pause_without_deadline_sends_nothing(self):
+        self._write_pause("reason=день траура\n")
+        self.assertEqual(self._run(), [])
+
+    def test_pause_holds_even_an_explicit_news_id(self):
+        self._write_pause("reason=день траура\n")
+        self.assertEqual(self._run(only=1), [])
+
+    def test_future_deadline_keeps_the_pause(self):
+        until = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        self._write_pause(f"until={until}\nreason=пауза на час\n")
+        self.assertEqual(self._run(), [])
+        self.assertTrue((self.requests_dir / publisher.PAUSE_FILE).exists())
+
+    def test_expired_pause_is_removed_and_publication_resumes(self):
+        until = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+        self._write_pause(f"until={until}\n")
+        self.assertEqual(self._run(), [1])
+        self.assertFalse((self.requests_dir / publisher.PAUSE_FILE).exists())
+
+    def test_missing_mailbox_does_not_stop_publication(self):
+        cfg = self._cfg(requests_dir=str(Path(self.tmp.name) / "nope"))
+        self.assertEqual(self._run(cfg), [1])
+
+    def test_unparsable_pause_file_still_stops_publication(self):
+        self._write_pause("until=не дата\n")
+        self.assertEqual(self._run(), [])
+
+    def test_new_item_waits_for_the_window(self):
+        # 03:40 Moscow: the window is closed, the queue keeps the item
+        with mock.patch.object(publisher, "window_state",
+                               return_value=(False, datetime(2026, 7, 26, 5, 0, tzinfo=timezone.utc))):
+            self.assertEqual(self._run(self._cfg(window_start="08:00", window_end="22:00")), [])
+
+    def test_closed_window_does_not_hold_an_already_public_item(self):
+        con = open_own_db(self.own_path)
+        con.execute("INSERT INTO publication (news_id, platform, status, url, attempts, updated_at) "
+                    "VALUES (1, 'site', 'ok', 'u', 1, '2026-07-23T10:00:00+00:00')")
+        con.commit()
+        con.close()
+        cfg = self._cfg(site_password="p")
+        with mock.patch.object(publisher, "window_state", return_value=(False, None)):
+            self.assertEqual(self._run(cfg), [1])  # telegram still finishes the item
+
+    def test_window_bounds_and_next_opening(self):
+        cfg = PublisherConfig(window_start="08:00", window_end="22:00", window_tz="Europe/Moscow")
+        midday = datetime(2026, 7, 25, 9, 0, tzinfo=timezone.utc)      # 12:00 MSK
+        night = datetime(2026, 7, 26, 0, 40, tzinfo=timezone.utc)      # 03:40 MSK
+        self.assertEqual(publisher.window_state(cfg, midday), (True, None))
+        is_open, opens = publisher.window_state(cfg, night)
+        self.assertFalse(is_open)
+        self.assertEqual(opens, datetime(2026, 7, 26, 5, 0, tzinfo=timezone.utc))  # 08:00 MSK
+
+    def test_window_can_wrap_past_midnight_and_can_be_switched_off(self):
+        wrapping = PublisherConfig(window_start="22:00", window_end="06:00", window_tz="UTC")
+        self.assertTrue(publisher.window_state(wrapping, datetime(2026, 7, 25, 23, 0, tzinfo=timezone.utc))[0])
+        self.assertTrue(publisher.window_state(wrapping, datetime(2026, 7, 25, 2, 0, tzinfo=timezone.utc))[0])
+        self.assertFalse(publisher.window_state(wrapping, datetime(2026, 7, 25, 12, 0, tzinfo=timezone.utc))[0])
+        off = PublisherConfig(window_start="", window_end="22:00")
+        self.assertEqual(off_state := publisher.window_state(off, datetime(2026, 7, 25, 2, 0, tzinfo=timezone.utc)), (True, None))
+        self.assertEqual(off_state, (True, None))
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import logging
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib import messages
@@ -23,6 +24,7 @@ from .models import (
 )
 from .services.manual_review import mark_selected
 from .services.model_router import ModelRouterError
+from .services.pipeline_mailbox import MailboxUnavailable, clear_pause, read_pause, set_pause
 from .services.translation import TranslationError, translate_news
 
 SCORE_MIN = 0
@@ -48,10 +50,39 @@ def _score_bound(raw, default):
     return max(SCORE_MIN, min(SCORE_MAX, value))
 
 
+PAUSE_DURATIONS = {
+    "hour": "на час",
+    "today": "до конца дня",
+    "forever": "до отмены",
+}
+
+
+def _pause_deadline(choice: str):
+    """Turn the operator's choice of duration into a moment, or None for «до отмены»."""
+    now = timezone.now()
+    if choice == "hour":
+        return now + timezone.timedelta(hours=1)
+    if choice == "today":
+        zone = ZoneInfo(settings.POSINUS_OPERATOR_TIMEZONE)
+        local = now.astimezone(zone)
+        end_of_day = local.replace(hour=23, minute=59, second=0, microsecond=0)
+        if end_of_day <= local:
+            end_of_day += timezone.timedelta(days=1)
+        return end_of_day
+    return None
+
+
 @login_required
 def dashboard(request):
     latest_backup = OperatorEvent.objects.filter(event_type__in=["backup_success", "backup_failed"]).first()
+    try:
+        pause, mailbox_error = read_pause(), ""
+    except MailboxUnavailable as exc:
+        pause, mailbox_error = None, str(exc)
     context = {
+        "pause": pause,
+        "mailbox_error": mailbox_error,
+        "pause_durations": PAUSE_DURATIONS.items(),
         "source_counts": Source.objects.values("status").annotate(count=Count("id")).order_by("status"),
         "news_count": NewsItem.objects.filter(purged_at__isnull=True).count(),
         "unreviewed_count": NewsItem.objects.filter(purged_at__isnull=True, review_events__isnull=True).count(),
@@ -60,6 +91,46 @@ def dashboard(request):
         "latest_backup": latest_backup,
     }
     return render(request, "collector/dashboard.html", context)
+
+
+@login_required
+@require_POST
+def publication_pause(request):
+    """The stop cock: hold every publication, let the queue grow."""
+    choice = request.POST.get("duration", "forever")
+    if choice not in PAUSE_DURATIONS:
+        choice = "forever"
+    reason = request.POST.get("reason", "").strip()
+    until = _pause_deadline(choice)
+    try:
+        set_pause(until, reason)
+    except MailboxUnavailable as exc:
+        logger.error("Cannot write the pause file: %s", exc)
+        messages.error(request, "Не получилось остановить публикации: нет доступа к каталогу заявок конвейера.")
+    else:
+        OperatorEvent.objects.create(
+            event_type="publication_paused",
+            message=f"Публикации остановлены {PAUSE_DURATIONS[choice]}. Причина: {reason or 'не указана'}",
+        )
+        messages.success(
+            request,
+            f"Публикации остановлены {PAUSE_DURATIONS[choice]}. Новости копятся в очереди, ничего не теряется.",
+        )
+    return redirect("dashboard")
+
+
+@login_required
+@require_POST
+def publication_resume(request):
+    try:
+        clear_pause()
+    except MailboxUnavailable as exc:
+        logger.error("Cannot remove the pause file: %s", exc)
+        messages.error(request, "Не получилось снять паузу: нет доступа к каталогу заявок конвейера.")
+    else:
+        OperatorEvent.objects.create(event_type="publication_resumed", message="Публикации возобновлены оператором")
+        messages.success(request, "Публикации возобновлены. Ближайший выход - в ближайший прогон публикатора.")
+    return redirect("dashboard")
 
 
 @login_required

@@ -15,6 +15,9 @@ UMask=0007
 # instead of flooding it. Raise in /etc if you want the backlog to drain faster.
 Environment=PUB_BATCH=1
 EnvironmentFile=/etc/posinus/pipeline.env
+# Drop the operator's request first: the .path unit retriggers while the
+# file exists, and a run that started already covers a second click.
+ExecStartPre=-/bin/rm -f /var/lib/posinus/pipeline/requests/run-publisher
 ExecStart=/usr/bin/python3 /opt/posinus/pipeline/publisher.py --limit ${PUB_BATCH}
 NoNewPrivileges=true
 # No PrivateTmp: reads media from /var/lib/posinus/pipeline, owned by this user.

@@ -70,6 +70,13 @@ POSINUS_TRANSLATION_TIER = os.environ.get("POSINUS_TRANSLATION_TIER", "")
 POSINUS_TRANSLATION_TEMPERATURE = float(os.environ.get("POSINUS_TRANSLATION_TEMPERATURE", "0.2"))
 POSINUS_TRANSLATION_MAX_TOKENS = int(os.environ.get("POSINUS_TRANSLATION_MAX_TOKENS", "8192"))
 POSINUS_MANUAL_SCORE_SELECTOR = os.environ.get("POSINUS_MANUAL_SCORE_SELECTOR", "news-evaluator")
+# Shared with the pipeline: the web drops request files here (stop cock, run now).
+# Absent on a development machine — the UI says so instead of failing.
+POSINUS_PIPELINE_REQUESTS_DIR = os.environ.get(
+    "POSINUS_PIPELINE_REQUESTS_DIR", "/var/lib/posinus/pipeline/requests"
+)
+# The operator's own day, used for «до конца дня» on the stop cock.
+POSINUS_OPERATOR_TIMEZONE = os.environ.get("POSINUS_OPERATOR_TIMEZONE", "Europe/Moscow")
 POSINUS_BACKUP_DIR = Path(os.environ.get("POSINUS_BACKUP_DIR", BASE_DIR / "data" / "backups")).resolve()
 POSINUS_LOG_DIR = Path(os.environ.get("POSINUS_LOG_DIR", BASE_DIR / "data" / "logs")).resolve()
 POSINUS_LOG_DIR.mkdir(parents=True, exist_ok=True)

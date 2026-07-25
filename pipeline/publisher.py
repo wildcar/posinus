@@ -7,7 +7,9 @@ succeed, marks it «Опубликовано». Runs fully automatically by a ti
 calls: the title, paragraphs and images are already prepared.
 
 Pacing: at most one NEW item starts per `min_interval_minutes` (default 120), so
-posts trickle into the public channel/site instead of flooding it. A platform
+posts trickle into the public channel/site instead of flooding it, and a new item
+only starts inside the publication window (default 08:00–22:00 Europe/Moscow) —
+a post at 03:40 is lost reach. A platform
 that keeps failing is retried up to `max_attempts` times and then given up on;
 the item is finalized «Опубликовано» best-effort with whatever platforms
 succeeded, so a broken platform (e.g. a bad VK token) never blocks the queue.
@@ -21,6 +23,11 @@ Platforms (each turns on only when its secrets are present in the config):
 
 Idempotency: each (news_id, platform) send is recorded in the `publication`
 table; a re-run skips platforms already 'ok' and retries only the failed ones.
+
+Stop cock: a `pause` file in the request mailbox (`REQUESTS_DIR`, default
+`/var/lib/posinus/pipeline/requests`) holds the whole run — nothing is sent, the
+queue simply grows. The operator writes it from the web UI; it expires by itself
+at the `until` timestamp inside it.
 
 Single-file, stdlib-only. Shares the preparer's own-DB schema and markdown; it
 reads only the evaluator's own DB (the crawler DB is not touched here). Everything
@@ -49,9 +56,10 @@ import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import preparer   # own-DB schema + migration, markdown builder
 
@@ -64,6 +72,7 @@ DEFAULT_TG_CHAT = "-1003795927410"   # @posinus channel (from the proven hermes 
 EGEYA_EMPTY_TAGS_HASH = "d41d8cd98f00b204e9800998ecf8427e"  # md5 of "" — Эгея default
 HTTP_TIMEOUT = 90.0
 DB_LOCK_RETRIES = 4          # same backoff as evaluator.write_review
+PAUSE_FILE = "pause"         # stop cock, written by the web UI into the mailbox
 
 _own_db_path: str | None = None   # set by open_own_db, read by _unrecorded_marker
 
@@ -118,6 +127,14 @@ class PublisherConfig:
     # after this many attempts so it can't block the queue forever.
     min_interval_minutes: int = 120
     max_attempts: int = 8
+    # Publication window: a new item appears only between these local times.
+    # An empty start or end switches the window off entirely.
+    window_start: str = "08:00"
+    window_end: str = "22:00"
+    window_tz: str = "Europe/Moscow"
+    # Request mailbox: the web UI drops files here, systemd .path units pick
+    # them up. Also holds the `pause` file, see read_pause.
+    requests_dir: str = "/var/lib/posinus/pipeline/requests"
 
     @classmethod
     def from_env(cls, env: dict[str, str] = os.environ) -> "PublisherConfig":
@@ -137,6 +154,10 @@ class PublisherConfig:
         cfg.vk_api_version = env.get("VK_API_VERSION", cfg.vk_api_version)
         cfg.min_interval_minutes = int(env.get("PUB_MIN_INTERVAL_MINUTES", cfg.min_interval_minutes))
         cfg.max_attempts = int(env.get("PUB_MAX_ATTEMPTS", cfg.max_attempts))
+        cfg.window_start = env.get("PUB_WINDOW_START", cfg.window_start).strip()
+        cfg.window_end = env.get("PUB_WINDOW_END", cfg.window_end).strip()
+        cfg.window_tz = env.get("PUB_WINDOW_TZ", cfg.window_tz).strip() or "UTC"
+        cfg.requests_dir = env.get("REQUESTS_DIR", cfg.requests_dir)
         return cfg
 
     def enabled_platforms(self) -> list[str]:
@@ -149,6 +170,105 @@ class PublisherConfig:
         if self.vk_token and self.vk_group_id:
             platforms.append("vk")
         return platforms
+
+
+# ------------------------------------------------ stop cock and time window
+
+
+@dataclass
+class Pause:
+    """An active stop cock: nothing goes out until `until` (None = until lifted)."""
+    until: datetime | None
+    reason: str
+
+
+def _parse_moment(raw: str) -> datetime | None:
+    """Parse an ISO timestamp; a naive one is read as UTC."""
+    try:
+        moment = datetime.fromisoformat(raw.strip())
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def read_pause(requests_dir: str, now: datetime) -> Pause | None:
+    """Read the stop cock from the mailbox, dropping it once it has expired.
+
+    Format is `key=value` lines: `until=<ISO timestamp>` (absent means until the
+    operator lifts it) and `reason=<text>`. An unreadable or unparsable file
+    still stops publication: a stop cock that fails open is worse than useless.
+    """
+    path = os.path.join(requests_dir, PAUSE_FILE)
+    try:
+        raw = Path(path).read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        log.error("cannot read the pause file %s (%s); treating publication as paused", path, exc)
+        return Pause(None, "файл паузы не читается")
+
+    until, reason = None, ""
+    for line in raw.splitlines():
+        key, _, value = line.partition("=")
+        key = key.strip().lower()
+        if key == "until" and value.strip():
+            until = _parse_moment(value)
+        elif key == "reason":
+            reason = value.strip()
+
+    if until is not None and until <= now:
+        try:
+            os.unlink(path)
+        except OSError as exc:
+            log.warning("expired pause file %s could not be removed: %s", path, exc)
+        else:
+            log.info("pause expired at %s, publication resumes", until.isoformat())
+        return None
+    return Pause(until, reason)
+
+
+def _window_zone(name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        log.warning("unknown time zone %r, falling back to UTC for the publication window", name)
+        return ZoneInfo("UTC")
+
+
+def _parse_hhmm(raw: str) -> dt_time | None:
+    try:
+        hour, _, minute = raw.strip().partition(":")
+        return dt_time(int(hour), int(minute or 0))
+    except ValueError:
+        return None
+
+
+def window_state(cfg: PublisherConfig, now: datetime) -> tuple[bool, datetime | None]:
+    """Is the publication window open, and when does it open next?
+
+    A start later than the end means the window wraps past midnight. An empty or
+    unparsable bound switches the window off, so publication stays as it was
+    before the window existed.
+    """
+    start = _parse_hhmm(cfg.window_start)
+    end = _parse_hhmm(cfg.window_end)
+    if start is None or end is None or start == end:
+        return True, None
+
+    zone = _window_zone(cfg.window_tz)
+    local = now.astimezone(zone)
+    current = local.time()
+    if start < end:
+        is_open = start <= current < end
+    else:
+        is_open = current >= start or current < end
+    if is_open:
+        return True, None
+
+    opens = local.replace(hour=start.hour, minute=start.minute, second=0, microsecond=0)
+    if opens <= local:
+        opens += timedelta(days=1)
+    return False, opens.astimezone(timezone.utc)
 
 
 @dataclass
@@ -746,10 +866,23 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None) -> in
         )
         return 0
 
+    now = datetime.now(timezone.utc)
+    pause = read_pause(cfg.requests_dir, now)
+    if pause is not None and not dry_run:
+        # The stop cock holds retries too: a partly published item finishing on
+        # the remaining platforms is still a post appearing in public.
+        log.warning("publication paused%s%s; nothing sent, the queue keeps growing",
+                    f" until {pause.until.isoformat()}" if pause.until else " until lifted by the operator",
+                    f", reason: {pause.reason}" if pause.reason else "")
+        return 0
+    if pause is not None:
+        log.warning("publication is paused; continuing anyway because nothing is sent in a dry run")
+
+    window_open, opens_at = window_state(cfg, now)
+
     own = open_own_db(cfg.own_db)
     try:
         prepared = own.execute(PREPARED_SQL).fetchall()
-        now = datetime.now(timezone.utc)
         last_ok = last_success_at(own)
         throttled_new = False
         if last_ok:
@@ -757,9 +890,13 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None) -> in
                 throttled_new = (now - datetime.fromisoformat(last_ok)) < timedelta(minutes=cfg.min_interval_minutes)
             except ValueError:
                 throttled_new = False
+        if window_open:
+            new_state = "throttled" if throttled_new else "allowed"
+        else:
+            new_state = f"window closed, opens {opens_at.isoformat()}" if opens_at else "window closed"
         log.info("prepared %d, platforms [%s], last post %s, new items %s%s",
                  len(prepared), ", ".join(platforms), last_ok or "never",
-                 "throttled" if throttled_new else "allowed", " (dry-run)" if dry_run else "")
+                 new_state, " (dry-run)" if dry_run else "")
 
         published, incomplete, new_posted = 0, 0, 0
         for row in prepared:
@@ -782,9 +919,10 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None) -> in
                                 news_id, ", ".join(gave_up), cfg.max_attempts)
                 continue
 
-            # A brand-new item (nothing posted yet) is rate-limited; an item already
-            # public somewhere is finished regardless (it is the same news).
-            if not appeared and only is None and (throttled_new or new_posted >= limit):
+            # A brand-new item (nothing posted yet) is rate-limited and waits for
+            # the window; an item already public somewhere is finished regardless
+            # (it is the same news, and a half-published item is worse than a late one).
+            if not appeared and only is None and (throttled_new or not window_open or new_posted >= limit):
                 continue
 
             item = build_item(own, row, cfg.media_dir)

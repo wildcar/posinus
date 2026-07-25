@@ -26,6 +26,11 @@ Operate a single-host multilingual news crawler whose source list improves from 
 - Agent-authored Russian text follows `.claude/skills/humanizer-ru/SKILL.md`; collected article content stays verbatim.
 - Retention: `purge_rejected_content(days=3)` tombstones news with a `not_positive` verdict and no `positive` one (skipped/undecided/never-reviewed/selected are kept), wired into `maintenance`. Committed, not yet deployed. The external evaluator's backfill already ran on prod (latest reviews: 120 positive, 6108 not_positive), so the first prod run will tombstone ~4230 rejected items older than 3 days.
 
+- The stop cock is in the UI since 2026-07-25: the dashboard writes a `pause` file into
+  `POSINUS_PIPELINE_REQUESTS_DIR` (hour / end of day / until lifted, with a reason) and the
+  publisher honours it. The mailbox does not exist on prod until the owner runs
+  `pipeline/deploy/install.sh`; until then the dashboard says «нет связи с конвейером» and the
+  button is not offered. The web writes files only — never the pipeline database.
 - Step 0 of `../docs/ui-concept.md` is done as of 2026-07-25: the news list pages by 50 with the
   real total and filter-preserving links (no more `[:200]` slice), Nginx read/send timeouts are
   120s so the synchronous translation call is not cut off at 60s, and the operator button reads

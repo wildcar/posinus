@@ -99,8 +99,45 @@ Pacing and robustness (config):
   given up on; the item is finalized «Опубликовано» best-effort with whatever platforms
   succeeded. This is why a broken platform can never block the rest of the queue.
 
+- `PUB_WINDOW_START` / `PUB_WINDOW_END` / `PUB_WINDOW_TZ` (default `08:00`, `22:00`,
+  `Europe/Moscow`) — a **new** item only appears inside this local window; a post at 03:40 is
+  lost reach. A start later than the end wraps past midnight; an empty start switches the
+  window off. Retries of an already-public item ignore the window.
+- `REQUESTS_DIR` (default `/var/lib/posinus/pipeline/requests`) — the request mailbox, see
+  below.
+
 The service exits 0 even when some platform sends failed (they are recorded and retried),
 so systemd does not flip to `failed` on transient errors.
+
+### The stop cock and the request mailbox
+
+`REQUESTS_DIR` is a directory the web UI can write to (owner `posinus-pipeline`, group
+`posinus`, mode 2770 — `deploy/install.sh` creates it). It carries two things.
+
+**`pause` — the stop cock.** While the file exists the publisher sends nothing at all, not
+even a retry of a half-published item, and the queue simply grows. Lines inside:
+
+```text
+until=2026-07-25T23:00:00+03:00
+reason=день траура
+```
+
+`until` is optional: without it the pause holds until the file is removed. The publisher
+deletes the file itself once `until` has passed. A file it cannot read, or one with an
+unparsable `until`, counts as an active pause — a safety catch that fails towards «send» is
+not a safety catch. Written by hand:
+
+```bash
+sudo -u posinus tee /var/lib/posinus/pipeline/requests/pause <<'EOF'
+reason=разбираемся с площадкой
+EOF
+```
+
+**`run-evaluator` / `run-preparer` / `run-publisher` — run now.** A `posinus-<name>-run.path`
+unit watches for the file and starts the matching service within a second; the service
+removes the file in `ExecStartPre` before doing any work, so the path unit does not retrigger
+and a second click during a run is ignored by systemd. This is how the operator UI runs a
+service without sudo and without a second job queue.
 
 ### VK: the token type matters
 

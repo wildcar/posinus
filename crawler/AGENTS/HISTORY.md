@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-25 · The stop cock reaches the operator: a button on the dashboard
+- What: New `collector/services/pipeline_mailbox.py` writes the shared request files (`pause`, `run-<service>`) atomically into `POSINUS_PIPELINE_REQUESTS_DIR` and reads the current pause; the dashboard shows the state and carries «Остановить публикации» with a duration (hour / end of day / until lifted) and a reason, plus «Возобновить». Both are logged as operator events. A missing or unwritable mailbox is reported in words instead of a 500. 8 tests added, 62 pass. Pipeline side in the same commit.
+- Why: step 1 of `../docs/ui-concept.md` — the operator needs one button that holds every publication when the world outside the news changes, and it has to work from a phone. A file is the whole protocol: the web must never write the pipeline's database.
+- Files: crawler/collector/{services/pipeline_mailbox.py,views.py,urls.py}, crawler/templates/collector/dashboard.html, crawler/posinus_crawler/settings.py, crawler/deploy/crawler.env.example, crawler/tests/test_publication_pause.py, crawler/AGENTS/SPEC.md
+- Next: owner runs `pipeline/deploy/install.sh` to create the mailbox on prod; until then the dashboard shows «нет связи с конвейером».
+
 ## 2026-07-25 · Step 0 of the UI concept finished: pages of 50, honest count, honest button
 - What: `news_list` pages through a `Paginator` (50 per page) instead of slicing at 200; the page shows the real total, the range on screen and links that carry the filters. Nginx `proxy_read_timeout`/`proxy_send_timeout` go to 120s. The «Отобрано» button is now «Отправить в публикацию» with a line saying what it does: Telegram, wildcar.ru and VK in about two hours, no undo. Three tests added (54 pass).
 - Why: the old slice hid both the rest of the corpus and its size; 60s cut off the synchronous translation call with a 504 while the model kept working; and the button's label said nothing about the post it sets in motion.

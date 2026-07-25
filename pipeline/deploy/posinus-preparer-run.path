@@ -1,0 +1,13 @@
+[Unit]
+Description=Run the news preparer as soon as the operator asks for it
+Documentation=file:///opt/posinus/docs/ui-concept.md
+
+[Path]
+# The web UI drops this file into the request mailbox; systemd starts the
+# service within a second. The service removes the file before it works, so a
+# second click while it runs is simply ignored by systemd.
+PathExists=/var/lib/posinus/pipeline/requests/run-preparer
+Unit=posinus-preparer.service
+
+[Install]
+WantedBy=multi-user.target

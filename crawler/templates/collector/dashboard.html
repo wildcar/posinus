@@ -1,2 +1,50 @@
-{% extends "base.html" %}{% block content %}<h1>Состояние системы</h1><div class="grid"><div class="card"><h2>{{ news_count }}</h2><p>актуальных новостей</p></div><div class="card"><h2>{{ unreviewed_count }}</h2><p>без оценки</p></div><div class="card"><h2>Backup</h2><p>{% if latest_backup %}{{ latest_backup.created_at }} — {{ latest_backup.message }}{% else %}еще не выполнялся{% endif %}</p></div>{% for row in source_counts %}<div class="card"><h2>{{ row.count }}</h2><p>источников: {{ row.status }}</p></div>{% endfor %}</div><h2>Последние обходы</h2>{% include "collector/_runs.html" with runs=recent_runs %}<h2>События</h2>{% include "collector/_events.html" with events=recent_events %}{% endblock %}
-
+{% extends "base.html" %}
+{% block head %}
+<style>
+.stop{border-left:4px solid #a32b2b}
+.stop.paused{background:#fdf3f3}
+.stop form{display:flex;flex-wrap:wrap;gap:.6rem;align-items:flex-end;margin-top:.6rem}
+.stop label{display:flex;flex-direction:column;gap:.25rem;font-size:.9rem;color:#61717d}
+.stop input[type=text]{min-width:16rem}
+</style>
+{% endblock %}
+{% block content %}
+<h1>Состояние системы</h1>
+<div class="card stop{% if pause %} paused{% endif %}">
+  <h2>Публикации</h2>
+  {% if mailbox_error %}
+  <p class="muted">Нет связи с конвейером: каталог заявок недоступен. Остановить публикации отсюда сейчас нельзя.</p>
+  {% elif pause %}
+  <p class="bad">Публикации остановлены{% if pause.until %} до {{ pause.until }}{% else %}, пока не снимете{% endif %}.
+  {% if pause.reason %}Причина: {{ pause.reason }}.{% endif %}</p>
+  <p class="muted">Новости копятся в очереди, ничего не теряется.</p>
+  <form method="post" action="{% url 'publication_resume' %}">{% csrf_token %}<button>Возобновить публикации</button></form>
+  {% else %}
+  <p>Публикации идут своим чередом.</p>
+  <form method="post" action="{% url 'publication_pause' %}">{% csrf_token %}
+    <label>На сколько
+      <select name="duration">
+        {% for value, title in pause_durations %}<option value="{{ value }}">{{ title }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Причина
+      <input type="text" name="reason" placeholder="что случилось" maxlength="200">
+    </label>
+    <button>Остановить публикации</button>
+  </form>
+  <p class="muted">Пока стоит пауза, ни один пост не уйдёт ни на одну площадку. Очередь копится.</p>
+  {% endif %}
+</div>
+<div class="grid">
+  <div class="card"><h2>{{ news_count }}</h2><p>актуальных новостей</p></div>
+  <div class="card"><h2>{{ unreviewed_count }}</h2><p>без оценки</p></div>
+  <div class="card"><h2>Копия базы</h2><p>{% if latest_backup %}{{ latest_backup.created_at }} — {{ latest_backup.message }}{% else %}ещё не выполнялась{% endif %}</p></div>
+  {% for row in source_counts %}
+  <div class="card"><h2>{{ row.count }}</h2><p>источников: {{ row.status }}</p></div>
+  {% endfor %}
+</div>
+<h2>Последние обходы</h2>
+{% include "collector/_runs.html" with runs=recent_runs %}
+<h2>События</h2>
+{% include "collector/_events.html" with events=recent_events %}
+{% endblock %}
