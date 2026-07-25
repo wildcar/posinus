@@ -50,6 +50,11 @@ a publish-ready retelling, and posts them to the platforms.
 - LIVE on prod since 2026-07-25 19:57 UTC (commit `3f50691`): the pipeline DB reports
   `journal_mode = wal`. The mode flipped on the first open after the update, verified with a
   `publisher.py --dry-run` that sent nothing.
+- Operator edits land through the mailbox since 2026-07-25 (`apply_edits.py` + its path unit),
+  LIVE on prod at commit `ad2eaac` and verified there: a request file for news 111 was applied in
+  under five seconds, `edited_at`/`edited_by` were set and the request consumed. The test title
+  and those two columns were then restored on news 111, so nothing of the check is left in the
+  data.
 - `notify.py` since 2026-07-25: hourly alarms (broken platform, a silent day inside an open
   window, an empty queue) and a daily digest at 09:00 Moscow, both through the existing bot.
   Silent until the owner puts their own chat id in `NOTIFY_CHAT_ID` — never the public channel.

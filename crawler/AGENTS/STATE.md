@@ -29,6 +29,10 @@ Operate a single-host multilingual news crawler whose source list improves from 
 - Agent-authored Russian text follows `.claude/skills/humanizer-ru/SKILL.md`; collected article content stays verbatim.
 - Retention: `purge_rejected_content(days=3)` tombstones news with a `not_positive` verdict and no `positive` one (skipped/undecided/never-reviewed/selected are kept), wired into `maintenance`. Committed, not yet deployed. The external evaluator's backfill already ran on prod (latest reviews: 120 positive, 6108 not_positive), so the first prod run will tombstone ~4230 rejected items older than 3 days.
 
+- The card can fix a retelling and pick the pictures since 2026-07-25 (requests through the
+  mailbox, never a write to the pipeline DB), LIVE at commit `ad2eaac`. Pictures are served by
+  Nginx now: `www-data` is in group `posinus`, `POSINUS_MEDIA_ACCEL_PREFIX=/_pipeline_media` is in
+  the env, and a direct request to that location returns 404 because it is internal.
 - The news card shows the pipeline half (retelling, gallery, per-platform posts) since
   2026-07-25, LIVE at commit `34e149c`. Pictures are streamed by Django for now: the internal
   `location /_pipeline_media/` is in the live Nginx config (backup `newscrawler.bak-media`), but
