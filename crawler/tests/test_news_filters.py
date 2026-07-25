@@ -143,3 +143,33 @@ def test_all_sliders_render_at_once(operator, corpus):
     assert "Пороги оценок" in html
     assert html.count('type="range"') == 40
     assert 'name="positivity_min"' in html and 'name="promo_max"' in html
+
+
+@pytest.mark.django_db
+def test_pages_hold_fifty_and_the_count_is_honest(operator, corpus, make_news):
+    """The list used to cut at 200 rows and report that slice as the total."""
+    alpha = corpus["alpha"]
+    for index in range(60):
+        make_news(f"Bulk {index}", alpha, day=13, seed=f"bulk-{index}")
+
+    first = operator.get(reverse("news_list"))
+    assert first.context["total_count"] == 63
+    assert len(_ids(first)) == 50
+    assert "Найдено: 63" in first.content.decode()
+
+    second = operator.get(reverse("news_list"), {"page": "2"})
+    assert len(_ids(second)) == 13
+    assert set(_ids(first)) & set(_ids(second)) == set()
+
+
+@pytest.mark.django_db
+def test_paging_keeps_the_active_filters(operator, corpus, make_news):
+    for index in range(60):
+        make_news(f"Beta bulk {index}", corpus["beta"], day=13, seed=f"beta-bulk-{index}")
+
+    response = operator.get(reverse("news_list"), {"source": str(corpus["beta"].pk)})
+    html = response.content.decode()
+
+    assert response.context["total_count"] == 61
+    assert f"source={corpus['beta'].pk}&amp;page=2" in html
+    assert corpus["old_alpha"].pk not in _ids(response)

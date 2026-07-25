@@ -27,8 +27,13 @@
   <p class="muted">{{ item.language }} · {{ item.published_at|default:item.first_seen_at }} · SHA-256 {{ item.content_hash }}</p>
   <div>
     <form style="display:inline" method="post" action="{% url 'news_translate' item.pk %}">{% csrf_token %}<button>{% if translation %}Перевести заново{% else %}Перевести на русский{% endif %}</button></form>
-    {% if manual_selected %}<span class="pill ok">Отобрано</span>{% else %}<form style="display:inline" method="post" action="{% url 'news_select' item.pk %}">{% csrf_token %}<button>Отобрано</button></form>{% endif %}
+    {% if manual_selected %}<span class="pill ok">Отправлена в публикацию</span>{% else %}<form style="display:inline" method="post" action="{% url 'news_select' item.pk %}">{% csrf_token %}<button>Отправить в публикацию</button></form>{% endif %}
   </div>
+  {% if manual_selected %}
+  <p class="muted">Новость стоит в очереди на выход. Отменить нельзя: снять пост можно будет только вручную на каждой площадке.</p>
+  {% else %}
+  <p class="muted">Новость выйдет в Telegram, на wildcar.ru и в ВК примерно через два часа. Отменить нельзя, снять пост можно будет только вручную.</p>
+  {% endif %}
   <div class="text">{{ item.body_text|default:"Содержимое удалено по retention policy" }}</div>
 </div>
 {% if translation %}

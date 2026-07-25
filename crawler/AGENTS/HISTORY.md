@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-25 · Step 0 of the UI concept finished: pages of 50, honest count, honest button
+- What: `news_list` pages through a `Paginator` (50 per page) instead of slicing at 200; the page shows the real total, the range on screen and links that carry the filters. Nginx `proxy_read_timeout`/`proxy_send_timeout` go to 120s. The «Отобрано» button is now «Отправить в публикацию» with a line saying what it does: Telegram, wildcar.ru and VK in about two hours, no undo. Three tests added (54 pass).
+- Why: the old slice hid both the rest of the corpus and its size; 60s cut off the synchronous translation call with a 504 while the model kept working; and the button's label said nothing about the post it sets in motion.
+- Files: crawler/collector/views.py, crawler/templates/collector/{news_list,news_detail}.html, crawler/deploy/nginx/posinus.conf, crawler/tests/{test_news_filters,test_news_actions}.py, crawler/AGENTS/SPEC.md
+- Next: step 2 of `docs/ui-concept.md` — selection thresholds into the crawler DB (two tables plus a view for the pipeline), then the selection screen.
+
 ## 2026-07-25 · News list filters read the latest verdict, not every event
 - What: The decision filter now matches the `exchange_latest_reviews` view through a new unmanaged `LatestReview` model (state-only migration `0007_latestreview`) via `Exists`, and score ranges filter on `POSINUS_MANUAL_SCORE_SELECTOR`. Three tests added; the `make_review` fixture defaults to `news-evaluator`, which two tests asserted on. 52 pass.
 - Why: The contract corrects a verdict by appending an event, so filtering the raw table matched superseded decisions (a news item with `skipped` then `not_positive` showed up under both) and the join duplicated rows. The manual review snapshots the evaluator's scores under `operator:*`, so axis filters were matching one evaluation twice. Found while reviewing the operator UI concept.

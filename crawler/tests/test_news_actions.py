@@ -117,7 +117,7 @@ def test_select_action_snapshots_scores_and_is_idempotent(
         EvaluationScore.objects.filter(review_event=event).values_list("characteristic_id", "value")
     ) == {"positivity": 8, "negativity": 1}
     assert item.occurrences.get().url == "https://alpha.example/action-selected"
-    assert "Отобрано" in second.content.decode()
+    assert "Отправлена в публикацию" in second.content.decode()
 
 
 @pytest.mark.django_db

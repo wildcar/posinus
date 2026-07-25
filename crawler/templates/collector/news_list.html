@@ -21,6 +21,7 @@
 .axis-range input[type=range]:focus{outline:none}
 .axis-range input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 3px #9ecbdb}
 .axis-range input[type=range]:focus-visible::-moz-range-thumb{box-shadow:0 0 0 3px #9ecbdb}
+.pager{display:flex;align-items:center;gap:1rem;margin:1rem 0}
 </style>
 {% endblock %}
 {% block content %}
@@ -76,7 +77,7 @@
     <button>Применить</button>
   </div>
 </form>
-<p class="muted">Найдено: {{ items|length }}{% if items|length == 200 %} (показаны первые 200){% endif %}</p>
+<p class="muted">Найдено: {{ total_count }}{% if page.paginator.num_pages > 1 %} · показаны {{ page.start_index }}–{{ page.end_index }}{% endif %}</p>
 <table>
   <tr><th>Дата</th><th>Заголовок</th><th>Язык</th><th>Источник</th></tr>
   {% for item in items %}
@@ -90,6 +91,13 @@
   <tr><td colspan="4">Новостей нет</td></tr>
   {% endfor %}
 </table>
+{% if page.paginator.num_pages > 1 %}
+<p class="pager">
+  {% if page.has_previous %}<a class="button" href="?{% if page_params %}{{ page_params }}&amp;{% endif %}page={{ page.previous_page_number }}">Предыдущие 50</a>{% endif %}
+  <span class="muted">Страница {{ page.number }} из {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a class="button" href="?{% if page_params %}{{ page_params }}&amp;{% endif %}page={{ page.next_page_number }}">Показать ещё 50</a>{% endif %}
+</p>
+{% endif %}
 <script>
 (function () {
   var form = document.getElementById("news-filters");

@@ -3,6 +3,7 @@ import logging
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
 from django.db.models import Count, Exists, Min, OuterRef
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404, redirect, render
@@ -26,6 +27,7 @@ from .services.translation import TranslationError, translate_news
 
 SCORE_MIN = 0
 SCORE_MAX = 10
+NEWS_PAGE_SIZE = 50
 
 NEWS_SORT_ORDERS = {
     "date_desc": ("-display_date", "-id"),
@@ -166,8 +168,18 @@ def news_list(request):
         sort = "date_desc"
     items = items.order_by(*NEWS_SORT_ORDERS[sort])
 
+    # Pages of a fixed size with the real total, instead of the former slice of
+    # 200 rows that hid both the rest of the corpus and its size.
+    paginator = Paginator(items, NEWS_PAGE_SIZE)
+    page = paginator.get_page(request.GET.get("page"))
+    other_params = request.GET.copy()
+    other_params.pop("page", None)
+
     context = {
-        "items": items[:200],
+        "page": page,
+        "items": page.object_list,
+        "total_count": paginator.count,
+        "page_params": other_params.urlencode(),
         "decision": decision,
         "sort": sort,
         "sources": Source.objects.order_by("name"),
@@ -228,11 +240,17 @@ def news_select(request, pk):
     item = get_object_or_404(NewsItem, pk=pk)
     _, created, score_count = mark_selected(item, request.user.get_username())
     if not created:
-        messages.success(request, "Новость уже отмечена как отобранная.")
+        messages.success(request, "Новость уже отправлена в публикацию, повторное нажатие ничего не меняет.")
     elif score_count:
-        messages.success(request, f"Новость отобрана. Сохранено баллов: {score_count}.")
+        messages.success(
+            request,
+            f"Новость отправлена в публикацию, выйдет примерно через два часа. Сохранено баллов: {score_count}.",
+        )
     else:
-        messages.success(request, "Новость отобрана. У неё пока нет баллов автоматической оценки.")
+        messages.success(
+            request,
+            "Новость отправлена в публикацию, выйдет примерно через два часа. Баллов автоматической оценки у неё пока нет.",
+        )
     return redirect("news_detail", pk=pk)
 
 

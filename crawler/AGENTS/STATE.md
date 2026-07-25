@@ -16,7 +16,7 @@ Operate a single-host multilingual news crawler whose source list improves from 
 - The exchange contract carries the News Evaluator axis set v1: 20 integer scores from 0 to 10, append-only review events and scores, and latest-score views.
 - The news list sorts and filters by source, decision, and all evaluation axes. News detail shows the latest scores per selector as a heat scale.
 - News detail now has a model-backed Russian translation action. It saves the translated title, full text, short summary, actual model identifier, and generation time. Router address, token, provider, model, tier, temperature, token limit, and timeout are environment settings; the default model matches the pipeline's `deepseek-v4-pro`.
-- News detail now has an idempotent operator «Отобрано» action. It creates an append-only positive review and snapshots the configured evaluator's latest scores; occurrences retain source URLs for future weight fitting.
+- News detail now has an idempotent operator «Отправить в публикацию» action. It creates an append-only positive review and snapshots the configured evaluator's latest scores; occurrences retain source URLs for future weight fitting.
 - Retention deletes stored translations when it purges the original full text after 90 days.
 - Production runs commit `b885377` since 2026-07-25 20:07 UTC (updated with `update-ubuntu.sh`); migrations through `0007_latestreview` are applied, web/worker/model-router services are active, HTTPS `/login/` returns 200, SQLite integrity is `ok`. Pre-update backup: `/var/lib/posinus/backups/pre-update-20260725T195627Z.sqlite3`.
 - The production crawler environment carries the router token as `POSINUS_ROUTER_AUTH_TOKEN`, plus `POSINUS_TRANSLATION_PROVIDER`/`POSINUS_TRANSLATION_MODEL` which the file never had before 2026-07-25; web was restarted and its loaded environment was verified.
@@ -26,6 +26,10 @@ Operate a single-host multilingual news crawler whose source list improves from 
 - Agent-authored Russian text follows `.claude/skills/humanizer-ru/SKILL.md`; collected article content stays verbatim.
 - Retention: `purge_rejected_content(days=3)` tombstones news with a `not_positive` verdict and no `positive` one (skipped/undecided/never-reviewed/selected are kept), wired into `maintenance`. Committed, not yet deployed. The external evaluator's backfill already ran on prod (latest reviews: 120 positive, 6108 not_positive), so the first prod run will tombstone ~4230 rejected items older than 3 days.
 
+- Step 0 of `../docs/ui-concept.md` is done as of 2026-07-25: the news list pages by 50 with the
+  real total and filter-preserving links (no more `[:200]` slice), Nginx read/send timeouts are
+  120s so the synchronous translation call is not cut off at 60s, and the operator button reads
+  «Отправить в публикацию» with a line about what it triggers. 54 tests pass.
 - Two news-list filter defects fixed on 2026-07-25, both found while reviewing the operator UI
   concept. The decision filter matched the raw event table, so a news item whose verdict was
   corrected (the pipeline's backfill did exactly that) matched both its old and its new
@@ -36,10 +40,11 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 ## Next
 
-1. Deploy the rejected-news retention; expect the first maintenance run to tombstone ~4230 items.
-2. Watch live translation errors; malformed model formatting now gets one automatic correction attempt.
-3. Register every local SQLite client service in `/etc/posinus/update-services` and create the UI operator if still pending.
-4. Watch crawl runs and positive-yield statistics; tune per-site rules where extraction fails.
+1. Step 2 of `../docs/ui-concept.md`: selection thresholds move into the crawler DB (two tables plus `exchange_active_selection_profile` for the pipeline), one commit with both specs and `load_profile`.
+2. Deploy the rejected-news retention; expect the first maintenance run to tombstone ~4230 items.
+3. Watch live translation errors; malformed model formatting now gets one automatic correction attempt.
+4. Register every local SQLite client service in `/etc/posinus/update-services` and create the UI operator if still pending.
+5. Watch crawl runs and positive-yield statistics; tune per-site rules where extraction fails.
 
 ## Open questions
 
