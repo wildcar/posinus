@@ -1,15 +1,34 @@
+# Local agent / IDE state — do not commit.
+# Exception: vendored project skills must travel with the repo.
+.claude/*
+!.claude/skills/
+
+# Environment / secrets
+.env
+.env.local
+.env*.local
+
+# Python
 .venv/
 __pycache__/
 *.py[cod]
 *.egg-info/
+
+# Test / coverage caches
 .pytest_cache/
 .pytest-tmp/
 .coverage
 htmlcov/
-data/*.sqlite3
-data/*.sqlite3-*
-data/*.lock
-data/backups/
-data/logs/
-staticfiles/
-.env
+
+# Crawler dev state: local SQLite, logs, backups, collected static
+crawler/data/*.sqlite3
+crawler/data/*.sqlite3-*
+crawler/data/*.lock
+crawler/data/backups/
+crawler/data/logs/
+crawler/staticfiles/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
