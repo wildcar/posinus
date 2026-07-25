@@ -7,7 +7,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Count, Exists, Max, Min, OuterRef
+from django.db.models import Count, Exists, Max, Min, OuterRef, Q
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -49,11 +49,16 @@ from .services.pipeline_mailbox import (
 )
 from .services.pipeline_status import machine_block
 from .services.selection import Bound, active_profile, explain, profile_bounds
+from .services.stages import stages_for
 from .services.translation import TranslationError, translate_news
 
 SCORE_MIN = 0
 SCORE_MAX = 10
 NEWS_PAGE_SIZE = 50
+
+# Two axis columns by default, changeable per request: seven columns is the
+# limit of a readable row, and axes would otherwise pile up until nothing fits.
+DEFAULT_SCORE_COLUMNS = ("positivity", "interestingness")
 
 NEWS_SORT_ORDERS = {
     "date_desc": ("-display_date", "-id"),
@@ -270,6 +275,12 @@ def news_list(request):
         latest = LatestReview.objects.filter(news_id=OuterRef("pk"), decision=decision)
         items = items.filter(Exists(latest))
 
+    # Search covers the body, not only the headline: a person remembers «была
+    # новость про кота в Норвегии» and never the exact title.
+    query = request.GET.get("q", "").strip()
+    if query:
+        items = items.filter(Q(title__icontains=query) | Q(body_text__icontains=query))
+
     raw_source = request.GET.get("source", "")
     selected_source = int(raw_source) if raw_source.isdigit() else None
     if selected_source is not None:
@@ -314,9 +325,36 @@ def news_list(request):
     other_params = request.GET.copy()
     other_params.pop("page", None)
 
+    # Two extra queries for the whole page: the verdicts and the pipeline state.
+    page_items = list(page.object_list)
+    stages = stages_for([item.pk for item in page_items])
+    score_columns = [
+        axis for axis in request.GET.getlist("axis") or DEFAULT_SCORE_COLUMNS
+        if axis in {c.key for c in EvaluationCharacteristic.objects.all()}
+    ] or list(DEFAULT_SCORE_COLUMNS)
+    column_scores = {
+        (row.news_id, row.characteristic_key): row.value
+        for row in LatestEvaluationScore.objects.filter(
+            selector_name=score_selector,
+            news_id__in=[item.pk for item in page_items],
+            characteristic_key__in=score_columns,
+        )
+    }
+    axis_titles = {c.key: c.title for c in EvaluationCharacteristic.objects.all()}
+    for item in page_items:
+        item.stage = stages.get(item.pk)
+        item.column_scores = [
+            {"key": axis, "title": axis_titles.get(axis, axis), "value": column_scores.get((item.pk, axis))}
+            for axis in score_columns
+        ]
+
     context = {
         "page": page,
-        "items": page.object_list,
+        "items": page_items,
+        "query": query,
+        "score_columns": score_columns,
+        "score_headers": [axis_titles.get(axis, axis) for axis in score_columns],
+        "all_axes": [{"key": c.key, "title": c.title} for c in EvaluationCharacteristic.objects.all()],
         "total_count": paginator.count,
         "page_params": other_params.urlencode(),
         "decision": decision,

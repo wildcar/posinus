@@ -173,3 +173,60 @@ def test_paging_keeps_the_active_filters(operator, corpus, make_news):
     assert response.context["total_count"] == 61
     assert f"source={corpus['beta'].pk}&amp;page=2" in html
     assert corpus["old_alpha"].pk not in _ids(response)
+
+
+@pytest.mark.django_db
+def test_search_covers_the_body_not_only_the_title(operator, corpus, make_news):
+    item = make_news("Nothing in the title", corpus["alpha"], day=13, seed="body-search")
+    item.body_text = "История про кота в Норвегии"
+    item.save(update_fields=["body_text"])
+
+    found = _ids(operator.get(reverse("news_list"), {"q": "кота в Норвегии"}))
+
+    assert found == [item.pk]
+
+
+@pytest.mark.django_db
+def test_stage_column_shows_the_verdict_in_one_word(operator, corpus):
+    html = operator.get(reverse("news_list")).content.decode()
+
+    assert "Стадия" in html
+    # selected by the machine but the preparer has not reached it yet
+    assert "ждёт подготовки" in html
+    assert "не оценена" in html  # unscored has no review at all
+
+
+@pytest.mark.django_db
+def test_a_human_overriding_the_machine_is_marked(operator, corpus, make_review):
+    make_review(corpus["new_beta"], {"positivity": 3}, key="machine-no", decision="not_positive")
+    make_review(corpus["new_beta"], {"positivity": 9}, key="manual", selector="operator:operator")
+
+    html = operator.get(reverse("news_list")).content.decode()
+
+    assert "решения разошлись" in html
+
+
+@pytest.mark.django_db
+def test_score_columns_are_choosable(operator, corpus):
+    default_html = operator.get(reverse("news_list")).content.decode()
+    chosen_html = operator.get(reverse("news_list"), {"axis": ["cuteness"]}).content.decode()
+
+    assert "Позитивность" in default_html and "Интересность" in default_html
+    assert "Милота" in chosen_html
+    assert chosen_html.count('class="axis-col"') == 1
+
+
+@pytest.mark.django_db
+def test_extra_sources_read_as_words(operator, corpus, source_factory=None):
+    from collector.models import NewsOccurrence
+
+    NewsOccurrence.objects.create(
+        news_item=corpus["old_alpha"], source=corpus["beta"],
+        url="https://beta.example/dup", normalized_url="https://beta.example/dup",
+        canonical_url="https://beta.example/dup", extraction_method="rss",
+    )
+
+    html = operator.get(reverse("news_list")).content.decode()
+
+    assert "и ещё 1" in html
+    assert "+1" not in html

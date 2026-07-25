@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-25 · The flow shows where each news item stands
+- What: New `stages.py` computes the two-value stage (verdict × progress) for a whole page in two queries and marks a row where the operator overrode the machine; the list now shows it in one word, plus operator-chosen score columns (two by default), «и ещё 2» instead of «+2», and search over the body text. 5 tests added, 108 pass.
+- Why: step 5 of `../docs/ui-concept.md`. The straight chain «собрана → … → опубликована» is a lie: a news item can be rejected by the machine and selected by a human at once, and be in Telegram while failing on VK. Search over the title alone was useless — a person remembers «кот в Норвегии», never the headline.
+- Files: crawler/collector/services/stages.py, crawler/collector/views.py, crawler/templates/collector/news_list.html, crawler/tests/test_news_filters.py, crawler/AGENTS/SPEC.md
+- Next: the news card — preparation and publication tabs, then editing the retelling through the mailbox.
+
 ## 2026-07-25 · The dashboard refreshes itself once a minute
 - What: The live blocks (stop cock, «Сейчас», «Требует внимания», «Машина») moved into one included template rendered both by the page and by `fragment/dashboard/`; twenty lines of `fetch` refresh it every 60s. An expired session gets 401 and the loop stops, a request in flight blocks the next, a hidden tab does not poll, and an unchanged version tag answers 204. 2 tests added, 103 pass. Notifications on the pipeline side in the same commit.
 - Why: step 4 / 8.6 of `../docs/ui-concept.md`. All four of those are the things that are usually found in production: the classic one is a login form appearing inside a dashboard block after the session dies.

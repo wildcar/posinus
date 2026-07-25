@@ -22,11 +22,24 @@
 .axis-range input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 3px #9ecbdb}
 .axis-range input[type=range]:focus-visible::-moz-range-thumb{box-shadow:0 0 0 3px #9ecbdb}
 .pager{display:flex;align-items:center;gap:1rem;margin:1rem 0}
+.search{display:flex;flex-direction:column;gap:.25rem;font-size:.9rem;color:#61717d}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.axis-col{font-size:.8rem;color:#61717d}
+.columns{margin:.6rem 0}
+.columns summary{cursor:pointer;color:#176b87}
+.axis-choice{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.2rem .8rem;margin:.5rem 0}
+.axis-choice label{display:flex;gap:.4rem;align-items:center;font-size:.9rem;color:#17212b}
+.axis-choice input{width:auto}
 </style>
 {% endblock %}
 {% block content %}
 <h1>Новости</h1>
 <form method="get" id="news-filters">
+  <div class="card">
+    <label class="search">Поиск по заголовку и тексту
+      <input type="search" name="q" value="{{ query }}" placeholder="кот в Норвегии" data-default="">
+    </label>
+  </div>
   <div class="card filter-bar">
     <label>Сортировка
       <select name="sort" data-default="date_desc">
@@ -77,18 +90,41 @@
     <button>Применить</button>
   </div>
 </form>
+<details class="columns">
+  <summary>Колонки оценок</summary>
+  <form method="get">
+    {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
+    <p class="muted">Отмеченные оси показываются в списке. Больше двух-трёх не помещается: строка перестаёт читаться.</p>
+    <div class="axis-choice">
+      {% for axis in all_axes %}
+      <label><input type="checkbox" name="axis" value="{{ axis.key }}"{% if axis.key in score_columns %} checked{% endif %}> {{ axis.title }}</label>
+      {% endfor %}
+    </div>
+    <button>Показать эти</button>
+  </form>
+</details>
 <p class="muted">Найдено: {{ total_count }}{% if page.paginator.num_pages > 1 %} · показаны {{ page.start_index }}–{{ page.end_index }}{% endif %}</p>
 <table>
-  <tr><th>Дата</th><th>Заголовок</th><th>Язык</th><th>Источник</th></tr>
+  <tr>
+    <th>Дата</th><th>Заголовок</th><th>Источники</th><th>Стадия</th>
+    {% for title in score_headers %}<th class="axis-col">{{ title }}</th>{% endfor %}
+  </tr>
   {% for item in items %}
   <tr>
-    <td>{{ item.display_date }}</td>
+    <td class="num">{{ item.display_date|date:"d.m H:i" }}</td>
     <td><a href="{% url 'news_detail' item.pk %}">{{ item.title }}</a></td>
-    <td>{{ item.language|default:"—" }}</td>
-    <td>{{ item.primary_source|default:"—" }}{% if item.source_count > 1 %} <span class="pill">+{{ item.source_count|add:"-1" }}</span>{% endif %}</td>
+    <td>{{ item.primary_source|default:"—" }}{% if item.source_count > 1 %} <span class="muted">и ещё {{ item.source_count|add:"-1" }}</span>{% endif %}</td>
+    <td>
+      {{ item.stage.title }}
+      {% if item.stage.disagreement %}<span class="pill" title="Машина отклонила, оператор отправил в публикацию">решения разошлись</span>{% endif %}
+      {% if item.stage.platforms %}<br><span class="muted">{{ item.stage.platforms|join:" · " }}</span>{% endif %}
+    </td>
+    {% for score in item.column_scores %}
+    <td class="num" title="{{ score.title }}">{% if score.value is not None %}{{ score.value }}{% else %}—{% endif %}</td>
+    {% endfor %}
   </tr>
   {% empty %}
-  <tr><td colspan="4">Новостей нет</td></tr>
+  <tr><td colspan="6">Новостей нет</td></tr>
   {% endfor %}
 </table>
 {% if page.paginator.num_pages > 1 %}
