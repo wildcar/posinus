@@ -13,8 +13,8 @@ prepared yet, this:
 
 Single-file, stdlib-only. Reuses the MCP router client from evaluator.py. The
 crawler's exchange contract forbids writing anything but the two exchange tables,
-so all prepared artifacts (pages, images, labels) live in the evaluator's own
-database and media directory, keyed by news_id.
+so all prepared artifacts (the markdown retelling, images, labels) live in the
+pipeline's own database and media directory, keyed by news_id.
 
 Behavior: AGENTS/SPEC.md, section «Подготовка отобранных новостей».
 """
@@ -504,7 +504,7 @@ def run(cfg: PreparerConfig, router_cfg: "evaluator.Config", limit: int, dry_run
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Prepare selected news into HTML pages.")
+    parser = argparse.ArgumentParser(description="Prepare selected news into markdown retellings.")
     parser.add_argument("--limit", type=int, default=5, help="batch size (default 5)")
     parser.add_argument("--news-id", type=int, default=None, help="prepare only this news id")
     parser.add_argument("--dry-run", action="store_true", help="fetch, retell and render, but write nothing")

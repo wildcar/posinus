@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-25 · Prod migrated to posinus; Nginx static path fixed
+- What: Ran the posinus migration on the host: one checkout at `/opt/posinus`, `/etc/posinus/crawler.env`, `/var/lib/posinus/posinus.sqlite3`, `POSINUS_*`, `posinus-web`/`posinus-worker` under user `posinus`. Found and fixed a gap the script had missed — Nginx still aliased `/static/` to `/opt/newscrawler/staticfiles/`, so pages returned 200 while every CSS and JS file 404'd; the script now repoints and reloads Nginx itself. Removed the `.pre-posinus` rollback trees and both old local clones.
+- Why: The split repositories and the newscrawler naming were retired; a half-renamed host is worse than either end state.
+- Files: crawler/deploy/migrate-to-posinus.sh, crawler/AGENTS/STATE.md
+- Next: Deploy the rejected-news retention.
+
 ## 2026-07-25 · Merged into the posinus monorepo; prod rename prepared
 - What: This repository is now `posinus`: the crawler moved to `crawler/`, positive-news-evaluator came in as `pipeline/` with its history (git subtree), shared docs moved to the root (`AGENTS.md`, `AGENTS/{MEMORY,ENV}.md`, `docs/contracts/`, `docs/deployment.md`), and paths/units/accounts/env prefix were renamed to the posinus scheme (`posinus_crawler` package, `POSINUS_*`, `/opt/posinus/crawler`, `posinus-web`/`posinus-worker`, user `posinus`). `update-ubuntu.sh` now separates REPO_DIR from APP_DIR and `deploy/migrate-to-posinus.sh` migrates the host.
 - Why: The exchange contract is owned by crawler migrations and consumed by the pipeline, so axis changes needed two commits across two repos with no atomicity; an agent working in one repo also had no memory of the other.

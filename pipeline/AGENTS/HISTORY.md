@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-25 · deepseek-v4-pro plus the token budget it needs; prod verified
+- What: DeepSeek retired `deepseek-chat`, so every evaluator and preparer run had been failing with HTTP 400. Switched to `deepseek-v4-pro` (owner's choice) and registered it manually in model-router-mcp, whose `bootstrap.py` still seeds only the retired names. The rename alone was not enough: v4-pro spends ~950 completion tokens on one 20-axis evaluation, so against the old 1000 cap the provider returned empty content, logged as "DeepSeek returned an empty response". Reproduced it against the router (fails at 1000, succeeds at 2000 using 963), then made the budget configurable with a 4000 default for both scripts.
+- Why: A model-name swap that leaves 6 of 11 news failing is not a fix, and the failure mode reads as a prompt problem while actually being a token cap.
+- Files: pipeline/evaluator.py, pipeline/preparer.py, pipeline/deploy/pipeline.env.example, pipeline/AGENTS/STATE.md, ../AGENTS/ENV.md
+- Next: Prompt calibration; put real v4-pro pricing in the router registry.
+
 ## 2026-07-25 · Merged into the posinus monorepo as pipeline/
 - What: positive-news-evaluator became the `pipeline/` directory of the `posinus` repository (history preserved via git subtree), next to `crawler/`. Units, paths and accounts renamed: `posinus-{evaluator,preparer,publisher}`, `/opt/posinus/pipeline`, `/etc/posinus/pipeline.env`, `/var/lib/posinus/pipeline`, user `posinus-pipeline`. The scripts now run in place from the checkout instead of being copied, so a crawler update ships new pipeline code. Added `tests/test_stdlib_only.py` (77 tests total) to guard the stdlib-only and no-crawler-imports invariants.
 - Why: One machine, one contract, one owner — and the crawler's `docs/database-contract.md` was already a cross-repo file dependency. Sharing a repository with Django also made an accidental third-party import easy, hence the guard test.

@@ -13,15 +13,22 @@ a publish-ready retelling, and posts them to the platforms.
 ## Now
 
 - Since 2026-07-25 this is the `pipeline/` directory of the `posinus` repository, next to
-  `crawler/`. Prod names in the repo are `posinus-{evaluator,preparer,publisher}` under
-  `/opt/posinus/pipeline`, but **prod itself has not been migrated yet**: the live host still
-  runs `news-{evaluator,preparer,publisher}` from `/opt/news-evaluator`. See Next.
-
+  `crawler/`, and prod is migrated: the `posinus-{evaluator,preparer,publisher}` timers run
+  the scripts in place from `/opt/posinus/pipeline`, config in `/etc/posinus/pipeline.env`,
+  state in `/var/lib/posinus/pipeline`, user `posinus-pipeline`. A crawler update ships
+  pipeline code too, so `install.sh` is only needed for unit or config changes.
+- The model is `deepseek-v4-pro`: DeepSeek retired `deepseek-chat`, which had every run
+  failing with HTTP 400 until 2026-07-25. It also needed a bigger token budget — v4-pro
+  spends ~950 completion tokens on one evaluation, and against the old 1000 cap the provider
+  returned empty content. `EVALUATOR_MAX_TOKENS` and `PREPARER_MAX_TOKENS` default to 4000.
+- End-to-end verified on prod after the switch: evaluator 6 evaluated / 0 failed, preparer
+  5 prepared / 0 failed, publisher 5 published with telegram, site and vk all `ok`. VK now
+  lands on `vk.ru/wall-233237778_*`, so the api.vk.ru switch works.
 - `evaluator.py` scores news on 20 axes via model-router-mcp and, with the `default`
   profile, writes `positive`/`not_positive` plus scores in one transaction. LIVE on prod
   (every 10 min); backfill done. ~120 positive of ~6200.
 - `preparer.py` turns selected news into a **markdown** retelling (H1 title, paragraphs,
-  `Источник: [имя](url)`) plus downloaded illustrations, in the evaluator-owned SQLite +
+  `Источник: [имя](url)`) plus downloaded illustrations, in the pipeline-owned SQLite +
   media dir. Canonical form is `prepared_item.retold_body_md`; no HTML page anymore. LIVE
   on prod (every 15 min).
 - `publisher.py` posts prepared news, fully automatically by timer, to Telegram @posinus,
@@ -32,18 +39,17 @@ a publish-ready retelling, and posts them to the platforms.
   on so it can't block the queue. LIVE on prod: Telegram + wildcar.ru + VK all working.
 - VK works end-to-end now: a classic `vk1.` USER token of a group admin (obtained via the
   grandfathered Kate Mobile app_id) sits in the env with `VK_GROUP_ID=233237778`; post
-  wall-233237778_2 landed through the pipeline. `vk_call` targets `api.vk.ru` in the repo.
+  wall-233237778_2 landed through the pipeline. `vk_call` targets `api.vk.ru`, live on prod since 2026-07-25.
 
 ## Next
 
-1. Owner: run the prod migration, in this order. It replaces the old redeploy step.
-   `sudo bash ~keeper/repo/posinus/crawler/deploy/migrate-to-posinus.sh` (dry run first, then
-   `--apply`), then `sudo bash /opt/posinus/pipeline/deploy/install.sh` (that one does live under /opt, after the migration) to recreate the three
-   timers under their new names. The migration also lands the code prod is still missing:
-   `api.vk.com` → `api.vk.ru`, the 2h pacing, the give-up rule, the markdown retelling.
-2. After the migration, post one item with `--news-id` to confirm the VK photo upload path
-   works against api.vk.ru; easy to revert to api.vk.com if it does not.
-3. Prompt calibration and soft profiles («Россия» / «Международное»).
+1. Prompt calibration and soft profiles («Россия» / «Международное»). The `default` profile
+   selected 0 of 6 in the first clean v4-pro batch, so calibration should account for how the
+   new model scores, not only for the thresholds.
+2. Register `deepseek-v4-pro` properly in model-router-mcp: its `bootstrap.py` still seeds
+   only the retired `deepseek-chat` and `deepseek-reasoner`, so the live entry is a manual
+   registry row whose prices were copied from deepseek-chat. Costs in the logs are estimates
+   until the real v4-pro pricing lands in `/registry`.
 
 ## Open questions
 
