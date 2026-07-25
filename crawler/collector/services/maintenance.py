@@ -208,4 +208,59 @@ def create_backup(keep=7):
     for old in backups[keep:]:
         old.unlink()
     OperatorEvent.objects.create(event_type="backup_success", message=f"Создана резервная копия {filename.name}", details={"path": str(filename)})
+    backup_pipeline_db(keep=keep)
+    return filename
+
+
+def backup_pipeline_db(keep=7):
+    """Copy the pipeline's own database into the same rotation.
+
+    It holds the retellings, the captions and the links to published posts, and
+    nobody was copying it: losing it would mean publishing everything again. The
+    copy is read-only from here — `sqlite3.backup` on a `mode=ro` connection —
+    so a failure is reported and never touches the pipeline's data.
+    """
+    source_path = Path(settings.POSINUS_PIPELINE_DB_PATH)
+    try:
+        if not source_path.exists():
+            return None  # no pipeline on this machine; not a failure
+    except OSError:
+        return None      # not even visible from here; the crawler backup stands on its own
+    backup_dir = settings.POSINUS_BACKUP_DIR
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    filename = backup_dir / f"pipeline-{timezone.now():%Y%m%d-%H%M%S}.sqlite3"
+    source = destination = None
+    error = None
+    try:
+        source = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True, timeout=30)
+        destination = sqlite3.connect(str(filename))
+        source.backup(destination)
+        result = destination.execute("PRAGMA integrity_check").fetchone()[0]
+        if result != "ok":
+            raise RuntimeError(f"Backup integrity check failed: {result}")
+    except Exception as exc:
+        error = exc
+    finally:
+        if destination is not None:
+            destination.close()
+        if source is not None:
+            source.close()
+    if error is not None:
+        if filename.exists():
+            filename.unlink()
+        # A missing pipeline backup must not fail the crawler's own maintenance:
+        # the crawler DB is already safe by this point.
+        OperatorEvent.objects.create(
+            event_type="pipeline_backup_failed",
+            message=f"Не удалось скопировать базу конвейера: {error}",
+            details={"path": str(filename)},
+        )
+        return None
+    for old in sorted(backup_dir.glob("pipeline-*.sqlite3"), reverse=True)[keep:]:
+        old.unlink()
+    OperatorEvent.objects.create(
+        event_type="pipeline_backup_success",
+        message=f"Создана резервная копия базы конвейера {filename.name}",
+        details={"path": str(filename)},
+    )
     return filename

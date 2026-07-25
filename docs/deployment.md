@@ -384,10 +384,11 @@ sudo bash /opt/posinus/pipeline/deploy/install.sh
 
 1. проверяет, что `/var/lib/posinus` существует и код лежит в `/opt/posinus/pipeline`;
 2. создаёт пользователя `posinus-pipeline` в группе `posinus`;
-3. создаёт `/var/lib/posinus/pipeline` и `/var/lib/posinus/pipeline/media`;
-4. кладёт `/etc/posinus/pipeline.env` из шаблона и подставляет туда токен роутера из `/opt/model-router-mcp/.env`;
-5. ставит и включает шесть units: `posinus-evaluator`, `posinus-preparer`, `posinus-publisher` (по service и timer на каждый);
-6. регистрирует три service в `/etc/posinus/update-services`, чтобы обновление краулера останавливало их перед миграциями.
+3. создаёт `/var/lib/posinus/pipeline`, `/var/lib/posinus/pipeline/media` и почтовый ящик `/var/lib/posinus/pipeline/requests`;
+4. раскладывает групповой доступ для веба (раздел 16);
+5. кладёт `/etc/posinus/pipeline.env` из шаблона и подставляет туда токен роутера из `/opt/model-router-mcp/.env`;
+6. ставит и включает units: `posinus-evaluator`, `posinus-preparer`, `posinus-publisher` (service и timer на каждый), `posinus-evaluator-backfill.service` без таймера и четыре `.path` unit почтового ящика;
+7. регистрирует все четыре service в `/etc/posinus/update-services`, чтобы обновление краулера останавливало их перед миграциями.
 
 Дальше заполните секреты платформ в `/etc/posinus/pipeline.env`. Платформа включается только когда её секрет задан, так что таймер публикации до этого работает впустую и ничего не отправляет. Параметры и повадки каждого сервиса описаны в [../pipeline/docs/services.md](../pipeline/docs/services.md).
 
@@ -400,3 +401,29 @@ sudo systemctl start posinus-evaluator.service
 ```
 
 Код конвейера обновляется вместе с краулером через `update-ubuntu.sh`: скрипты работают прямо из checkout. Повторно запускать `install.sh` нужно только когда изменились units или шаблон конфигурации.
+
+## 16. Дать вебу читать базу конвейера
+
+Половина машины живёт в базе конвейера: пересказы, картинки, ссылки на вышедшие посты, строки прогонов. Интерфейс должен её читать, писать в неё он не должен и не будет - соединение открывается в режиме `mode=ro` и с `PRAGMA query_only = ON`.
+
+Права раскладывает `install.sh` (раздел 15), отдельно запускать ничего не нужно. Что именно он делает и почему:
+
+| Путь | Права | Зачем |
+|---|---|---|
+| `/var/lib/posinus/pipeline` | `posinus-pipeline:posinus`, `2710` | веб проходит внутрь, но не читает список файлов |
+| `/var/lib/posinus/pipeline/evaluator.sqlite3` и `-wal`, `-shm` | группа `posinus`, `0640` | чтение базы; sidecar-файлы обязательны, без них SQLite не откроет WAL |
+| `/var/lib/posinus/pipeline/media` | `posinus-pipeline:posinus`, `2750` + default ACL | галерея картинок в карточке новости |
+| `/var/lib/posinus/pipeline/requests` | `posinus-pipeline:posinus`, `2770` | почтовый ящик: сюда веб пишет стоп-кран и заявки на запуск |
+
+Бит setgid и default ACL тут важнее самих прав на существующие файлы. Значение имеют файлы, которые появятся потом: новый `-wal`, свежая картинка, следующая заявка. Без setgid и ACL они уедут в группу `posinus-pipeline`, и интерфейс ослепнет через неделю после установки в случайный момент. Ровно та же логика описана для основной базы в разделе 3.
+
+Права на запись по файловой системе у веба формально остаются - и это осознанно. SQLite восстанавливает журнал и создаёт служебные файлы, а запрет на уровне прав дал бы ложное спокойствие и сломался бы позже и в неожиданном месте. Гарантия того, что веб не пишет, - это режим соединения, а не права.
+
+Проверка (веб работает под пользователем `posinus`):
+
+```bash
+sudo -u posinus sqlite3 -readonly /var/lib/posinus/pipeline/evaluator.sqlite3 "select service, status, started_at from service_run order by id desc limit 5;"
+sudo -u posinus test -r /var/lib/posinus/pipeline/evaluator.sqlite3-wal && echo "sidecar доступен"
+```
+
+Если база недоступна, интерфейс не падает: на пульте вместо блока «Машина» появляется строчка «нет связи с базой конвейера». На машине разработчика этой базы нет вовсе, и так и должно быть.

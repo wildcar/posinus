@@ -35,6 +35,34 @@
   <p class="muted">Пока стоит пауза, ни один пост не уйдёт ни на одну площадку. Очередь копится.</p>
   {% endif %}
 </div>
+<div class="card machine">
+  <h2>Машина</h2>
+  {% if pipeline_error %}
+  <p class="muted">Нет связи с базой конвейера, поэтому подготовку и публикацию сейчас не видно.</p>
+  {% else %}
+  <table>
+    <tr><th>Что делает</th><th>Когда</th><th>Итог</th></tr>
+    {% for run in service_runs %}
+    <tr>
+      <td>{{ run.title }}</td>
+      <td>{{ run.finished_at|default:run.started_at }}</td>
+      <td>
+        {% if run.status == "ok" %}<span class="ok">ок</span>
+        {% elif run.status == "failed" %}<span class="bad">ошибка</span>
+        {% elif run.status == "interrupted" %}<span class="bad">прервался</span>
+        {% else %}идёт{% endif %}
+        <span class="muted">— {{ run.summary }}</span>
+      </td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="3" class="muted">Прогонов ещё не было: строка появляется после первого запуска новой версии.</td></tr>
+    {% endfor %}
+  </table>
+  {% if pipeline_queue %}
+  <p class="muted">В базе конвейера: {% for status, count in pipeline_queue.items %}{{ status }} — {{ count }}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
+  {% endif %}
+  {% endif %}
+</div>
 <div class="grid">
   <div class="card"><h2>{{ news_count }}</h2><p>актуальных новостей</p></div>
   <div class="card"><h2>{{ unreviewed_count }}</h2><p>без оценки</p></div>

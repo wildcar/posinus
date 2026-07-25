@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-25 · One row per run: what the machine did, in the database
+- What: New stdlib-only `runlog.py` — a `service_run` row opened when a run starts and closed when it ends, with counters and the effective configuration (never a secret). All three scripts record through it, including the backfill service; a dry run leaves no row. Recording never breaks a run: every failure there is swallowed and logged, including an unopenable database. `install.sh` also hands group `posinus` read access to the DB, its `-wal`/`-shm` sidecars and the media tree, with setgid and default ACLs so files created later stay readable. 5 tests added, 104 pass. Crawler side (read-only connection, «Машина» block, backup) in the same commit.
+- Why: step 3 of `../docs/ui-concept.md`. «Что делала машина» was answerable only through `journalctl`, which the operator UI cannot read; and the files that matter for access are the ones SQLite creates next week, not the ones present at install time.
+- Files: pipeline/runlog.py, pipeline/{evaluator,preparer,publisher}.py, pipeline/deploy/install.sh, pipeline/tests/{test_runlog,test_stdlib_only}.py, pipeline/AGENTS/SPEC.md, ../docs/deployment.md
+- Next: owner-side `install.sh` for the new ACLs, then the queue screen (3.7).
+
 ## 2026-07-25 · The selection rule comes from the database, with its revision in the event
 - What: `load_profile` reads `exchange_active_selection_profile` — the fifth readable object of the contract — and falls back to the built-in `DEFAULT_PROFILE` when the view is missing or empty, so a rollback past the crawler migration still evaluates. The profile name and revision travel in `selector_version` (`0.2.0+deepseek-v4-pro+default.r1`). `--profile` is replaced by `--builtin-profile`; `--backfill --rescore-all` re-applies the thresholds to everything already scored and writes only where the verdict changed, behind a new timer-less `posinus-evaluator-backfill.service` and its request file. 7 tests added, 99 pass. Crawler side (tables, view, migration, screens) in the same commit.
 - Why: step 2 of `../docs/ui-concept.md`. One rule for two readers: the evaluator decides by it and the operator screen explains and calibrates by it. A hard-coded copy would have started lying the first time the operator moved a threshold.

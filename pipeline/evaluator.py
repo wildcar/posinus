@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+import runlog
+
 log = logging.getLogger("posinus-evaluator")
 
 EVALUATOR_VERSION = "0.2.0"
@@ -637,7 +639,8 @@ def write_review(
     raise AssertionError("unreachable")
 
 
-def run(cfg: Config, profile: SelectionProfile, limit: int, dry_run: bool) -> int:
+def run(cfg: Config, profile: SelectionProfile, limit: int, dry_run: bool,
+        counters: dict | None = None) -> int:
     con = open_db(cfg.db_path)
     try:
         axes = fetch_axes(con)
@@ -682,12 +685,16 @@ def run(cfg: Config, profile: SelectionProfile, limit: int, dry_run: bool) -> in
             "finished: %d evaluated (%d selected), %d failed, model cost $%.4f (%s/%s)",
             done, selected, failed, total_cost, cfg.provider, cfg.model_id,
         )
+        if counters is not None:
+            counters.update(queue=len(queue), evaluated=done, selected=selected,
+                            failed=failed, cost_usd=round(total_cost, 4))
         return 0 if failed == 0 else 1
     finally:
         con.close()
 
 
-def run_backfill(cfg: Config, profile: SelectionProfile, dry_run: bool, rescore_all: bool = False) -> int:
+def run_backfill(cfg: Config, profile: SelectionProfile, dry_run: bool, rescore_all: bool = False,
+                 counters: dict | None = None) -> int:
     """Re-verdict already-scored news from the stored scores, without the model.
 
     Two uses of one pass. By default it picks up news whose latest event is still
@@ -737,6 +744,9 @@ def run_backfill(cfg: Config, profile: SelectionProfile, dry_run: bool, rescore_
             processed, selected, unchanged, incomplete,
             " (dry-run, nothing written)" if dry_run else "",
         )
+        if counters is not None:
+            counters.update(reviewed=len(by_news), corrected=processed, selected=selected,
+                            unchanged=unchanged, incomplete=incomplete)
         return 0
     finally:
         con.close()
@@ -780,12 +790,26 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             con.close()
     log.info("selection profile %s", profile.tag)
-    if args.backfill:
-        return run_backfill(cfg, profile, dry_run=args.dry_run, rescore_all=args.rescore_all)
-    if not cfg.router_token:
+    if not args.backfill and not cfg.router_token:
         log.error("ROUTER_AUTH_TOKEN is not set")
         return 2
-    return run(cfg, profile, limit=args.limit, dry_run=args.dry_run)
+
+    # A dry run is not something the machine did; it leaves no row.
+    if args.dry_run:
+        if args.backfill:
+            return run_backfill(cfg, profile, dry_run=True, rescore_all=args.rescore_all)
+        return run(cfg, profile, limit=args.limit, dry_run=True)
+
+    service = "evaluator-backfill" if args.backfill else "evaluator"
+    settings = {"profile": profile.tag, "selector": cfg.selector_name}
+    if args.backfill:
+        settings["scope"] = "all scored" if args.rescore_all else "skipped only"
+    else:
+        settings.update(model=cfg.model_id, provider=cfg.provider, batch=args.limit)
+    with runlog.record(service, runlog.DEFAULT_DB, settings) as counters:
+        if args.backfill:
+            return run_backfill(cfg, profile, dry_run=False, rescore_all=args.rescore_all, counters=counters)
+        return run(cfg, profile, limit=args.limit, dry_run=False, counters=counters)
 
 
 if __name__ == "__main__":

@@ -50,6 +50,10 @@ a publish-ready retelling, and posts them to the platforms.
 - LIVE on prod since 2026-07-25 19:57 UTC (commit `3f50691`): the pipeline DB reports
   `journal_mode = wal`. The mode flipped on the first open after the update, verified with a
   `publisher.py --dry-run` that sent nothing.
+- Since 2026-07-25 every run leaves a `service_run` row in the pipeline DB (`runlog.py`):
+  service, status, start and end, counters, effective config without secrets. The crawler UI
+  reads those rows for its «Машина» block. Needs `install.sh` so the web can read the DB and
+  its sidecars.
 - Since 2026-07-25 the selection rule is not in the code: `load_profile` reads
   `exchange_active_selection_profile` from the crawler DB, `selector_version` carries
   `default.r1`, and `--builtin-profile` forces the hard-coded fallback (which also kicks in when

@@ -40,7 +40,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
-import evaluator  # reuse the MCP router client, Config, JSON extraction
+import evaluator
+import runlog  # reuse the MCP router client, Config, JSON extraction
 
 log = logging.getLogger("posinus-preparer")
 
@@ -468,7 +469,8 @@ def prepare_one(cfg: PreparerConfig, router_cfg: "evaluator.Config", news: sqlit
     return {"title": title, "paragraphs": paragraphs, "model_id": model_id, "images": images, "body_md": body_md}
 
 
-def run(cfg: PreparerConfig, router_cfg: "evaluator.Config", limit: int, dry_run: bool, only: int | None) -> int:
+def run(cfg: PreparerConfig, router_cfg: "evaluator.Config", limit: int, dry_run: bool, only: int | None,
+        counters: dict | None = None) -> int:
     news_con = evaluator.open_db(cfg.news_db)
     own_con = open_own_db(cfg.own_db)
     try:
@@ -501,6 +503,8 @@ def run(cfg: PreparerConfig, router_cfg: "evaluator.Config", limit: int, dry_run
                          news["news_id"], result["title"], len(result["images"]))
             prepared += 1
         log.info("finished: %d prepared, %d failed", prepared, failed)
+        if counters is not None:
+            counters.update(queue=len(selected), prepared=prepared, failed=failed)
         return 0 if failed == 0 else 1
     finally:
         news_con.close()
@@ -532,7 +536,16 @@ def main(argv: list[str] | None = None) -> int:
     if not router_cfg.router_token:
         log.error("ROUTER_AUTH_TOKEN is not set")
         return 2
-    return run(cfg, router_cfg, limit=args.limit, dry_run=args.dry_run, only=args.news_id)
+    if args.dry_run:  # a dry run is not something the machine did; it leaves no row
+        return run(cfg, router_cfg, limit=args.limit, dry_run=True, only=args.news_id)
+    settings = {
+        "model": router_cfg.model_id,
+        "provider": router_cfg.provider,
+        "batch": args.limit,
+        "media_dir": cfg.media_dir,
+    }
+    with runlog.record("preparer", cfg.own_db, settings) as counters:
+        return run(cfg, router_cfg, limit=args.limit, dry_run=False, only=args.news_id, counters=counters)
 
 
 if __name__ == "__main__":

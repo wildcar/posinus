@@ -42,6 +42,30 @@ done
 install -d -o posinus-pipeline -g posinus-pipeline -m 0750 /var/lib/posinus/pipeline
 install -d -o posinus-pipeline -g posinus-pipeline -m 0750 /var/lib/posinus/pipeline/media
 
+# The operator UI reads this database (never writes it) and shows the pictures,
+# so group posinus needs read access to the DB, its -wal/-shm sidecars and the
+# media tree. setgid plus a default ACL, because the files that matter here are
+# the ones SQLite and the preparer create later, not the ones present today —
+# without them a new -wal file lands in the wrong group and the UI goes blind at
+# a random moment weeks after the install. Same reasoning as the crawler DB in
+# section 3 of docs/deployment.md.
+chgrp posinus /var/lib/posinus/pipeline /var/lib/posinus/pipeline/media
+chmod 2710 /var/lib/posinus/pipeline        # traverse only: the web reaches what is inside
+chmod 2750 /var/lib/posinus/pipeline/media  # the gallery needs to list it
+for f in /var/lib/posinus/pipeline/evaluator.sqlite3 \
+         /var/lib/posinus/pipeline/evaluator.sqlite3-wal \
+         /var/lib/posinus/pipeline/evaluator.sqlite3-shm; do
+    [ -e "$f" ] && chgrp posinus "$f" && chmod 0640 "$f"
+done
+if command -v setfacl >/dev/null 2>&1; then
+    setfacl -m g:posinus:rx -d -m g:posinus:r-x /var/lib/posinus/pipeline/media
+    setfacl -d -m g:posinus:rw /var/lib/posinus/pipeline
+    find /var/lib/posinus/pipeline/media -type d -exec setfacl -m g:posinus:rx -d -m g:posinus:r-x {} +
+    find /var/lib/posinus/pipeline/media -type f -exec setfacl -m g:posinus:r {} +
+else
+    echo "NOTE: setfacl is missing; install acl so new pipeline files stay readable for the web." >&2
+fi
+
 # Request mailbox: the web (user posinus) drops a file here, a .path unit starts
 # the matching service within a second, and the service removes the file before
 # it works. The same directory holds the `pause` file — the stop cock. Group

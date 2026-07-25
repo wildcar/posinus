@@ -75,6 +75,11 @@ POSINUS_MANUAL_SCORE_SELECTOR = os.environ.get("POSINUS_MANUAL_SCORE_SELECTOR", 
 POSINUS_PIPELINE_REQUESTS_DIR = os.environ.get(
     "POSINUS_PIPELINE_REQUESTS_DIR", "/var/lib/posinus/pipeline/requests"
 )
+# The pipeline's own database. Read-only from here, and absent on a development
+# machine: readers return nothing rather than raising.
+POSINUS_PIPELINE_DB_PATH = os.environ.get(
+    "POSINUS_PIPELINE_DB_PATH", "/var/lib/posinus/pipeline/evaluator.sqlite3"
+)
 # The operator's own day, used for «до конца дня» on the stop cock.
 POSINUS_OPERATOR_TIMEZONE = os.environ.get("POSINUS_OPERATOR_TIMEZONE", "Europe/Moscow")
 POSINUS_BACKUP_DIR = Path(os.environ.get("POSINUS_BACKUP_DIR", BASE_DIR / "data" / "backups")).resolve()

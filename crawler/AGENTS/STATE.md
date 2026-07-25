@@ -29,6 +29,12 @@ Operate a single-host multilingual news crawler whose source list improves from 
 - Agent-authored Russian text follows `.claude/skills/humanizer-ru/SKILL.md`; collected article content stays verbatim.
 - Retention: `purge_rejected_content(days=3)` tombstones news with a `not_positive` verdict and no `positive` one (skipped/undecided/never-reviewed/selected are kept), wired into `maintenance`. Committed, not yet deployed. The external evaluator's backfill already ran on prod (latest reviews: 120 positive, 6108 not_positive), so the first prod run will tombstone ~4230 rejected items older than 3 days.
 
+- The web reads the pipeline database since 2026-07-25, read-only and non-blocking
+  (`mode=ro` + `query_only`, 2s busy timeout), through `collector/services/pipeline_db.py`.
+  The dashboard's «Машина» block shows the last run of every pipeline service from the new
+  `service_run` table, and the daily backup now copies that database too (rotation of seven,
+  `pipeline-*.sqlite3`). Everything degrades to one honest line when the file is missing, as it
+  is on a development machine. Needs `install.sh` on prod for the group read access.
 - Selection thresholds live in the crawler DB since 2026-07-25 (migration `0008_selection_profile`):
   `exchange_selection_profile` + `exchange_selection_bound`, read by the pipeline through the
   `exchange_active_selection_profile` view. The owner's rule is seeded as `default` r1. The news

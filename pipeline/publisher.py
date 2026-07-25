@@ -62,6 +62,7 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import preparer   # own-DB schema + migration, markdown builder
+import runlog
 
 log = logging.getLogger("posinus-publisher")
 
@@ -857,7 +858,8 @@ def _settled(state: dict[str, tuple[str, int]], platforms: list[str], max_attemp
                for p in platforms)
 
 
-def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None) -> int:
+def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None,
+        counters: dict | None = None) -> int:
     platforms = cfg.enabled_platforms()
     if not platforms:
         log.warning(
@@ -871,6 +873,8 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None) -> in
     if pause is not None and not dry_run:
         # The stop cock holds retries too: a partly published item finishing on
         # the remaining platforms is still a post appearing in public.
+        if counters is not None:
+            counters.update(paused=True, reason=pause.reason)
         log.warning("publication paused%s%s; nothing sent, the queue keeps growing",
                     f" until {pause.until.isoformat()}" if pause.until else " until lifted by the operator",
                     f", reason: {pause.reason}" if pause.reason else "")
@@ -959,6 +963,9 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None) -> in
 
         log.info("finished: %d published, %d incomplete (will retry)%s",
                  published, incomplete, " (dry-run, nothing sent)" if dry_run else "")
+        if counters is not None:
+            counters.update(queue=len(prepared), published=published, incomplete=incomplete,
+                            new_posted=new_posted, window_open=window_open)
         return 0
     finally:
         own.close()
@@ -980,7 +987,16 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stderr,
     )
     cfg = PublisherConfig.from_env()
-    return run(cfg, limit=args.limit, dry_run=args.dry_run, only=args.news_id)
+    if args.dry_run:  # a dry run is not something the machine did; it leaves no row
+        return run(cfg, limit=args.limit, dry_run=True, only=args.news_id)
+    settings = {
+        "platforms": cfg.enabled_platforms(),
+        "batch": args.limit,
+        "min_interval_minutes": cfg.min_interval_minutes,
+        "window": f"{cfg.window_start}-{cfg.window_end} {cfg.window_tz}",
+    }
+    with runlog.record("publisher", cfg.own_db, settings) as counters:
+        return run(cfg, limit=args.limit, dry_run=False, only=args.news_id, counters=counters)
 
 
 if __name__ == "__main__":

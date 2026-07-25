@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-25 · The web can read the pipeline database, safely
+- What: `pipeline_db.py` opens the pipeline's SQLite read-only twice over (`mode=ro` + `PRAGMA query_only`) with a 2s busy timeout and turns every failure into `PipelineUnavailable`; `pipeline_status.py` turns the new `service_run` rows into the dashboard's «Машина» block, calling a run left open past twice its timer interval «прервался». The daily backup now copies that database into the same rotation of seven. `install.sh` grants group `posinus` read on the DB, its sidecars and media, with setgid and default ACLs. 10 tests added, 86 pass. Pipeline side in the same commit.
+- Why: step 3 of `../docs/ui-concept.md`. Half of the machine lives in a database this process does not own, and the dangerous part is not reading it — it is holding a lock while the publisher records a post that already went out, which is how you get a duplicate in the channel.
+- Files: crawler/collector/services/{pipeline_db,pipeline_status,maintenance}.py, crawler/collector/views.py, crawler/templates/collector/dashboard.html, crawler/posinus_crawler/settings.py, crawler/deploy/crawler.env.example, crawler/tests/test_pipeline_db.py, crawler/AGENTS/SPEC.md, ../docs/deployment.md
+- Next: prod deploy, then step 4 — the pulse screen and the queue («Эфир»).
+
 ## 2026-07-25 · Selection thresholds move into the database; a screen to calibrate them
 - What: New `exchange_selection_profile` / `exchange_selection_bound` tables plus the `exchange_active_selection_profile` view (migration `0008_selection_profile`, which also seeds the owner's rule as `default` r1). `collector/services/selection.py` reads the same rows and explains a verdict; `calibration.py` replays a profile over every scored item. News detail now says why an item passed or failed; the new «Отбор» screen compares a draft with the rule in force, names what cuts the most, lists what a draft adds, removes or nearly passed, and has «Применить черновик» (revision +1, operator event) and «Пересчитать уже оценённые». 14 tests added, 76 pass. Pipeline side in the same commit.
 - Why: step 2 of `../docs/ui-concept.md`. The rule lived in `pipeline/evaluator.py`, so the UI would have had to explain decisions from a second copy — and two copies of one rule drift apart within a month. Calibration was also the number one open task in `pipeline/AGENTS/STATE.md`.

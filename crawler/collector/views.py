@@ -42,6 +42,7 @@ from .services.pipeline_mailbox import (
     request_run,
     set_pause,
 )
+from .services.pipeline_status import machine_block
 from .services.selection import Bound, active_profile, explain, profile_bounds
 from .services.translation import TranslationError, translate_news
 
@@ -97,9 +98,13 @@ def dashboard(request):
         pause, mailbox_error = read_pause(), ""
     except MailboxUnavailable as exc:
         pause, mailbox_error = None, str(exc)
+    runs, pipeline_queue, pipeline_error = machine_block()
     context = {
         "pause": pause,
         "mailbox_error": mailbox_error,
+        "service_runs": runs,
+        "pipeline_queue": pipeline_queue,
+        "pipeline_error": pipeline_error,
         "pause_durations": PAUSE_DURATIONS.items(),
         "source_counts": Source.objects.values("status").annotate(count=Count("id")).order_by("status"),
         "news_count": NewsItem.objects.filter(purged_at__isnull=True).count(),
