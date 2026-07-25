@@ -18,7 +18,10 @@ Operate a single-host multilingual news crawler whose source list improves from 
 - News detail now has a model-backed Russian translation action. It saves the translated title, full text, short summary, actual model identifier, and generation time. Router address, token, provider, model, tier, temperature, token limit, and timeout are environment settings; the default model matches the pipeline's `deepseek-v4-pro`.
 - News detail now has an idempotent operator «Отправить в публикацию» action. It creates an append-only positive review and snapshots the configured evaluator's latest scores; occurrences retain source URLs for future weight fitting.
 - Retention deletes stored translations when it purges the original full text after 90 days.
-- Production runs commit `b885377` since 2026-07-25 20:07 UTC (updated with `update-ubuntu.sh`); migrations through `0007_latestreview` are applied, web/worker/model-router services are active, HTTPS `/login/` returns 200, SQLite integrity is `ok`. Pre-update backup: `/var/lib/posinus/backups/pre-update-20260725T195627Z.sqlite3`.
+- Production runs commit `2978f31` since 2026-07-25 20:43 UTC (updated with `update-ubuntu.sh`);
+  no migrations pending, web and worker active, HTTPS `/login/` 200. Pre-update backup:
+  `/var/lib/posinus/backups/pre-update-20260725T204343Z.sqlite3`.
+- Earlier: production ran commit `b885377` from 2026-07-25 20:07 UTC (updated with `update-ubuntu.sh`); migrations through `0007_latestreview` are applied, web/worker/model-router services are active, HTTPS `/login/` returns 200, SQLite integrity is `ok`. Pre-update backup: `/var/lib/posinus/backups/pre-update-20260725T195627Z.sqlite3`.
 - The production crawler environment carries the router token as `POSINUS_ROUTER_AUTH_TOKEN`, plus `POSINUS_TRANSLATION_PROVIDER`/`POSINUS_TRANSLATION_MODEL` which the file never had before 2026-07-25; web was restarted and its loaded environment was verified.
 - Production translation smoke test passed for news 5364, back when the model was `deepseek-chat`; the Russian body and summary were persisted. Not re-run since the switch to `deepseek-v4-pro`.
 - A production failure on news 760 exposed invalid JSON from unescaped quotes in model prose. Marker-delimited translation sections with one correction retry are deployed; news 760 translated and persisted successfully after the update.
@@ -28,9 +31,9 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 - The stop cock is in the UI since 2026-07-25: the dashboard writes a `pause` file into
   `POSINUS_PIPELINE_REQUESTS_DIR` (hour / end of day / until lifted, with a reason) and the
-  publisher honours it. The mailbox does not exist on prod until the owner runs
-  `pipeline/deploy/install.sh`; until then the dashboard says «нет связи с конвейером» and the
-  button is not offered. The web writes files only — never the pipeline database.
+  publisher honours it. LIVE on prod since 2026-07-25 20:44 UTC (commit `2978f31`): the mailbox
+  exists, the web user can write into it, and a test pause was honoured and then expired on its
+  own. The web writes files only — never the pipeline database.
 - Step 0 of `../docs/ui-concept.md` is done as of 2026-07-25: the news list pages by 50 with the
   real total and filter-preserving links (no more `[:200]` slice), Nginx read/send timeouts are
   120s so the synchronous translation call is not cut off at 60s, and the operator button reads

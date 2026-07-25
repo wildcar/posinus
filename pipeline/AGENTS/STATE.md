@@ -55,10 +55,14 @@ a publish-ready retelling, and posts them to the platforms.
   (`/var/lib/posinus/pipeline/requests`) holds every send, expires by itself and fails towards
   «paused» when unreadable; the crawler UI writes it. The publication window: a new item only
   appears between `PUB_WINDOW_START` and `PUB_WINDOW_END` in `PUB_WINDOW_TZ` (08:00–22:00
-  Europe/Moscow), while retries of an already-public item ignore it. 92 tests pass. NOT on prod
-  yet in the operational sense: the code ships with the next crawler update, but the mailbox
-  directory and the three `.path` units need `pipeline/deploy/install.sh`, which is the owner's
-  to run. Without the directory the publisher simply never sees a pause.
+  Europe/Moscow), while retries of an already-public item ignore it. 92 tests pass. LIVE on prod
+  since 2026-07-25 20:44 UTC (commit `2978f31`, `install.sh` run by the owner) and verified there
+  end to end: the mailbox is `drwxrws--- posinus-pipeline:posinus`, the web user `posinus` can
+  write into it and the pipeline user reads and removes; a `run-publisher` file started the
+  service through the `.path` unit and was consumed; a pause with a deadline held two runs
+  («nothing sent, the queue keeps growing») and the run after the deadline logged «pause expired»
+  and deleted the file. The window is visible in every run log: «window closed, opens
+  2026-07-26T05:00:00+00:00» — that is 08:00 Moscow.
 - Prod backlog on 2026-07-25: 118 items `prepared` against 11 `published`. Order of exit is
   preparation time, so a strong item waits behind average ones and anything older than a couple
   of days goes out stale. This is the queue screen argued for in `../docs/ui-concept.md` (3.7),
