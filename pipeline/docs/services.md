@@ -175,6 +175,17 @@ article URL, which works with a community token) or blank `VK_ACCESS_TOKEN` to d
 A failing VK does not hold up Telegram or the site — it is retried `PUB_MAX_ATTEMPTS` times
 and given up on.
 
+## notify.py
+
+Two timers, one script. `posinus-notify.timer` runs `notify.py` hourly and sends an alarm only
+for a platform that failed at least three times, a full day with no post inside an open window,
+or a queue empty for three days. `posinus-notify-digest.timer` sends one sentence at 09:00
+Moscow time. The same alarm is not repeated within 12 hours (`notification` table).
+
+`NOTIFY_CHAT_ID` is the owner's own chat — never the public channel, because this carries
+diagnostics. With it empty nothing is sent at all, which is the safe default. `--dry-run` builds
+the message and logs it without sending.
+
 ## Operational commands
 
 ```bash

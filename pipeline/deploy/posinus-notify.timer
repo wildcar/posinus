@@ -1,0 +1,10 @@
+[Unit]
+Description=Look for alarms once an hour
+
+[Timer]
+OnBootSec=20min
+OnUnitActiveSec=60min
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

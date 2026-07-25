@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-25 · Telegram tells the operator when something is broken
+- What: New stdlib-only `notify.py` with two timers: an hourly alarm check (platform failed ≥3 times, a full day silent inside an open window, an empty queue for 3 days) and a daily one-line digest at 09:00 Moscow. The same alarm repeats at most every 12 hours (`notification` table). Destination is `NOTIFY_CHAT_ID` — the owner's own chat; empty means nothing is sent, which is the default. 9 tests added, 118 pass.
+- Why: step 4 / 8.7 of `../docs/ui-concept.md` and the loudest complaint about the system — you learned about a broken platform only by opening the site. The high bar is deliberate: noise makes the channel worthless in a week, and then the message that matters is ignored with the rest.
+- Files: pipeline/notify.py, pipeline/deploy/{install.sh,posinus-notify*.service,posinus-notify*.timer,pipeline.env.example}, pipeline/runlog.py, pipeline/tests/{test_notify,test_runlog,test_stdlib_only}.py, pipeline/AGENTS/SPEC.md, pipeline/docs/services.md
+- Next: owner sets NOTIFY_CHAT_ID and runs install.sh; then step 5, the flow and the news card.
+
 ## 2026-07-25 · Publish the strongest item next, not the one prepared first
 - What: `load_plan` reads `exchange_publication_order` from the crawler DB (read-only, 5s timeout) and `order_queue` sorts prepared items by the operator's rank, then strength, then preparation time as a stable tie-break, skipping held and dropped ones. An unreachable crawler DB or a missing view means an empty plan and the previous behaviour, which is the whole point of the fallback. 5 tests added, 109 pass. Crawler side (table, view, screen actions) in the same commit.
 - Why: 124 prepared items were going out in preparation order — the worst available signal, since it records when the machine got round to an item rather than how good it is.

@@ -22,6 +22,8 @@ SERVICE_TITLES = {
     "preparer": "Подготовка",
     "publisher": "Публикация",
     "evaluator-backfill": "Пересчёт решений",
+    "notify-check": "Проверка на аварии",
+    "notify-digest": "Сводка за день",
 }
 
 # Twice the timer interval plus a little: past this an unfinished run is not
@@ -31,6 +33,8 @@ STALE_AFTER = {
     "preparer": timedelta(minutes=35),
     "publisher": timedelta(minutes=65),
     "evaluator-backfill": timedelta(minutes=30),
+    "notify-check": timedelta(hours=2),
+    "notify-digest": timedelta(hours=26),
 }
 
 LAST_RUNS_SQL = """

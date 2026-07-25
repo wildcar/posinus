@@ -152,3 +152,24 @@ def test_absent_pipeline_database_is_not_a_backup_failure(settings, tmp_path):
 
     assert backup_pipeline_db() is None
     assert not OperatorEvent.objects.filter(event_type="pipeline_backup_failed").exists()
+
+
+@pytest.mark.django_db
+def test_fragment_answers_401_for_an_expired_session(client, pipeline_db):
+    """A redirect would paste the login form inside the block; 401 stops the script."""
+    response = client.get(reverse("dashboard_fragment"))
+
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_fragment_repeats_the_live_blocks_and_skips_an_unchanged_repaint(operator, pipeline_db):
+    add_run(pipeline_db, "publisher", "ok", timezone.now(), timezone.now(), {"published": 2})
+
+    first = operator.get(reverse("dashboard_fragment"))
+    version = first["X-Dashboard-Version"]
+    again = operator.get(reverse("dashboard_fragment"), {"version": version})
+
+    assert first.status_code == 200
+    assert "Машина" in first.content.decode() and "Требует внимания" in first.content.decode()
+    assert again.status_code == 204  # nothing changed, no repaint

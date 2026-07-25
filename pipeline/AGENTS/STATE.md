@@ -50,6 +50,10 @@ a publish-ready retelling, and posts them to the platforms.
 - LIVE on prod since 2026-07-25 19:57 UTC (commit `3f50691`): the pipeline DB reports
   `journal_mode = wal`. The mode flipped on the first open after the update, verified with a
   `publisher.py --dry-run` that sent nothing.
+- `notify.py` since 2026-07-25: hourly alarms (broken platform, a silent day inside an open
+  window, an empty queue) and a daily digest at 09:00 Moscow, both through the existing bot.
+  Silent until the owner puts their own chat id in `NOTIFY_CHAT_ID` — never the public channel.
+  Needs `install.sh` for the two new timers.
 - Since 2026-07-25 the publisher takes the queue in the order the crawler computes
   (`exchange_publication_order`: operator rank, then strength, then preparation time), skipping
   held and dropped items. LIVE on prod at commit `db2c1a9`, verified by a run that read the plan

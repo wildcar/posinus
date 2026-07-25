@@ -1,0 +1,85 @@
+{% comment %}
+The part of the dashboard that changes on its own. Rendered inside the page and
+again, on its own, for the minute refresh — one template so the two can never
+disagree.
+{% endcomment %}
+<div class="card stop{% if pause %} paused{% endif %}">
+  <h2>Публикации</h2>
+  {% if mailbox_error %}
+  <p class="muted">Нет связи с конвейером: каталог заявок недоступен. Остановить публикации отсюда сейчас нельзя.</p>
+  {% elif pause %}
+  <p class="bad">Публикации остановлены{% if pause.until %} до {{ pause.until }}{% else %}, пока не снимете{% endif %}.
+  {% if pause.reason %}Причина: {{ pause.reason }}.{% endif %}</p>
+  <p class="muted">Новости копятся в очереди, ничего не теряется.</p>
+  <form method="post" action="{% url 'publication_resume' %}">{% csrf_token %}<button>Возобновить публикации</button></form>
+  {% else %}
+  <p>Публикации идут своим чередом.</p>
+  <form method="post" action="{% url 'publication_pause' %}">{% csrf_token %}
+    <label>На сколько
+      <select name="duration">
+        {% for value, title in pause_durations %}<option value="{{ value }}">{{ title }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Причина
+      <input type="text" name="reason" placeholder="что случилось" maxlength="200">
+    </label>
+    <button>Остановить публикации</button>
+  </form>
+  <p class="muted">Пока стоит пауза, ни один пост не уйдёт ни на одну площадку. Очередь копится.</p>
+  {% endif %}
+</div>
+
+<div class="card now">
+  <h2>Сейчас</h2>
+  <div class="grid">
+    {% for counter in counters %}
+    <div class="counter">
+      <span class="value">{% if counter.url %}<a href="{{ counter.url }}">{{ counter.value }}</a>{% else %}{{ counter.value }}{% endif %}</span>
+      <span>{{ counter.title }}</span>
+      <span class="muted">{{ counter.typical|default:counter.note }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card attention">
+  <h2>Требует внимания</h2>
+  {% for problem in attention %}
+  <p>
+    {{ problem.text }}
+    {% if problem.hint %}<br><span class="muted">{{ problem.hint }}</span>{% endif %}
+    {% if problem.url %}<br><a href="{{ problem.url }}">{{ problem.action_title }}</a>{% endif %}
+  </p>
+  {% empty %}
+  <p class="ok">Всё в порядке.</p>
+  {% endfor %}
+</div>
+
+<div class="card machine">
+  <h2>Машина</h2>
+  {% if pipeline_error %}
+  <p class="muted">Нет связи с базой конвейера, поэтому подготовку и публикацию сейчас не видно.</p>
+  {% else %}
+  <table>
+    <tr><th>Что делает</th><th>Когда</th><th>Итог</th></tr>
+    {% for run in service_runs %}
+    <tr>
+      <td>{{ run.title }}</td>
+      <td>{{ run.finished_at|default:run.started_at }}</td>
+      <td>
+        {% if run.status == "ok" %}<span class="ok">ок</span>
+        {% elif run.status == "failed" %}<span class="bad">ошибка</span>
+        {% elif run.status == "interrupted" %}<span class="bad">прервался</span>
+        {% else %}идёт{% endif %}
+        <span class="muted">— {{ run.summary }}</span>
+      </td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="3" class="muted">Прогонов ещё не было: строка появляется после первого запуска новой версии.</td></tr>
+    {% endfor %}
+  </table>
+  {% if pipeline_queue %}
+  <p class="muted">В базе конвейера: {% for status, count in pipeline_queue.items %}{{ status }} — {{ count }}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
+  {% endif %}
+  {% endif %}
+</div>

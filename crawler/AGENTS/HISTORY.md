@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-25 · The dashboard refreshes itself once a minute
+- What: The live blocks (stop cock, «Сейчас», «Требует внимания», «Машина») moved into one included template rendered both by the page and by `fragment/dashboard/`; twenty lines of `fetch` refresh it every 60s. An expired session gets 401 and the loop stops, a request in flight blocks the next, a hidden tab does not poll, and an unchanged version tag answers 204. 2 tests added, 103 pass. Notifications on the pipeline side in the same commit.
+- Why: step 4 / 8.6 of `../docs/ui-concept.md`. All four of those are the things that are usually found in production: the classic one is a login form appearing inside a dashboard block after the session dies.
+- Files: crawler/collector/{views,urls}.py, crawler/templates/collector/{dashboard,_dashboard_live}.html, crawler/tests/test_pipeline_db.py, crawler/AGENTS/SPEC.md
+- Next: step 5 — the flow and the news card.
+
 ## 2026-07-25 · The queue goes out by strength, and the operator can move it
 - What: New `exchange_publication_plan` table (operator's edits) plus the `exchange_publication_order` view (migration `0009`), which computes «сила» in SQL — half the best strong side, then positivity and interestingness — and joins the plan onto it. «Эфир» gained per-row actions (выше, ниже, отложить на сутки, снять) and a list of held or dropped items with «вернуть в очередь»; every change is an operator event. The publisher reads the same view. 4 tests added, 101 pass. Pipeline side in the same commit.
 - Why: step 4 / 3.7 of `../docs/ui-concept.md`, and a live problem — 124 prepared items going out in preparation order, so a strong evening story waited behind three average ones and left days later as stale news.

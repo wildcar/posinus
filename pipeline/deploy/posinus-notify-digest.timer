@@ -1,0 +1,11 @@
+[Unit]
+Description=Send the daily summary at 09:00 Moscow time
+
+[Timer]
+# The host runs on UTC; say the zone explicitly so the summary lands at the
+# operator's breakfast, not at noon.
+OnCalendar=*-*-* 09:00:00 Europe/Moscow
+Persistent=true
+
+[Install]
+WantedBy=timers.target

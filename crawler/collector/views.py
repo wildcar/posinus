@@ -9,6 +9,7 @@ from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Exists, Max, Min, OuterRef
 from django.db.models.functions import Coalesce
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -95,9 +96,8 @@ def _pause_deadline(choice: str):
     return None
 
 
-@login_required
-def dashboard(request):
-    latest_backup = OperatorEvent.objects.filter(event_type__in=["backup_success", "backup_failed"]).first()
+def _dashboard_context(request) -> dict:
+    """The live half of the dashboard, shared by the page and its refresh fragment."""
     try:
         pause, mailbox_error = read_pause(), ""
     except MailboxUnavailable as exc:
@@ -107,16 +107,50 @@ def dashboard(request):
         pipeline_numbers = pipeline_counters()
     except PipelineUnavailable:
         pipeline_numbers = []
-    context = {
-        "counters": today_counters() + pipeline_numbers,
-        "attention": attention(),
-        "feed_mix": feed_mix(),
+    return {
         "pause": pause,
         "mailbox_error": mailbox_error,
+        "pause_durations": PAUSE_DURATIONS.items(),
         "service_runs": runs,
         "pipeline_queue": pipeline_queue,
         "pipeline_error": pipeline_error,
-        "pause_durations": PAUSE_DURATIONS.items(),
+        "counters": today_counters() + pipeline_numbers,
+        "attention": attention(),
+    }
+
+
+def dashboard_fragment(request):
+    """The same live blocks again, for the minute refresh.
+
+    Answers 401 instead of redirecting when the session has expired: a redirect
+    would paste the login form inside the block, and the script stops on 401.
+    A version tag lets the server say «не изменилось» with 204 rather than make
+    the page repaint every minute for nothing.
+    """
+    if not request.user.is_authenticated:
+        return HttpResponse(status=401)
+    context = _dashboard_context(request)
+    version = str(
+        hash((
+            tuple((c.title, c.value) for c in context["counters"]),
+            tuple(p.text for p in context["attention"]),
+            tuple((r.service, r.status, str(r.finished_at)) for r in context["service_runs"]),
+            bool(context["pause"]),
+        ))
+    )
+    if request.GET.get("version") == version:
+        return HttpResponse(status=204)
+    response = render(request, "collector/_dashboard_live.html", context)
+    response["X-Dashboard-Version"] = version
+    return response
+
+
+@login_required
+def dashboard(request):
+    latest_backup = OperatorEvent.objects.filter(event_type__in=["backup_success", "backup_failed"]).first()
+    context = {
+        **_dashboard_context(request),
+        "feed_mix": feed_mix(),
         "source_counts": Source.objects.values("status").annotate(count=Count("id")).order_by("status"),
         "news_count": NewsItem.objects.filter(purged_at__isnull=True).count(),
         "unreviewed_count": NewsItem.objects.filter(purged_at__isnull=True, review_events__isnull=True).count(),

@@ -54,6 +54,8 @@ STALE_AFTER_SECONDS = {
     "preparer": 35 * 60,
     "publisher": 65 * 60,
     "evaluator-backfill": 30 * 60,
+    "notify-check": 2 * 60 * 60,
+    "notify-digest": 26 * 60 * 60,
 }
 
 
