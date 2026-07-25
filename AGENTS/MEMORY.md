@@ -20,8 +20,16 @@ to time: merge duplicates, drop stale entries.
   deploy in chat. Why: granting access to prod data must be executed by the owner personally.
   Prepare an installer and hand it over instead.
 - Commit and push to `main` without asking, immediately after a verified change (owner,
-  2026-07-24). Why: the owner runs a fast solo loop here and treats an unpushed change as
-  unfinished; branch and PR ceremony is unwanted on this repository.
+  2026-07-24; restated 2026-07-25). Why: the owner runs a fast solo loop here and treats an
+  unpushed change as unfinished; branch and PR ceremony is unwanted on this repository. This
+  covers the whole tail of a change, not only code: record the verified state in
+  `<service>/AGENTS/STATE.md`, log it in `HISTORY.md`, commit and push, all without a
+  confirmation round. Do not ask «записать состояние?» - just write it.
+- Deploying to prod is part of finishing a change too (owner, 2026-07-25): run
+  `sudo /opt/posinus/crawler/scripts/update-ubuntu.sh`, verify, and record the resulting
+  commit in `crawler/AGENTS/STATE.md`. Prod is the same machine as dev, so nothing is remote
+  about it. The one thing that stays the owner's is creating system principals and running
+  `pipeline/deploy/install.sh`.
 - User-facing conversation and the operator UI are Russian; code and new technical
   documentation are English, to keep maintenance consistent.
 - Prefer simple single-host operation over speculative scaling. Additional infrastructure

@@ -47,6 +47,17 @@ a publish-ready retelling, and posts them to the platforms.
   operator UI concept: the DB was in rollback-journal mode, so the first reader could have
   blocked that write and caused duplicate posts on the next run. 80 tests pass. Not yet on
   prod: it ships with the next crawler update, no `install.sh` needed.
+- LIVE on prod since 2026-07-25 19:57 UTC (commit `3f50691`): the pipeline DB reports
+  `journal_mode = wal`. The mode flipped on the first open after the update, verified with a
+  `publisher.py --dry-run` that sent nothing.
+- Prod backlog on 2026-07-25: 118 items `prepared` against 11 `published`. At one new post per
+  `PUB_MIN_INTERVAL_MINUTES` (120) that is over a week of queue, and it grows faster than it
+  drains. Order of exit is preparation time, so a strong item waits behind average ones and
+  anything older than a couple of days goes out stale. This is the queue screen argued for in
+  `../docs/ui-concept.md` (3.7), and it is now a live problem, not a hypothetical one.
+- One VK row is a dead tail, not a live failure: news 6775, 24 attempts, error 27 (group auth),
+  accumulated before the classic user token was installed. 15 VK posts are `ok`, so the token
+  works; the item is past `PUB_MAX_ATTEMPTS` and finalizes best-effort on the next real run.
 
 ## Next
 
