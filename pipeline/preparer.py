@@ -399,6 +399,10 @@ def open_own_db(path: str) -> sqlite3.Connection:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(path, timeout=30)
     con.row_factory = sqlite3.Row
+    # WAL keeps a reader (the operator UI) from blocking our commits; it is stored
+    # in the file header, so setting it here is enough for every client.
+    con.execute("PRAGMA journal_mode = WAL")
+    con.execute("PRAGMA busy_timeout = 30000")
     con.execute("PRAGMA foreign_keys = ON")
     con.executescript(OWN_SCHEMA_SQL)
     migrate_own_db(con)

@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -138,6 +139,32 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(PublisherConfig(vk_token="v").enabled_platforms(), [])
 
 
+class LockedForFirstWrites:
+    """Connection wrapper whose first N publication writes report a locked DB.
+
+    sqlite3.Connection rejects attribute patching, so the retry path is exercised
+    through a wrapper that delegates everything else to the real connection.
+    """
+
+    def __init__(self, con: sqlite3.Connection, fail_times: int):
+        self._con = con
+        self._left = fail_times
+        self.refused = 0
+
+    def __enter__(self):
+        return self._con.__enter__()
+
+    def __exit__(self, *exc):
+        return self._con.__exit__(*exc)
+
+    def execute(self, sql, *args):
+        if sql.startswith("INSERT INTO publication") and self._left > 0:
+            self._left -= 1
+            self.refused += 1
+            raise sqlite3.OperationalError("database is locked")
+        return self._con.execute(sql, *args)
+
+
 class OwnDbTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -157,6 +184,44 @@ class OwnDbTests(unittest.TestCase):
         self.assertEqual(rows[0]["status"], "ok")
         self.assertEqual(rows[0]["attempts"], 2)
         self.assertEqual(publication_status(con, 5), {"telegram": "ok"})
+        con.close()
+
+    def test_own_db_is_wal(self):
+        """A reader must not be able to block the write that records a sent post."""
+        con = open_own_db(self.path)
+        self.assertEqual(con.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+        con.close()
+
+    def test_record_publication_retries_while_locked(self):
+        con = open_own_db(self.path)
+        con.execute("INSERT INTO prepared_item (news_id, status) VALUES (7, 'prepared')")
+        con.commit()
+        flaky = LockedForFirstWrites(con, fail_times=2)
+
+        with mock.patch.object(publisher.time, "sleep") as slept:
+            publisher.record_publication(flaky, 7, "telegram", "ok", "https://t.me/x/2", None)
+
+        self.assertEqual(flaky.refused, 2)
+        self.assertEqual([call.args[0] for call in slept.call_args_list], [0.5, 1.0])
+        row = con.execute("SELECT status, url FROM publication WHERE news_id=7").fetchone()
+        self.assertEqual(row["status"], "ok")
+        con.close()
+
+    def test_unrecorded_ok_send_leaves_a_marker_and_raises(self):
+        """A post that went out but could not be recorded must not stay silent."""
+        con = open_own_db(self.path)
+        con.execute("INSERT INTO prepared_item (news_id, status) VALUES (8, 'prepared')")
+        con.commit()
+        always_locked = LockedForFirstWrites(con, fail_times=99)
+
+        with mock.patch.object(publisher.time, "sleep"):
+            with self.assertRaises(sqlite3.OperationalError):
+                publisher.record_publication(always_locked, 8, "vk", "ok", "https://vk.ru/wall-1_2", None)
+
+        markers = list(Path(self.tmp.name).glob("unrecorded-8-vk-*.txt"))
+        self.assertEqual(len(markers), 1)
+        self.assertIn("https://vk.ru/wall-1_2", markers[0].read_text(encoding="utf-8"))
+        self.assertEqual(con.execute("SELECT COUNT(*) FROM publication").fetchone()[0], 0)
         con.close()
 
     def test_mark_published(self):

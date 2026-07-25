@@ -41,6 +41,13 @@ a publish-ready retelling, and posts them to the platforms.
   grandfathered Kate Mobile app_id) sits in the env with `VK_GROUP_ID=233237778`; post
   wall-233237778_2 landed through the pipeline. `vk_call` targets `api.vk.ru`, live on prod since 2026-07-25.
 
+- Since 2026-07-25 the pipeline-owned DB opens in WAL with a 30s busy timeout, and
+  `record_publication` retries a locked write, leaving an `unrecorded-*` marker and failing
+  the run when it cannot record a post that already went out. Found while reviewing the
+  operator UI concept: the DB was in rollback-journal mode, so the first reader could have
+  blocked that write and caused duplicate posts on the next run. 80 tests pass. Not yet on
+  prod: it ships with the next crawler update, no `install.sh` needed.
+
 ## Next
 
 1. Prompt calibration and soft profiles («Россия» / «Международное»). The `default` profile

@@ -43,6 +43,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -62,6 +63,9 @@ TG_MESSAGE_LIMIT = 4096      # Telegram text message hard limit
 DEFAULT_TG_CHAT = "-1003795927410"   # @posinus channel (from the proven hermes flow)
 EGEYA_EMPTY_TAGS_HASH = "d41d8cd98f00b204e9800998ecf8427e"  # md5 of "" — Эгея default
 HTTP_TIMEOUT = 90.0
+DB_LOCK_RETRIES = 4          # same backoff as evaluator.write_review
+
+_own_db_path: str | None = None   # set by open_own_db, read by _unrecorded_marker
 
 PREPARED_SQL = """
 SELECT news_id, retold_title, retold_body_md
@@ -581,9 +585,15 @@ ADAPTERS: dict[str, Callable[[PublisherConfig, PreparedNews, bool], str]] = {
 
 
 def open_own_db(path: str) -> sqlite3.Connection:
+    global _own_db_path
+    _own_db_path = path        # where _unrecorded_marker drops its file
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(path, timeout=30)
     con.row_factory = sqlite3.Row
+    # See preparer.open_own_db: WAL so a reader cannot block the write that
+    # records a post we have already sent.
+    con.execute("PRAGMA journal_mode = WAL")
+    con.execute("PRAGMA busy_timeout = 30000")
     con.execute("PRAGMA foreign_keys = ON")
     con.executescript(preparer.OWN_SCHEMA_SQL)   # prepared_item / illustration
     preparer.migrate_own_db(con)                 # add retold_body_md to older DBs
@@ -619,19 +629,57 @@ def lead_image_path(con: sqlite3.Connection, news_id: int) -> str | None:
     return None
 
 
+def _unrecorded_marker(news_id: int, platform: str, status: str, url: str | None) -> None:
+    """Leave a file next to the DB when a send could not be recorded.
+
+    The post is already public at this point, so losing the row means the next
+    run would send it again. The marker survives the crash and names the pair a
+    human has to reconcile by hand.
+    """
+    if _own_db_path is None:
+        return
+    try:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        marker = Path(_own_db_path).parent / f"unrecorded-{news_id}-{platform}-{stamp}.txt"
+        marker.write_text(f"{status} {url or ''}\n", encoding="utf-8")
+        log.error("wrote %s: this send is public but not in the database", marker)
+    except OSError:
+        log.exception("could not write the unrecorded-send marker for news %s / %s",
+                      news_id, platform)
+
+
 def record_publication(
     con: sqlite3.Connection, news_id: int, platform: str, status: str,
     url: str | None, error: str | None,
 ) -> None:
+    """Record one send, retrying while the database is locked.
+
+    This runs AFTER the post has gone out, so a lost write means a duplicate on
+    the next run. Hence the retry, and hence the loud failure when it still does
+    not go through.
+    """
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    with con:
-        con.execute(
-            "INSERT INTO publication (news_id, platform, status, url, error, attempts, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, 1, ?) "
-            "ON CONFLICT(news_id, platform) DO UPDATE SET status=excluded.status, url=excluded.url, "
-            "error=excluded.error, attempts=publication.attempts+1, updated_at=excluded.updated_at",
-            (news_id, platform, status, url, (error or "")[:1000] or None, now),
-        )
+    for attempt in range(DB_LOCK_RETRIES):
+        try:
+            with con:
+                con.execute(
+                    "INSERT INTO publication (news_id, platform, status, url, error, attempts, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, 1, ?) "
+                    "ON CONFLICT(news_id, platform) DO UPDATE SET status=excluded.status, url=excluded.url, "
+                    "error=excluded.error, attempts=publication.attempts+1, updated_at=excluded.updated_at",
+                    (news_id, platform, status, url, (error or "")[:1000] or None, now),
+                )
+            return
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower():
+                raise
+            if attempt == DB_LOCK_RETRIES - 1:
+                if status == "ok":
+                    _unrecorded_marker(news_id, platform, status, url)
+                raise
+            delay = 0.5 * 2**attempt
+            log.warning("database is locked, retrying the %s record in %.1fs", platform, delay)
+            time.sleep(delay)
 
 
 def mark_published(con: sqlite3.Connection, news_id: int) -> None:

@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-25 · WAL and a retried write, so a reader cannot cause duplicate posts
+- What: `open_own_db` (preparer, publisher) sets `journal_mode = WAL` and `busy_timeout = 30000`; `record_publication` retries a locked write with the same backoff as `evaluator.write_review` and, on final failure of an `ok` send, writes an `unrecorded-<news_id>-<platform>-<ts>.txt` marker and lets the run fail. Three tests added (80 total).
+- Why: the DB was in rollback-journal mode, where an open reader blocks a commit. The publisher sends the post BEFORE recording it, so a lost write means the next run posts again - a duplicate in Telegram, VK and on the site. Dormant today, live the moment the planned operator UI reads this DB.
+- Files: pipeline/{preparer,publisher}.py, pipeline/tests/test_publisher.py, pipeline/AGENTS/SPEC.md, pipeline/docs/services.md
+- Next: crawler-side filter fixes (latest-review decision filter, selector_name on axis filters).
+
 ## 2026-07-25 · deepseek-v4-pro plus the token budget it needs; prod verified
 - What: DeepSeek retired `deepseek-chat`, so every evaluator and preparer run had been failing with HTTP 400. Switched to `deepseek-v4-pro` (owner's choice) and registered it manually in model-router-mcp, whose `bootstrap.py` still seeds only the retired names. The rename alone was not enough: v4-pro spends ~950 completion tokens on one 20-axis evaluation, so against the old 1000 cap the provider returned empty content, logged as "DeepSeek returned an empty response". Reproduced it against the router (fails at 1000, succeeds at 2000 using 963), then made the budget configurable with a 4000 default for both scripts.
 - Why: A model-name swap that leaves 6 of 11 news failing is not a fix, and the failure mode reads as a prompt problem while actually being a token cap.

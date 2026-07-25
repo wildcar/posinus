@@ -37,6 +37,11 @@ tables, so all prepared artifacts and publication state live here, keyed by `new
 - `publication(news_id, platform, status, url, error, attempts, updated_at)` — one row per
   `(news_id, platform)`; `status` is `ok` or `error`.
 
+The DB runs in WAL with a 30-second busy timeout, so a reader cannot block the write
+that records an already-sent post. That write retries on a lock and, if it still fails,
+drops an `unrecorded-<news_id>-<platform>-<timestamp>.txt` marker next to the DB and
+fails the run: the post is public with no row, and the next run would send it twice.
+
 Images live in `/var/lib/posinus/pipeline/media/<news_id>/`. There are no HTML pages: the
 retelling is markdown in `prepared_item.retold_body_md`. An older DB auto-migrates on open
 (`migrate_own_db` adds `retold_body_md` and backfills it from the previously stored HTML,
