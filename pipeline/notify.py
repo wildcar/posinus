@@ -46,8 +46,16 @@ log = logging.getLogger("posinus-notify")
 
 REPEAT_AFTER_HOURS = 12
 PLATFORM_FAIL_ATTEMPTS = 3
+# Only failures this fresh count as an alarm. A platform that is really broken
+# keeps failing every half hour, while an old row is a dead tail: prod carries
+# one from before the VK token was fixed, 24 attempts, last touched days ago.
+# Without this window the first alarm the operator ever got would have been a
+# false one, which is how notification channels start being ignored.
+PLATFORM_FAIL_WINDOW_HOURS = 24
 SILENT_HOURS = 24          # no post at all for this long, inside an open window
 EMPTY_QUEUE_DAYS = 3
+
+PLATFORM_TITLES = {"telegram": "Telegram", "site": "wildcar.ru", "vk": "ВКонтакте"}
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS notification (
@@ -127,17 +135,20 @@ def collect_alarms(con: sqlite3.Connection, cfg: publisher.PublisherConfig, now:
     """Only what a person has to act on. Everything else belongs on the screen."""
     alarms: list[Alarm] = []
 
+    fresh = (now - timedelta(hours=PLATFORM_FAIL_WINDOW_HOURS)).isoformat()
     for row in con.execute(
         "SELECT platform, COUNT(*) AS items, MAX(attempts) AS attempts, MAX(error) AS error "
-        "FROM publication WHERE status = 'error' AND attempts >= ? GROUP BY platform",
-        (PLATFORM_FAIL_ATTEMPTS,),
+        "FROM publication WHERE status = 'error' AND attempts >= ? AND updated_at >= ? "
+        "GROUP BY platform",
+        (PLATFORM_FAIL_ATTEMPTS, fresh),
     ):
+        title = PLATFORM_TITLES.get(row["platform"], row["platform"])
         alarms.append(
             Alarm(
                 kind=f"platform:{row['platform']}",
                 text=(
-                    f"{row['platform']} не принимает посты: {row['items']} новостей, "
-                    f"до {row['attempts']} попыток. Последняя ошибка: {row['error'] or 'без текста'}"
+                    f"{title} не принимает посты: неудачных отправок {row['items']}, "
+                    f"попыток до {row['attempts']}. Последняя ошибка: {row['error'] or 'без текста'}"
                 ),
             )
         )
@@ -191,8 +202,9 @@ def digest_text(con: sqlite3.Connection, now: datetime) -> str:
         "SELECT COUNT(*) AS count FROM prepared_item WHERE status = 'prepared'"
     ).fetchone()["count"]
     broken = con.execute(
-        "SELECT COUNT(DISTINCT platform) AS count FROM publication WHERE status = 'error' AND attempts >= ?",
-        (PLATFORM_FAIL_ATTEMPTS,),
+        "SELECT COUNT(DISTINCT platform) AS count FROM publication "
+        "WHERE status = 'error' AND attempts >= ? AND updated_at >= ?",
+        (PLATFORM_FAIL_ATTEMPTS, (now - timedelta(hours=PLATFORM_FAIL_WINDOW_HOURS)).isoformat()),
     ).fetchone()["count"]
 
     posts = f"вышло {published} постов" if published != 1 else "вышел 1 пост"

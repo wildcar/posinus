@@ -26,8 +26,12 @@ from collector.models import LatestReview, NewsItem, Source
 from collector.services.broadcast import PLATFORM_TITLES
 from collector.services.pipeline_db import PipelineUnavailable, fetch_all
 
-# A platform that failed this many times in a row needs a human, not a retry.
+# A platform that failed this many times in a row needs a human, not a retry —
+# but only if it failed recently. An old row with many attempts is a dead tail
+# (prod has one from before the VK token was fixed), and a block that cries
+# about a settled problem trains the operator to ignore it.
 PLATFORM_ALERT_ATTEMPTS = 3
+PLATFORM_ALERT_WINDOW_HOURS = 24
 # A preparation that failed this many times is looping, not unlucky.
 PREPARATION_ALERT_ATTEMPTS = 2
 TYPICAL_WINDOW_DAYS = 14
@@ -123,9 +127,11 @@ def attention() -> list[Attention]:
     problems: list[Attention] = []
 
     try:
+        fresh = (timezone.now() - timedelta(hours=PLATFORM_ALERT_WINDOW_HOURS)).isoformat()
         for row in fetch_all(
             "SELECT platform, COUNT(*) AS items, MAX(attempts) AS attempts, MAX(error) AS error "
-            "FROM publication WHERE status = 'error' GROUP BY platform"
+            "FROM publication WHERE status = 'error' AND updated_at >= ? GROUP BY platform",
+            (fresh,),
         ):
             if (row["attempts"] or 0) < PLATFORM_ALERT_ATTEMPTS:
                 continue

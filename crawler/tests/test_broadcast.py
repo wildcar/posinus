@@ -188,7 +188,9 @@ def test_dashboard_counters_carry_a_typical_range(operator, source, make_news, p
 @pytest.mark.django_db
 def test_attention_names_a_broken_platform_and_a_looping_preparation(operator, pipeline):
     pipeline("INSERT INTO publication (news_id, platform, status, error, attempts, updated_at) "
-             "VALUES (1, 'vk', 'error', 'ключ доступа не подошёл', 4, '2026-07-25T10:00:00+00:00')")
+             "VALUES (1, 'vk', 'error', 'ключ доступа не подошёл', 4, ?)", (timezone.now().isoformat(),))
+    pipeline("INSERT INTO publication (news_id, platform, status, error, attempts, updated_at) "
+             "VALUES (3, 'site', 'error', 'мёртвый хвост', 24, '2026-07-01T10:00:00+00:00')")
     pipeline("INSERT INTO prepared_item (news_id, status, retold_title, error) "
              "VALUES (2, 'error', 'Упрямая новость', 'модель не ответила')")
 
@@ -198,6 +200,8 @@ def test_attention_names_a_broken_platform_and_a_looping_preparation(operator, p
 
     assert any("ВКонтакте не принимает посты" in text for text in problems)
     assert any("Упрямая новость" in text for text in problems)
+    # a failure from three weeks ago is a settled tail, not something to act on
+    assert not any("wildcar.ru" in text for text in problems)
 
 
 @pytest.mark.django_db

@@ -69,6 +69,15 @@ class NotifyTests(unittest.TestCase):
 
         self.assertEqual([alarm.kind for alarm in alarms], ["platform:vk"])
         self.assertIn("214", alarms[0].text)
+        self.assertIn("ВКонтакте", alarms[0].text)
+
+    def test_an_old_failure_is_a_dead_tail_not_an_alarm(self):
+        """Prod carries a VK row from before the token was fixed: 24 attempts, days old."""
+        self._prepared(9)
+        self._publication(3, "telegram", "ok", when="2026-07-25T11:30:00+00:00")
+        self._publication(1, "vk", "error", attempts=24, when="2026-07-20T10:00:00+00:00", error="код 27")
+
+        self.assertEqual(notify.collect_alarms(self.con, self.cfg, self.now), [])
 
     def test_a_silent_day_inside_an_open_window_is_an_alarm(self):
         self._prepared(1)
