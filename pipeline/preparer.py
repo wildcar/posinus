@@ -518,7 +518,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     cfg = PreparerConfig.from_env()
     router_cfg = evaluator.Config.from_env()
-    router_cfg.params = {"temperature": 0.7, "max_tokens": 1500}
+    # A higher temperature than scoring: the retelling should read as prose. The token
+    # budget has to cover the model's reasoning as well as the answer — see the note on
+    # EVALUATOR_MAX_TOKENS in evaluator.Config.
+    router_cfg.params = {
+        "temperature": float(os.environ.get("PREPARER_TEMPERATURE", "0.7")),
+        "max_tokens": int(os.environ.get("PREPARER_MAX_TOKENS", "4000")),
+    }
     if not router_cfg.router_token:
         log.error("ROUTER_AUTH_TOKEN is not set")
         return 2

@@ -114,7 +114,7 @@ Positive News Crawler (`../crawler`, обмен через `exchange_*`
 только стандартная библиотека. За модель отвечает model-router-mcp на этом же
 хосте: MCP-инструмент `chat` по Streamable HTTP (`http://127.0.0.1:8088/mcp`,
 Bearer-токен). Провайдер и модель задаются конфигом, для теста взяты
-`deepseek` / `deepseek-chat`.
+`deepseek` / `deepseek-v4-pro`.
 
 Конвейер:
 
@@ -175,14 +175,14 @@ Bearer-токен). Провайдер и модель задаются конф
 - `ROUTER_MCP_URL` (`http://127.0.0.1:8088/mcp`) - MCP-endpoint роутера;
 - `ROUTER_AUTH_TOKEN` (обязателен) - Bearer-токен роутера, лежит в его `.env`;
 - `EVALUATOR_PROVIDER` (`deepseek`) - подсказка роутеру, можно оставить пустой;
-- `EVALUATOR_MODEL` (`deepseek-chat`) - конкретная модель; пустое значение
+- `EVALUATOR_MODEL` (`deepseek-v4-pro`) - конкретная модель; пустое значение
   отдаёт выбор роутеру по провайдеру и tier;
 - `EVALUATOR_TIER` (пусто) - ценовой tier для выбора модели роутером;
 - `EVALUATOR_BATCH` (25) - размер пачки одного запуска таймера;
 - `SELECTOR_NAME` (`posinus-evaluator`) - имя оценщика в контракте.
 
 `selector_version` каждого события фиксирует фактическую модель из ответа
-роутера, а не из конфига: `0.2.0+deepseek-chat`. Так история оценок остаётся
+роутера, а не из конфига: `0.2.0+deepseek-v4-pro`. Так история оценок остаётся
 читаемой после любой смены модели. CLI: `--limit N` (по умолчанию 3),
 `--dry-run` (оценить и напечатать, в базу не писать), `--verbose`.
 

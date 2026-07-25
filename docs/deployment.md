@@ -123,7 +123,7 @@ sudoedit /etc/posinus/crawler.env
 - email в `POSINUS_USER_AGENT` — действующий технический контакт;
 - `POSINUS_SECURE=1` — только после настройки HTTPS.
 
-Для перевода новостей укажите `POSINUS_ROUTER_AUTH_TOKEN`. Это `AUTH_TOKEN` из конфигурации локального `model-router-mcp`. Модель задаёт `POSINUS_TRANSLATION_MODEL`; шаблон использует `deepseek-chat`, как и News Evaluator. Токен остаётся только в `/etc/posinus/crawler.env` с правами `0640`.
+Для перевода новостей укажите `POSINUS_ROUTER_AUTH_TOKEN`. Это `AUTH_TOKEN` из конфигурации локального `model-router-mcp`. Модель задаёт `POSINUS_TRANSLATION_MODEL`; шаблон использует `deepseek-v4-pro`, как и конвейер. Токен остаётся только в `/etc/posinus/crawler.env` с правами `0640`.
 
 Строки файла должны оставаться совместимыми с форматом shell `KEY=value`; значения с пробелами заключайте в двойные кавычки. Пути production менять без необходимости не следует:
 

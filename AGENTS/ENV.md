@@ -34,7 +34,7 @@ The `posinus` group is what grants access to the crawler database. Clients run w
 - Playwright Chromium at `/var/lib/posinus/playwright`, installed with `--with-deps`.
 - model-router-mcp: MCP server for model access, unit `model-router-mcp.service`, Streamable
   HTTP endpoint `http://127.0.0.1:8088/mcp`, deployed at `/opt/model-router-mcp`, sources at
-  `~/repo/model-router-mcp`. Registered deepseek models: `deepseek-chat`, `deepseek-reasoner`.
+  `~/repo/model-router-mcp`. Registered deepseek models: `deepseek-v4-pro`, `deepseek-v4-flash`. DeepSeek retired `deepseek-chat` and `deepseek-reasoner` around 2026-07-25 and its API now rejects both names; `bootstrap.py` in model-router-mcp still seeds the retired pair, so the working entry is a manual registry row.
 
 ## Credentials & secrets
 

@@ -182,10 +182,15 @@ class Config:
     router_url: str = "http://127.0.0.1:8088/mcp"
     router_token: str = ""
     provider: str = "deepseek"
-    model_id: str = "deepseek-chat"
+    model_id: str = "deepseek-v4-pro"
     tier: str = ""
     selector_name: str = "news-evaluator"
-    params: dict[str, Any] = field(default_factory=lambda: {"temperature": 0.3, "max_tokens": 1000})
+    # max_tokens has to cover the model's reasoning tokens, not just the JSON answer.
+    # deepseek-v4-pro spends ~950 completion tokens on one full 20-axis evaluation, and
+    # when it hits the cap before writing content the provider returns an empty body —
+    # which surfaces here as "DeepSeek returned an empty response". The old 1000-token
+    # budget was fine for deepseek-chat and failed on most news with v4-pro.
+    params: dict[str, Any] = field(default_factory=lambda: {"temperature": 0.3, "max_tokens": 4000})
 
     @classmethod
     def from_env(cls, env: dict[str, str] = os.environ) -> "Config":
@@ -197,6 +202,10 @@ class Config:
         cfg.model_id = env.get("EVALUATOR_MODEL", cfg.model_id)
         cfg.tier = env.get("EVALUATOR_TIER", cfg.tier)
         cfg.selector_name = env.get("SELECTOR_NAME", cfg.selector_name)
+        if value := env.get("EVALUATOR_MAX_TOKENS"):
+            cfg.params["max_tokens"] = int(value)
+        if value := env.get("EVALUATOR_TEMPERATURE"):
+            cfg.params["temperature"] = float(value)
         return cfg
 
 
