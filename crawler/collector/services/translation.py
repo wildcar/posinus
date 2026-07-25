@@ -103,7 +103,7 @@ def translate_news(item: NewsItem) -> NewsTranslation:
             url=settings.POSINUS_ROUTER_MCP_URL,
             token=settings.POSINUS_ROUTER_AUTH_TOKEN,
             messages=messages,
-            external_user_id="positive-news-crawler-translation",
+            external_user_id="posinus-crawler-translation",
             provider=settings.POSINUS_TRANSLATION_PROVIDER,
             model_id=settings.POSINUS_TRANSLATION_MODEL,
             tier=settings.POSINUS_TRANSLATION_TIER,

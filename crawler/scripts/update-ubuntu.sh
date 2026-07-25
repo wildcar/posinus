@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_DIR="${APP_DIR:-/opt/posinus/crawler}"
+# One checkout holds both services: REPO_DIR is the Git working tree, APP_DIR is the
+# Django project inside it. Pulling here therefore also updates pipeline/*.py, which
+# run in place; their units and config still come from pipeline/deploy/install.sh.
+REPO_DIR="${REPO_DIR:-/opt/posinus}"
+APP_DIR="${APP_DIR:-$REPO_DIR/crawler}"
 ENV_FILE="${ENV_FILE:-/etc/posinus/crawler.env}"
 EXTRA_SERVICES_FILE="${EXTRA_SERVICES_FILE:-/etc/posinus/update-services}"
 SERVICE_USER="${SERVICE_USER:-posinus}"
@@ -35,7 +39,8 @@ flock -n 9 || {
     exit 1
 }
 
-[[ -d "$APP_DIR/.git" ]] || { echo "$APP_DIR is not a Git repository." >&2; exit 1; }
+[[ -d "$REPO_DIR/.git" ]] || { echo "$REPO_DIR is not a Git repository." >&2; exit 1; }
+[[ -d "$APP_DIR" ]] || { echo "Crawler directory is missing: $APP_DIR" >&2; exit 1; }
 [[ -x "$PYTHON" ]] || { echo "Virtual environment is missing: $PYTHON" >&2; exit 1; }
 [[ -r "$ENV_FILE" ]] || { echo "Environment file is missing: $ENV_FILE" >&2; exit 1; }
 [[ $(stat -c '%u' "$ENV_FILE") == 0 ]] || { echo "$ENV_FILE must be owned by root." >&2; exit 1; }
@@ -49,7 +54,7 @@ grep -Fxq "PLAYWRIGHT_BROWSERS_PATH=$BROWSER_PATH" "$ENV_FILE" || { echo "PLAYWR
 [[ -f "$DB_PATH" ]] || { echo "Installed database is missing: $DB_PATH" >&2; exit 1; }
 [[ -d "$LOG_DIR" ]] || { echo "Log directory is missing: $LOG_DIR" >&2; exit 1; }
 
-cd "$APP_DIR"
+cd "$REPO_DIR"
 if [[ -n $(git status --porcelain) ]]; then
     echo "Refusing to update a dirty application checkout." >&2
     git status --short >&2
@@ -116,10 +121,17 @@ install_units() {
     systemctl daemon-reload
 }
 
+# manage.py resolves BASE_DIR from its own location, so run it from the crawler
+# directory; the shell itself stays in REPO_DIR for the Git operations.
+manage() {
+    ( cd "$APP_DIR" && runuser -u "$SERVICE_USER" --preserve-environment -- \
+        "$PYTHON" manage.py "$@" )
+}
+
 collect_static() {
     install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "$APP_DIR/staticfiles"
     chown -R "$SERVICE_USER:$SERVICE_GROUP" "$APP_DIR/staticfiles"
-    runuser -u "$SERVICE_USER" --preserve-environment -- "$PYTHON" manage.py collectstatic --noinput
+    manage collectstatic --noinput
     chown -R root:root "$APP_DIR/staticfiles"
     find "$APP_DIR/staticfiles" -type d -exec chmod 0755 {} +
     find "$APP_DIR/staticfiles" -type f -exec chmod 0644 {} +
@@ -198,9 +210,9 @@ set +a
 env_loaded=1
 umask 0007
 
-runuser -u "$SERVICE_USER" --preserve-environment -- "$PYTHON" manage.py migrate --noinput
+manage migrate --noinput
 collect_static
-runuser -u "$SERVICE_USER" --preserve-environment -- "$PYTHON" manage.py check
+manage check
 
 if [[ -f "$DB_PATH" ]]; then
     integrity=$(sqlite3 "$DB_PATH" 'PRAGMA integrity_check;')

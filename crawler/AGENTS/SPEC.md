@@ -6,7 +6,7 @@ Collect multilingual articles from public mainstream and niche news sites into a
 
 ## Naming contract
 
-- Product and repository name: `positive-news-crawler` / Positive News Crawler.
+- Product name: Positive News Crawler. It lives in the `crawler/` directory of the `posinus` repository.
 - Django project package, deployment directory, and operating-system service account: `posinus`.
 - Runtime environment variable prefix: `POSINUS_`.
 - Runtime database, log, backup, service, and scheduled-task names use `posinus` or Positive News Crawler exclusively.

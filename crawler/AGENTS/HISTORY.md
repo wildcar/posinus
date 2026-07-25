@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-25 · Merged into the posinus monorepo; prod rename prepared
+- What: This repository is now `posinus`: the crawler moved to `crawler/`, positive-news-evaluator came in as `pipeline/` with its history (git subtree), shared docs moved to the root (`AGENTS.md`, `AGENTS/{MEMORY,ENV}.md`, `docs/contracts/`, `docs/deployment.md`), and paths/units/accounts/env prefix were renamed to the posinus scheme (`posinus_crawler` package, `POSINUS_*`, `/opt/posinus/crawler`, `posinus-web`/`posinus-worker`, user `posinus`). `update-ubuntu.sh` now separates REPO_DIR from APP_DIR and `deploy/migrate-to-posinus.sh` migrates the host.
+- Why: The exchange contract is owned by crawler migrations and consumed by the pipeline, so axis changes needed two commits across two repos with no atomicity; an agent working in one repo also had no memory of the other.
+- Files: whole tree; crawler/scripts/update-ubuntu.sh, crawler/deploy/migrate-to-posinus.sh, ../AGENTS.md, ../docs/
+- Next: Owner runs `migrate-to-posinus.sh --apply` on prod; nothing else can deploy until then.
+
 ## 2026-07-23 · Discovery blocklist for social/stores
 - What: Added `BLOCKED_DISCOVERY_DOMAINS` + `is_blocked_discovery_domain`; `process_positive_discovery` now skips social networks, messengers, video, app stores, and link shorteners. +2 tests (49 total).
 - Why: Auto-discovery kept creating dead probation sources (vk, ok, t.me, apps.apple.com, rustore, …) from share/app links in positive articles.

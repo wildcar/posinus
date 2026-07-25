@@ -1,80 +1,132 @@
 # Environment
 
-Host facts, tools, credentials pointers, and command cheat-sheet for this project.
+Host facts, tools, credential pointers and the command cheat-sheet. One machine runs
+everything. Update whenever a new tool, credential or host quirk is learned.
+
+Per-service operational detail lives closer to the code: `pipeline/docs/services.md` for the
+pipeline units, timers and their gotchas; `docs/deployment.md` for the full install.
 
 ## Host
 
-- **Dev**: Windows, PowerShell, repository `D:\repo\positive-news-crawler`.
-- **Supported runtime**: Windows or Ubuntu on one machine with a local filesystem.
-- **Production layout**: code `/opt/posinus/crawler`, configuration `/etc/posinus`, shared local state `/var/lib/posinus`, logs `/var/log/posinus`, service user/group `posinus`.
+- **Dev**: Linux (kernel 6.8), bash, user `keeper`, repository at `/home/keeper/repo/posinus`.
+- **Prod**: the same machine. Checkout at `/opt/posinus`, config in `/etc/posinus`, shared
+  state in `/var/lib/posinus`, crawler logs in `/var/log/posinus`.
+- The crawler also supports Windows for development; `crawler/scripts/install.ps1` and
+  `register-windows-tasks.ps1` exist for that. CI covers Ubuntu and Windows.
+- `/home/keeper` is `750`, so service users cannot read the repository. Prod runs from
+  `/opt/posinus`, never from the home checkout.
+
+## Service accounts
+
+| Account | Belongs to | Runs |
+|---|---|---|
+| `posinus` | group `posinus` | `posinus-web.service`, `posinus-worker.service` |
+| `posinus-pipeline` | own group + supplementary `posinus` | the three pipeline timers |
+
+The `posinus` group is what grants access to the crawler database. Clients run with
+`umask 0007` so the SQLite `-wal` and `-shm` sidecars stay group-accessible.
 
 ## Tools
 
-- Python `>=3.12,<3.15`; implementation was verified locally with Python 3.14.5 and Python 3.12 is covered by CI.
-- Django 5.2 LTS, SQLite from the selected Python runtime.
-- Playwright Chromium installed by `python -m playwright install chromium`.
-- Git is optional until the target directory is initialized and a remote is configured.
-- The production `model-router-mcp` endpoint is local at `http://127.0.0.1:8088/mcp`; news translation uses its `chat` tool.
+- git; commit identity `wildcar <wildcar@mail.ru>`; GitHub push via `gh` (account `wildcar`).
+- Python `>=3.12,<3.15`. The crawler venv lives at `/opt/posinus/crawler/.venv`; the pipeline
+  uses `/usr/bin/python3` directly.
+- Playwright Chromium at `/var/lib/posinus/playwright`, installed with `--with-deps`.
+- model-router-mcp: MCP server for model access, unit `model-router-mcp.service`, Streamable
+  HTTP endpoint `http://127.0.0.1:8088/mcp`, deployed at `/opt/model-router-mcp`, sources at
+  `~/repo/model-router-mcp`. Registered deepseek models: `deepseek-chat`, `deepseek-reasoner`.
 
 ## Credentials & secrets
 
-- Runtime values come from `POSINUS_*` environment variables; template: `.env.example`.
-- Never store the Django secret key, operator password, or site credentials in the repository.
-- The router token is `AUTH_TOKEN` in `/opt/model-router-mcp/.env`; copy its value to `POSINUS_ROUTER_AUTH_TOKEN` in the protected crawler environment file, never to Git.
-- `.env`, `data/*.sqlite3`, backups, logs, and lock files are gitignored.
+- Router Bearer token: `AUTH_TOKEN` in `/opt/model-router-mcp/.env` (root-readable via sudo).
+  The crawler reads it as `POSINUS_ROUTER_AUTH_TOKEN`, the pipeline as `ROUTER_AUTH_TOKEN`.
+  `pipeline/deploy/install.sh` copies it in automatically. Never commit it.
+- Platform secrets (Telegram bot token, Эгея password, VK token) live only in
+  `/etc/posinus/pipeline.env`, `root:posinus-pipeline`, mode `0640`.
+- Django secret key and the operator password stay out of the repository.
+- Local `.env*` files are gitignored and must not be committed.
 
 ## Environments
 
-| Env | Host | Identifier | Role / account | Where used |
-|-----|------|------------|----------------|------------|
-| dev | Windows / localhost | local SQLite | current OS user | UI, worker, tests |
-| prod | Windows or Ubuntu | one host/local disk | dedicated service account | UI, worker, selector |
+| Env | Identifier | Account | Where used |
+|-----|------------|---------|------------|
+| dev | `/home/keeper/repo/posinus` | `keeper` | development, both test suites |
+| prod | `/opt/posinus`, `/var/lib/posinus/posinus.sqlite3` | `posinus`, `posinus-pipeline` | live crawl, scoring, publishing |
 
 ## Commands cheat-sheet
 
-### Dev — PowerShell
-
-```powershell
-./scripts/install.ps1
-./.venv/Scripts/python.exe manage.py migrate
-./.venv/Scripts/python.exe manage.py createoperator operator
-./.venv/Scripts/python.exe -m waitress --listen=127.0.0.1:8000 posinus_crawler.wsgi:application
-./.venv/Scripts/python.exe manage.py runworker
-./.venv/Scripts/python.exe -m pytest
-```
-
-When using the already installed system Python during development, replace `./.venv/Scripts/python.exe` with `python`.
-
-### Prod — Ubuntu
+### Dev — crawler
 
 ```bash
+cd crawler
+python3 -m venv .venv && .venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py createoperator operator
+.venv/bin/python -m waitress --listen=127.0.0.1:8000 posinus_crawler.wsgi:application
+.venv/bin/python manage.py runworker
+.venv/bin/python -m pytest
+.venv/bin/python manage.py check
+.venv/bin/python manage.py makemigrations --check --dry-run
+```
+
+### Dev — pipeline
+
+```bash
+cd pipeline
+python3 -m unittest discover -s tests
+ROUTER_AUTH_TOKEN=... python3 evaluator.py --dry-run --limit 1
+ROUTER_AUTH_TOKEN=... python3 preparer.py --dry-run --news-id N
+python3 publisher.py --dry-run --news-id N
+```
+
+### Prod
+
+```bash
+# update both services: crawler venv, migrations, and pipeline code in one pull
 sudo /opt/posinus/crawler/scripts/update-ubuntu.sh
-sudo systemctl status --no-pager posinus-web.service posinus-worker.service
+
+# pipeline units and config only; the owner runs it, it creates the service user
+sudo bash /opt/posinus/pipeline/deploy/install.sh
+
+# status
+sudo systemctl is-active posinus-web.service posinus-worker.service
+systemctl list-timers 'posinus-*.timer'
+sudo journalctl -u posinus-publisher.service -n 50
+sudo systemctl start posinus-evaluator.service
 sudo sqlite3 /var/lib/posinus/posinus.sqlite3 'PRAGMA integrity_check;'
+
+# model and batch tuning: edit /etc/posinus/pipeline.env, applies on the next timer run
 ```
 
-Initial deployment, shared-group permissions, and update-service registration are documented in `docs/ubuntu-deployment.md`.
-
-### Diagnostics
+Manual pipeline batch as the service user:
 
 ```bash
-python manage.py check
-python manage.py makemigrations --check --dry-run
-python manage.py runworker --once
-python manage.py maintenance
-python -m pytest
+TOKEN=$(sudo grep '^AUTH_TOKEN=' /opt/model-router-mcp/.env | cut -d= -f2-)
+sudo -u posinus-pipeline env ROUTER_AUTH_TOKEN="$TOKEN" \
+  bash -c 'umask 0007; python3 /opt/posinus/pipeline/evaluator.py --limit 3'
 ```
 
 ## Host-specific quirks
 
 ### Dev
 
-- The SQLite database must remain on a local non-synchronized disk.
-- Package installs may default to the user site when the system Python directory is read-only.
-- Windows scheduled tasks require an elevated PowerShell; use `scripts/register-windows-tasks.ps1`.
+- `127.0.0.1:8000` is the crawler web UI (waitress, redirects to https); the model router is
+  on `8088`. Do not confuse the two.
+- The SQLite database must stay on a local, non-synchronized disk.
+- `crawler/tests/test_ui.py` reads `deploy/systemd/posinus-web.service` by relative path, so
+  run pytest from `crawler/`.
 
 ### Prod
 
+- SQLite sidecar files (`-wal`, `-shm`) must stay group-accessible: clients run with
+  `umask 0007`. See `docs/contracts/database-contract.md`.
 - Set `POSINUS_SECURE=1` only after HTTPS termination is configured.
-- Playwright on Ubuntu needs browser system packages; `scripts/install.sh` uses `--with-deps`.
-- All direct SQLite clients must run on the same host, belong to the `posinus` group, and be registered in `/etc/posinus/update-services` when managed by systemd.
+- `newscrawler.wildcar.org` is the live operator UI hostname with a Let's Encrypt
+  certificate. It kept its old name on purpose: renaming it means DNS plus a new certificate.
+- FastMCP redirects `/mcp` to `/mcp/` with 307; urllib does not re-POST on redirects, so the
+  pipeline's client follows 307/308 manually.
+- The router's deepseek adapter forwards only `temperature`, `max_tokens` and `top_p`.
+  `response_format` (JSON mode) never reaches the provider, so strict JSON relies on the
+  prompt plus validation.
+- Stop every direct SQLite client before migrations or a database restore. Their units are
+  listed in `/etc/posinus/update-services`.

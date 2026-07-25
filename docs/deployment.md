@@ -1,6 +1,8 @@
-# Развёртывание Positive News Crawler на Ubuntu
+# Развёртывание posinus на Ubuntu
 
-Инструкция рассчитана на чистый односерверный production-хост и запуск команд из обычной учётной записи с правами `sudo`. Имя этой учётной записи не используется в путях и правах. Приложение работает под отдельным системным пользователем `posinus` без интерактивного входа.
+Инструкция рассчитана на чистый односерверный production-хост и запуск команд из обычной учётной записи с правами `sudo`. Имя этой учётной записи не используется в путях и правах. Краулер работает под отдельным системным пользователем `posinus` без интерактивного входа, конвейер оценки и публикации — под `posinus-pipeline`.
+
+Шаги 1–14 ставят краулер. Конвейер добавляется шагом 15 и требует уже установленного краулера: он читает базу краулера через групповой доступ.
 
 Основной вариант — Ubuntu 24.04 LTS со штатными Python 3.12 и пакетом [python3-venv](https://packages.ubuntu.com/noble/python/python3-venv). Также поддерживаются Python 3.13 и 3.14 на более новых Ubuntu. Не заменяйте системный `/usr/bin/python3` вручную.
 
@@ -8,12 +10,18 @@
 
 | Назначение | Путь | Владелец и доступ |
 |---|---|---|
-| Код и virtualenv | `/opt/posinus/crawler` | `root:root`, сервисы только читают |
-| Production-конфигурация | `/etc/posinus/crawler.env` | `root:posinus`, `0640` |
+| Checkout репозитория | `/opt/posinus` | `root:root`, сервисы только читают |
+| Краулер и его virtualenv | `/opt/posinus/crawler` | `root:root` |
+| Конвейер (три скрипта) | `/opt/posinus/pipeline` | `root:root` |
+| Конфигурация краулера | `/etc/posinus/crawler.env` | `root:posinus`, `0640` |
+| Конфигурация конвейера | `/etc/posinus/pipeline.env` | `root:posinus-pipeline`, `0640` |
 | SQLite, backup, Chromium | `/var/lib/posinus` | группа `posinus`, setgid/default ACL |
 | Основная база | `/var/lib/posinus/posinus.sqlite3` | `posinus:posinus`, `0660` |
-| Логи приложения | `/var/log/posinus` | `posinus:posinus`, setgid/default ACL |
+| Состояние конвейера | `/var/lib/posinus/pipeline` | `posinus-pipeline:posinus-pipeline`, `0750` |
+| Логи краулера | `/var/log/posinus` | `posinus:posinus`, setgid/default ACL |
 | systemd units | `/etc/systemd/system/posinus-*.service` | `root:root`, `0644` |
+
+Один checkout на оба сервиса. Обновление краулера через `update-ubuntu.sh` подтягивает и новый код конвейера, потому что скрипты конвейера работают прямо из `/opt/posinus/pipeline`, без копирования.
 
 SQLite, worker, web-процесс и все процессы прямого доступа к базе должны находиться на одном хосте и локальном диске. NFS, SMB, OneDrive и доступ к файлу базы с другого компьютера запрещены.
 
@@ -47,7 +55,7 @@ id -u posinus >/dev/null 2>&1 || sudo adduser --system \
 ## 3. Создать каталоги и общий доступ к SQLite
 
 ```bash
-sudo install -d -o root -g root -m 0755 /opt/posinus/crawler
+sudo install -d -o root -g root -m 0755 /opt/posinus
 sudo install -d -o root -g posinus -m 0750 /etc/posinus
 sudo install -d -o posinus -g posinus -m 2770 \
   /var/lib/posinus \
@@ -75,12 +83,14 @@ getfacl /var/log/posinus
 
 ```bash
 sudo git clone --branch main --single-branch \
-  https://github.com/wildcar/positive-news-crawler.git \
-  /opt/posinus/crawler
-sudo chown -R root:root /opt/posinus/crawler
+  https://github.com/wildcar/posinus.git \
+  /opt/posinus
+sudo chown -R root:root /opt/posinus
 ```
 
-Если `git clone` сообщает, что каталог не пуст, убедитесь, что это новый хост и `/opt/posinus/crawler` не содержит нужных данных. База и секреты в этом каталоге храниться не должны.
+Клонируется весь репозиторий, поэтому после этого шага на месте оба сервиса: `/opt/posinus/crawler` и `/opt/posinus/pipeline`.
+
+Если `git clone` сообщает, что каталог не пуст, убедитесь, что это новый хост и `/opt/posinus` не содержит нужных данных. База и секреты в этом каталоге храниться не должны.
 
 ## 5. Создать Python-окружение
 
@@ -278,7 +288,7 @@ sudo -u selector-user sqlite3 /var/lib/posinus/posinus.sqlite3 \
   'SELECT count(*) FROM exchange_news_for_selection;'
 ```
 
-Все клиенты обязаны устанавливать `PRAGMA foreign_keys=ON`, `PRAGMA busy_timeout=30000` и быстро завершать транзакции. Подробности записи событий находятся в [database-contract.md](database-contract.md).
+Все клиенты обязаны устанавливать `PRAGMA foreign_keys=ON`, `PRAGMA busy_timeout=30000` и быстро завершать транзакции. Подробности записи событий находятся в [contracts/database-contract.md](contracts/database-contract.md).
 
 Ровно один экземпляр `posinus-worker.service` может работать с базой. Дополнительные процессы используют только стабильный `exchange_*` контракт.
 
@@ -294,9 +304,12 @@ sudoedit /etc/posinus/update-services
 Пример:
 
 ```text
-positive-selector.service
-report-exporter.service
+posinus-evaluator.service
+posinus-preparer.service
+posinus-publisher.service
 ```
+
+Шаг 15 регистрирует эти три unit-а сам. Здесь они как пример и как напоминание: если базу открывает что-то ещё, добавьте его в тот же файл.
 
 Интерактивные процессы нужно завершать вручную. Если после остановки зарегистрированных units база всё ещё открыта, `lsof` остановит обновление до изменения кода или схемы.
 
@@ -327,7 +340,7 @@ sudo /opt/posinus/crawler/scripts/update-ubuntu.sh main
 После успешного обновления скрипт выводит старый/новый commit и путь к backup. Проверка:
 
 ```bash
-cd /opt/posinus/crawler
+cd /opt/posinus
 sudo git status --short
 sudo git log -1 --oneline
 sudo systemctl is-active posinus-web.service posinus-worker.service
@@ -356,3 +369,34 @@ sudo setfacl -m g:posinus:rwx,m:rwx,d:g:posinus:rwx,d:m:rwx \
 ```
 
 Не копируйте живой SQLite-файл обычным `cp`. Используйте backup, созданный приложением или скриптом обновления, и останавливайте все прямые клиенты перед ручным восстановлением.
+
+## 15. Установить конвейер оценки и публикации
+
+Краулер к этому моменту должен работать: конвейер читает его базу через группу `posinus` и падает на старте, если `/var/lib/posinus` ещё нет.
+
+Установщик создаёт системного пользователя, поэтому запускает его владелец сервера лично — агентам это правило запрещает.
+
+```bash
+sudo bash /opt/posinus/pipeline/deploy/install.sh
+```
+
+Скрипт:
+
+1. проверяет, что `/var/lib/posinus` существует и код лежит в `/opt/posinus/pipeline`;
+2. создаёт пользователя `posinus-pipeline` в группе `posinus`;
+3. создаёт `/var/lib/posinus/pipeline` и `/var/lib/posinus/pipeline/media`;
+4. кладёт `/etc/posinus/pipeline.env` из шаблона и подставляет туда токен роутера из `/opt/model-router-mcp/.env`;
+5. ставит и включает шесть units: `posinus-evaluator`, `posinus-preparer`, `posinus-publisher` (по service и timer на каждый);
+6. регистрирует три service в `/etc/posinus/update-services`, чтобы обновление краулера останавливало их перед миграциями.
+
+Дальше заполните секреты платформ в `/etc/posinus/pipeline.env`. Платформа включается только когда её секрет задан, так что таймер публикации до этого работает впустую и ничего не отправляет. Параметры и повадки каждого сервиса описаны в [../pipeline/docs/services.md](../pipeline/docs/services.md).
+
+Проверка:
+
+```bash
+systemctl list-timers 'posinus-*.timer'
+sudo journalctl -u posinus-evaluator.service -n 30
+sudo systemctl start posinus-evaluator.service
+```
+
+Код конвейера обновляется вместе с краулером через `update-ubuntu.sh`: скрипты работают прямо из checkout. Повторно запускать `install.sh` нужно только когда изменились units или шаблон конфигурации.

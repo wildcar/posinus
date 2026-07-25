@@ -1,19 +1,48 @@
 name: CI
 on: [push, pull_request]
+
+# Both suites run on every push. They are fast (crawler ~20s, pipeline <1s), so
+# per-job path filtering would buy nothing and would need a third-party action.
+
 jobs:
-  test:
+  crawler:
+    # Django service: dependencies, migrations, pytest.
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
         python: ['3.12', '3.13', '3.14']
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: crawler
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
           cache: pip
+          cache-dependency-path: crawler/pyproject.toml
       - run: python -m pip install -e ".[dev]"
       - run: python manage.py migrate
       - run: python manage.py check
+      - run: python manage.py makemigrations --check --dry-run
       - run: python -m pytest
+
+  pipeline:
+    # Stdlib-only service. There is no install step on purpose: if this job ever
+    # needs one, the "deploy is a file copy" invariant has been broken.
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13', '3.14']
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pipeline
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s tests

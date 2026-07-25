@@ -1,10 +1,10 @@
-# positive-posinus-evaluator
+# pipeline
 
-AI news evaluator. Reads every news item collected by Positive News Crawler (sibling
-repo `positive-news-crawler`, exchange via its `exchange_*` SQLite contract), scores it
-on a fixed set of 20 characteristics (integer 0–10 each, independent axes), and a
-selection profile decides which items pass on. Selected news are turned into
-a markdown retelling and then posted to the platforms.
+Scoring, selection, preparation and publishing. Reads every news item collected by the
+crawler (`../crawler/`, through its `exchange_*` SQLite contract), scores it on a fixed set
+of 20 characteristics (integer 0–10 each, independent axes), and a selection profile decides
+which items pass on. Selected news are turned into a markdown retelling and then posted to
+the platforms.
 
 Three stdlib-only scripts (Python 3.12):
 
@@ -14,7 +14,7 @@ Three stdlib-only scripts (Python 3.12):
   profile is strict (few items pass) — see `AGENTS/SPEC.md`, section «Пороговая модель».
 - `preparer.py` — for each selected news, extracts illustrations with captions from the
   article, asks the model for a fresh lively Russian retelling, and stores it as a
-  markdown document in the evaluator's own SQLite plus a media dir.
+  markdown document in the pipeline's own SQLite plus a media dir.
 - `publisher.py` — posts each prepared news to Telegram (@posinus), the wildcar.ru site
   (Эгея), and a VK community wall, fully automatically by timer. Each platform turns on
   only when its secret is set in the env file; idempotent per platform, marks
@@ -31,7 +31,7 @@ python3 publisher.py --dry-run --news-id N   # build the posts, send nothing
 sudo bash deploy/install.sh                  # host install: user, config, systemd timers
 ```
 
-Host run commands live in `AGENTS/ENV.md`.
+Host run commands live in `../AGENTS/ENV.md`.
 
 - Product spec: `AGENTS/SPEC.md` (in Russian)
-- Agent workflow & repo map: `AGENTS.md`
+- Agent workflow: `AGENTS.md`; repository map and service boundaries: `../AGENTS.md`

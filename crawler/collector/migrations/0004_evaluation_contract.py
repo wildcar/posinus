@@ -35,8 +35,8 @@ DROP VIEW IF EXISTS exchange_latest_evaluation_scores;
 LOWER = "lower_bound"
 UPPER = "upper_bound"
 
-# Evaluation-axis set v1 from the News Evaluator specification
-# (~/repo/positive-posinus-evaluator/AGENTS/SPEC.md). Every axis is an
+# Evaluation-axis set v1 from the pipeline specification
+# (pipeline/AGENTS/SPEC.md). Every axis is an
 # independent integer 0-10; 0 also means "not applicable".
 CHARACTERISTICS = [
     # (key, category, title, description, anchor_low, anchor_high, direction)

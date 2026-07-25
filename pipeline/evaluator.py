@@ -10,7 +10,7 @@ event (positive/not_positive) plus per-axis scores in one transaction.
 latest event is 'skipped'): it recomputes the verdict from the stored scores and
 writes a correcting event, without calling the model.
 
-Contract: ~/repo/positive-news-crawler/docs/database-contract.md
+Contract: docs/contracts/database-contract.md (repository root)
 Behavior: AGENTS/SPEC.md, sections "Сервис v0" and "Пороговая модель".
 """
 

@@ -6,11 +6,16 @@ the live picture here; push detail into `AGENTS/SPEC.md` (the contract) and `AGE
 
 ## Goal
 
-A service that scores every news item collected by Positive News Crawler on the fixed
+A service that scores every news item collected by the crawler (`../crawler`) on the fixed
 v1 characteristic set (20 axes, integer 0–10), selects the strong ones, prepares them into
 a publish-ready retelling, and posts them to the platforms.
 
 ## Now
+
+- Since 2026-07-25 this is the `pipeline/` directory of the `posinus` repository, next to
+  `crawler/`. Prod names in the repo are `posinus-{evaluator,preparer,publisher}` under
+  `/opt/posinus/pipeline`, but **prod itself has not been migrated yet**: the live host still
+  runs `news-{evaluator,preparer,publisher}` from `/opt/news-evaluator`. See Next.
 
 - `evaluator.py` scores news on 20 axes via model-router-mcp and, with the `default`
   profile, writes `positive`/`not_positive` plus scores in one transaction. LIVE on prod
@@ -31,12 +36,14 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Next
 
-1. Owner: redeploy (`sudo bash deploy/install.sh`) so prod's `publisher.py` matches the
-   repo — the `api.vk.com` → `api.vk.ru` switch, plus the 2h pacing / give-up / markdown
-   changes if an earlier redeploy hasn't already landed them. Prod still calls api.vk.com
-   until then (works, but is being phased out); after redeploy, run one `--news-id` post to
-   confirm the photo path works on api.vk.ru, easy to revert if not.
-2. Prompt calibration and soft profiles («Россия» / «Международное»).
+1. Owner: run the prod migration, in this order. It replaces the old redeploy step.
+   `sudo bash /opt/posinus/crawler/deploy/migrate-to-posinus.sh` (dry run first, then
+   `--apply`), then `sudo bash /opt/posinus/pipeline/deploy/install.sh` to recreate the three
+   timers under their new names. The migration also lands the code prod is still missing:
+   `api.vk.com` → `api.vk.ru`, the 2h pacing, the give-up rule, the markdown retelling.
+2. After the migration, post one item with `--news-id` to confirm the VK photo upload path
+   works against api.vk.ru; easy to revert to api.vk.com if it does not.
+3. Prompt calibration and soft profiles («Россия» / «Международное»).
 
 ## Open questions
 

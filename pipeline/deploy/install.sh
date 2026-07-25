@@ -23,12 +23,20 @@ if ! id -u posinus-pipeline >/dev/null 2>&1; then
     echo "created system user posinus-pipeline (group posinus)"
 fi
 
-install -d -m 0755 /opt/posinus/pipeline
-install -m 0644 "$REPO_DIR/evaluator.py" /opt/posinus/pipeline/evaluator.py
-install -m 0644 "$REPO_DIR/preparer.py" /opt/posinus/pipeline/preparer.py
-install -m 0644 "$REPO_DIR/publisher.py" /opt/posinus/pipeline/publisher.py
+# The scripts run straight out of the checkout at /opt/posinus/pipeline — no copy
+# step, so `sudo /opt/posinus/crawler/scripts/update-ubuntu.sh` ships new pipeline
+# code along with the crawler. Rerun this installer only for unit or config changes.
+if [ "$REPO_DIR" != /opt/posinus/pipeline ]; then
+    echo "NOTE: units will run the code at /opt/posinus/pipeline, not $REPO_DIR." >&2
+fi
+for script in evaluator.py preparer.py publisher.py; do
+    if [ ! -r "/opt/posinus/pipeline/$script" ]; then
+        echo "Missing /opt/posinus/pipeline/$script — clone the repo to /opt/posinus." >&2
+        exit 1
+    fi
+done
 
-# Evaluator-owned state: own DB and downloaded images (the retelling itself is
+# Pipeline-owned state: own DB and downloaded images (the retelling itself is
 # markdown in the DB). Kept separate from the crawler DB by contract; owned by
 # the service user.
 install -d -o posinus-pipeline -g posinus-pipeline -m 0750 /var/lib/posinus/pipeline
