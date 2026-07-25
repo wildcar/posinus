@@ -6,6 +6,10 @@
 .stop form{display:flex;flex-wrap:wrap;gap:.6rem;align-items:flex-end;margin-top:.6rem}
 .stop label{display:flex;flex-direction:column;gap:.25rem;font-size:.9rem;color:#61717d}
 .stop input[type=text]{min-width:16rem}
+.now .counter{display:flex;flex-direction:column;gap:.15rem}
+.now .value{font-size:1.7rem;font-variant-numeric:tabular-nums;line-height:1.1}
+.now .value a{color:#17324d;text-decoration:none;border-bottom:1px solid #cfdae2}
+.attention p{margin:.45rem 0}
 </style>
 {% endblock %}
 {% block content %}
@@ -35,6 +39,32 @@
   <p class="muted">Пока стоит пауза, ни один пост не уйдёт ни на одну площадку. Очередь копится.</p>
   {% endif %}
 </div>
+<div class="card now">
+  <h2>Сейчас</h2>
+  <div class="grid">
+    {% for counter in counters %}
+    <div class="counter">
+      <span class="value">{% if counter.url %}<a href="{{ counter.url }}">{{ counter.value }}</a>{% else %}{{ counter.value }}{% endif %}</span>
+      <span>{{ counter.title }}</span>
+      <span class="muted">{{ counter.typical|default:counter.note }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card attention">
+  <h2>Требует внимания</h2>
+  {% for problem in attention %}
+  <p>
+    {{ problem.text }}
+    {% if problem.hint %}<br><span class="muted">{{ problem.hint }}</span>{% endif %}
+    {% if problem.url %}<br><a href="{{ problem.url }}">{{ problem.action_title }}</a>{% endif %}
+  </p>
+  {% empty %}
+  <p class="ok">Всё в порядке.</p>
+  {% endfor %}
+</div>
+
 <div class="card machine">
   <h2>Машина</h2>
   {% if pipeline_error %}
@@ -65,12 +95,19 @@
 </div>
 <div class="grid">
   <div class="card"><h2>{{ news_count }}</h2><p>актуальных новостей</p></div>
-  <div class="card"><h2>{{ unreviewed_count }}</h2><p>без оценки</p></div>
   <div class="card"><h2>Копия базы</h2><p>{% if latest_backup %}{{ latest_backup.created_at }} — {{ latest_backup.message }}{% else %}ещё не выполнялась{% endif %}</p></div>
   {% for row in source_counts %}
   <div class="card"><h2>{{ row.count }}</h2><p>источников: {{ row.status }}</p></div>
   {% endfor %}
 </div>
+{% if feed_mix.total %}
+<div class="card mix">
+  <h2>Состав ленты за {{ feed_mix.days }} дней</h2>
+  <p>Вышло {{ feed_mix.total }} постов, в среднем {{ feed_mix.per_day }} в день.</p>
+  <p>{% for row in feed_mix.sources %}{{ row.name }} {{ row.share }}%{% if not forloop.last %} · {% endif %}{% endfor %}</p>
+  <p class="muted">Доля источника считается по первому источнику новости. Если одно агентство даёт больше половины постов, это уже ретрансляция, а не своя лента.</p>
+</div>
+{% endif %}
 <h2>Последние обходы</h2>
 {% include "collector/_runs.html" with runs=recent_runs %}
 <h2>События</h2>

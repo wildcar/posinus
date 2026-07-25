@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Эфир{% endblock %}
+{% block head %}
+<style>
+.tabs{display:flex;gap:.5rem;margin:.6rem 0 1rem}
+.tabs a{padding:.45rem .9rem;border-radius:5px;text-decoration:none;color:#17324d;background:#e5edf2}
+.tabs a.on{background:#176b87;color:#fff}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.queue-strength{display:inline-block;min-width:2.2rem;text-align:right}
+.day{margin:1.2rem 0 .4rem;font-size:1rem;color:#61717d}
+.post{display:flex;gap:.8rem;align-items:baseline;padding:.5rem 0;border-bottom:1px solid #e5eaee}
+.post .when{color:#61717d;font-size:.9rem;min-width:4rem}
+.post .links a{margin-right:.6rem;font-size:.9rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem}
+</style>
+{% endblock %}
+{% block content %}
+<h1>Эфир</h1>
+
+{% if pause %}
+<div class="card"><p class="bad">Публикации остановлены{% if pause.until %} до {{ pause.until }}{% else %}, пока не снимете{% endif %}. Очередь копится.</p>
+<p class="muted"><a href="{% url 'dashboard' %}">Снять паузу на пульте</a></p></div>
+{% endif %}
+
+<div class="tabs">
+  <a href="?tab=queue" class="{% if tab == 'queue' %}on{% endif %}">Очередь</a>
+  <a href="?tab=published" class="{% if tab == 'published' %}on{% endif %}">Вышло</a>
+  <a href="?tab=platforms" class="{% if tab == 'platforms' %}on{% endif %}">Площадки</a>
+</div>
+
+{% if pipeline_error %}
+<div class="card"><p class="muted">Нет связи с базой конвейера, показать эфир сейчас нечем.</p></div>
+
+{% elif tab == "queue" %}
+<div class="card">
+  <p>В очереди {{ queue|length }}{% if config.window %}, окно выхода {{ config.window }}{% endif %}{% if config.min_interval_minutes %}, не чаще одного поста в {{ config.min_interval_minutes }} минут{% endif %}.</p>
+  <p class="muted">Порядок пока задаёт время подготовки: так работает публикатор. Колонка «сила» показывает, каким порядок стал бы по оценкам новости.</p>
+</div>
+<table>
+  <tr><th>Выйдет</th><th>Заголовок</th><th class="num">Возраст</th><th class="num">Сила</th><th class="num">Картинок</th></tr>
+  {% for item in queue %}
+  <tr>
+    <td class="num">{{ item.expected_at|date:"d.m H:i"|default:"—" }}</td>
+    <td><a href="{% url 'news_detail' item.news_id %}">{{ item.title }}</a></td>
+    <td class="num">{% if item.age_days is not None %}{{ item.age_days }} дн.{% else %}—{% endif %}</td>
+    <td class="num queue-strength">{{ item.strength }}</td>
+    <td class="num">{{ item.images }}</td>
+  </tr>
+  {% empty %}
+  <tr><td colspan="5" class="muted">Очередь пуста.</td></tr>
+  {% endfor %}
+</table>
+{% if failed %}
+<h2>Не удалось подготовить</h2>
+<p class="muted">Эти новости вернутся в очередь сами: подготовка повторится в следующий прогон.</p>
+<table>
+  <tr><th>Новость</th><th>Что случилось</th></tr>
+  {% for row in failed %}
+  <tr><td><a href="{% url 'news_detail' row.news_id %}">{{ row.title }}</a></td><td class="muted">{{ row.error }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% elif tab == "published" %}
+{% for item in published %}
+{% ifchanged item.published_at|date:"d.m.Y" %}<h2 class="day">{{ item.published_at|date:"d.m.Y"|default:"без даты" }}</h2>{% endifchanged %}
+<div class="post">
+  <span class="when num">{{ item.published_at|date:"H:i" }}</span>
+  <span><a href="{% url 'news_detail' item.news_id %}">{{ item.title }}</a></span>
+  <span class="links">
+    {% for row in item.platforms %}
+      {% if row.url %}<a href="{{ row.url }}">{{ row.title }}</a>{% else %}<span class="bad">{{ row.title }}: не вышло</span>{% endif %}
+    {% endfor %}
+  </span>
+</div>
+{% empty %}
+<div class="card"><p class="muted">Пока ничего не вышло.</p></div>
+{% endfor %}
+
+{% else %}
+<div class="cards">
+  {% for card in platforms %}
+  <div class="card">
+    <h2>{{ card.title }}</h2>
+    <p>Вышло постов: <span class="num">{{ card.ok_count }}</span>{% if card.last_ok_at %}, последний {{ card.last_ok_at }}{% endif %}.</p>
+    {% if card.last_url %}<p><a href="{{ card.last_url }}">Последний пост</a></p>{% endif %}
+    {% if card.error_count %}
+    <p class="bad">Неудачных отправок: {{ card.error_count }}, потрачено попыток {{ card.attempts_spent }}.</p>
+    {% if card.given_up %}<p class="muted">По {{ card.given_up }} новостям попытки исчерпаны: они финализированы без этой площадки, чтобы не держать очередь.</p>{% endif %}
+    <p class="muted">Последняя ошибка: {{ card.last_error }}</p>
+    {% else %}
+    <p class="ok">Ошибок нет.</p>
+    {% endif %}
+  </div>
+  {% empty %}
+  <div class="card"><p class="muted">Отправок ещё не было.</p></div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

@@ -29,6 +29,11 @@ Operate a single-host multilingual news crawler whose source list improves from 
 - Agent-authored Russian text follows `.claude/skills/humanizer-ru/SKILL.md`; collected article content stays verbatim.
 - Retention: `purge_rejected_content(days=3)` tombstones news with a `not_positive` verdict and no `positive` one (skipped/undecided/never-reviewed/selected are kept), wired into `maintenance`. Committed, not yet deployed. The external evaluator's backfill already ran on prod (latest reviews: 120 positive, 6108 not_positive), so the first prod run will tombstone ~4230 rejected items older than 3 days.
 
+- «Эфир» exists since 2026-07-25: queue with expected exit times, published feed with links,
+  platform cards; and the dashboard shows «Сейчас», «Требует внимания» and the 30-day source mix.
+  All of it reads the pipeline DB and degrades to one line when that DB is unavailable. The queue
+  is still shown in the publisher's real order (preparation time) with «сила» beside it — the
+  reordering itself needs the contract extension that is next.
 - The web reads the pipeline database since 2026-07-25, read-only and non-blocking
   (`mode=ro` + `query_only`, 2s busy timeout), through `collector/services/pipeline_db.py`.
   The dashboard's «Машина» block shows the last run of every pipeline service from the new

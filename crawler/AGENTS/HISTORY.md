@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-25 · «Эфир» and a dashboard that answers questions
+- What: New «Эфир» screen (`broadcast.py` + three tabs): the queue in the order the publisher will really take it, with the expected time of exit derived from the interval and window the publisher recorded on its last run, the age of each item and its «сила» from the scores; the published feed with a live link per platform; a card per platform with successes, failures and the last error. The dashboard gained «Сейчас» (today's numbers, each a link, each with «обычно» from the last two weeks), «Требует внимания» (broken platform, looping preparation, paused source — «Всё в порядке» when empty) and «Состав ленты за 30 дней» by source. 11 tests added, 97 pass.
+- Why: step 4 of `../docs/ui-concept.md`. «Что вышло вчера» took three clicks and no answer, and the 124-item queue was invisible from the UI entirely. Reading the publisher's own recorded config instead of keeping a second copy of the interval means the times on screen cannot drift from the ones it uses.
+- Files: crawler/collector/services/{broadcast,console}.py, crawler/collector/{views,urls}.py, crawler/templates/collector/{broadcast,dashboard,base}.html, crawler/tests/test_broadcast.py, crawler/AGENTS/SPEC.md
+- Next: queue ordering by «сила» with operator overrides (a contract extension), then Telegram notifications and the minute refresh.
+
 ## 2026-07-25 · The web can read the pipeline database, safely
 - What: `pipeline_db.py` opens the pipeline's SQLite read-only twice over (`mode=ro` + `PRAGMA query_only`) with a 2s busy timeout and turns every failure into `PipelineUnavailable`; `pipeline_status.py` turns the new `service_run` rows into the dashboard's «Машина» block, calling a run left open past twice its timer interval «прервался». The daily backup now copies that database into the same rotation of seven. `install.sh` grants group `posinus` read on the DB, its sidecars and media, with setgid and default ACLs. 10 tests added, 86 pass. Pipeline side in the same commit.
 - Why: step 3 of `../docs/ui-concept.md`. Half of the machine lives in a database this process does not own, and the dangerous part is not reading it — it is holding a lock while the publisher records a post that already went out, which is how you get a duplicate in the channel.

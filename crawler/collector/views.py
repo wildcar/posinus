@@ -25,6 +25,7 @@ from .models import (
     SelectionBound,
     Source,
 )
+from .services.broadcast import broadcast_state
 from .services.calibration import (
     ADDED_LIMIT,
     NEAR_MISS_LIMIT,
@@ -33,8 +34,10 @@ from .services.calibration import (
     near_misses,
     titles_for,
 )
+from .services.console import attention, feed_mix, pipeline_counters, today_counters
 from .services.manual_review import mark_selected
 from .services.model_router import ModelRouterError
+from .services.pipeline_db import PipelineUnavailable
 from .services.pipeline_mailbox import (
     MailboxUnavailable,
     clear_pause,
@@ -99,7 +102,14 @@ def dashboard(request):
     except MailboxUnavailable as exc:
         pause, mailbox_error = None, str(exc)
     runs, pipeline_queue, pipeline_error = machine_block()
+    try:
+        pipeline_numbers = pipeline_counters()
+    except PipelineUnavailable:
+        pipeline_numbers = []
     context = {
+        "counters": today_counters() + pipeline_numbers,
+        "attention": attention(),
+        "feed_mix": feed_mix(),
         "pause": pause,
         "mailbox_error": mailbox_error,
         "service_runs": runs,
@@ -486,6 +496,24 @@ def selection_rescore(request):
             "исправления добавляются новыми записями.",
         )
     return redirect("selection")
+
+
+@login_required
+def broadcast(request):
+    """«Эфир»: the queue, what went out, and the platforms — all read-only."""
+    state, error = broadcast_state()
+    tab = request.GET.get("tab", "queue")
+    if tab not in {"queue", "published", "platforms"}:
+        tab = "queue"
+    try:
+        pause, mailbox_error = read_pause(), ""
+    except MailboxUnavailable as exc:
+        pause, mailbox_error = None, str(exc)
+    return render(
+        request,
+        "collector/broadcast.html",
+        {"tab": tab, "pipeline_error": error, "pause": pause, "mailbox_error": mailbox_error, **state},
+    )
 
 
 @login_required
