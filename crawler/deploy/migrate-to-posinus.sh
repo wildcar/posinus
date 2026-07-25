@@ -244,6 +244,27 @@ run "$NEW_ROOT/crawler/.venv/bin/python" -m pip install --upgrade pip
 run "$NEW_ROOT/crawler/.venv/bin/python" -m pip install -e "$NEW_ROOT/crawler"
 
 # --------------------------------------------------------------------------------------
+step "Repoint Nginx at the new staticfiles path"
+
+# Only the static alias moves. The server_name, the Certbot-managed listeners and the
+# certificate all keep the newscrawler.wildcar.org name on purpose.
+nginx_site=$(grep -rl 'alias /opt/newscrawler/staticfiles/' /etc/nginx/sites-available/ 2>/dev/null | head -1 || true)
+if [[ -n $nginx_site ]]; then
+    log "  site: $nginx_site"
+    if (( APPLY )); then
+        cp "$nginx_site" "$nginx_site.pre-posinus"
+        sed -i 's#alias /opt/newscrawler/staticfiles/;#alias /opt/posinus/crawler/staticfiles/;#' "$nginx_site"
+        nginx -t
+        systemctl reload nginx
+        log "  reloaded; static now served from $NEW_ROOT/crawler/staticfiles/"
+    else
+        log "  would repoint the static alias to $NEW_ROOT/crawler/staticfiles/ and reload nginx"
+    fi
+else
+    log "  no Nginx site references the old staticfiles path, skipping"
+fi
+
+# --------------------------------------------------------------------------------------
 step "Install the renamed units"
 
 if (( APPLY )); then
