@@ -9,7 +9,7 @@ from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Exists, Max, Min, OuterRef, Q
 from django.db.models.functions import Coalesce
-from django.http import HttpResponse
+from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -27,7 +27,7 @@ from .models import (
     SelectionBound,
     Source,
 )
-from .services.broadcast import broadcast_state
+from .services.broadcast import broadcast_state, image_path, news_pipeline_state
 from .services.calibration import (
     ADDED_LIMIT,
     NEAR_MISS_LIMIT,
@@ -394,9 +394,12 @@ def news_detail(request, pk):
     if profile is not None and evaluator_scores:
         verdict = explain(profile.name, profile.revision, profile_bounds(profile), evaluator_scores)
 
+    pipeline_state, pipeline_error = news_pipeline_state(item.pk)
     context = {
         "item": item,
         "verdict": verdict,
+        "pipeline": pipeline_state,
+        "pipeline_error": pipeline_error,
         "evaluations": sorted(evaluations.values(), key=lambda entry: entry["selector_name"]),
         "translation": getattr(item, "russian_translation", None),
         "manual_selected": item.review_events.filter(
@@ -405,6 +408,26 @@ def news_detail(request, pk):
         ).exists(),
     }
     return render(request, "collector/news_detail.html", context)
+
+
+@login_required
+def news_image(request, pk, filename):
+    """Serve one illustration from the pipeline's private media directory.
+
+    Django checks the login and that the file really belongs to this news item;
+    Nginx reads the bytes through an internal redirect when it is configured to.
+    Serving that directory directly would put every picture on the open internet.
+    """
+    path = image_path(pk, filename)
+    if path is None or not path.exists():
+        raise Http404("нет такой картинки")
+    prefix = settings.POSINUS_MEDIA_ACCEL_PREFIX
+    if prefix:
+        response = HttpResponse()
+        response["X-Accel-Redirect"] = f"{prefix.rstrip('/')}/{pk}/{filename}"
+        del response["Content-Type"]  # let Nginx decide
+        return response
+    return FileResponse(path.open("rb"))
 
 
 @login_required

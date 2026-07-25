@@ -13,6 +13,7 @@ urlpatterns = [
     path("sources/<int:pk>/resume/", views.source_resume, name="source_resume"),
     path("news/", views.news_list, name="news_list"),
     path("news/<int:pk>/", views.news_detail, name="news_detail"),
+    path("news/<int:pk>/image/<str:filename>", views.news_image, name="news_image"),
     path("news/<int:pk>/translate/", views.news_translate, name="news_translate"),
     path("news/<int:pk>/select/", views.news_select, name="news_select"),
     path("broadcast/", views.broadcast, name="broadcast"),

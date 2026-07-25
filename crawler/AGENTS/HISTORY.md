@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-25 · The card shows the retelling, the pictures and the posts
+- What: `news_pipeline_state` reads one item's prepared row, illustrations and publications; the card renders the retelling, a gallery with the domain of each picture and the lead marked, and a table of platforms with links, attempts and errors. Pictures go through `news_image`, which checks the login and that the filename really belongs to that item, then returns an `X-Accel-Redirect` for Nginx (`location /_pipeline_media/`, internal) or streams the file when no prefix is configured. 3 tests added, 111 pass.
+- Why: step 5 of `../docs/ui-concept.md`. Half of the result — the text the reader gets and the pictures chosen for them — existed only inside another database. Serving that directory directly would have put every downloaded photo on the open internet.
+- Files: crawler/collector/services/broadcast.py, crawler/collector/{views,urls}.py, crawler/posinus_crawler/settings.py, crawler/templates/collector/news_detail.html, crawler/deploy/{nginx/posinus.conf,crawler.env.example}, crawler/tests/test_broadcast.py, ../docs/deployment.md
+- Next: editing the retelling and choosing the lead picture — both need a write path through the mailbox, since the web must not write the pipeline DB.
+
 ## 2026-07-25 · The flow shows where each news item stands
 - What: New `stages.py` computes the two-value stage (verdict × progress) for a whole page in two queries and marks a row where the operator overrode the machine; the list now shows it in one word, plus operator-chosen score columns (two by default), «и ещё 2» instead of «+2», and search over the body text. 5 tests added, 108 pass.
 - Why: step 5 of `../docs/ui-concept.md`. The straight chain «собрана → … → опубликована» is a lie: a news item can be rejected by the machine and selected by a human at once, and be in Telegram while failing on VK. Search over the title alone was useless — a person remembers «кот в Норвегии», never the headline.

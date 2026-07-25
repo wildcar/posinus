@@ -80,6 +80,13 @@ POSINUS_PIPELINE_REQUESTS_DIR = os.environ.get(
 POSINUS_PIPELINE_DB_PATH = os.environ.get(
     "POSINUS_PIPELINE_DB_PATH", "/var/lib/posinus/pipeline/evaluator.sqlite3"
 )
+POSINUS_PIPELINE_MEDIA_DIR = os.environ.get(
+    "POSINUS_PIPELINE_MEDIA_DIR", "/var/lib/posinus/pipeline/media"
+)
+# Illustrations live in a private directory. Django checks the login, Nginx reads
+# the file: an internal redirect keeps the bytes out of the Python process. Empty
+# means «send it from Django» — right for a development machine, wasteful in prod.
+POSINUS_MEDIA_ACCEL_PREFIX = os.environ.get("POSINUS_MEDIA_ACCEL_PREFIX", "")
 # The operator's own day, used for «до конца дня» on the stop cock.
 POSINUS_OPERATOR_TIMEZONE = os.environ.get("POSINUS_OPERATOR_TIMEZONE", "Europe/Moscow")
 POSINUS_BACKUP_DIR = Path(os.environ.get("POSINUS_BACKUP_DIR", BASE_DIR / "data" / "backups")).resolve()

@@ -26,6 +26,11 @@
 .verdict-table td,.verdict-table th{border-bottom:1px solid #eef2f5;padding:.35rem .65rem;font-size:.9rem}
 .verdict-table caption{text-align:left;padding:0 .65rem .4rem;font-size:.85rem}
 .verdict-table .num{font-variant-numeric:tabular-nums}
+.num{font-variant-numeric:tabular-nums}
+.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem;margin:.6rem 0}
+.gallery figure{margin:0}
+.gallery img{width:100%;height:auto;border-radius:8px;border:1px solid #e5eaee}
+.gallery figcaption{font-size:.85rem;color:#17212b;margin-top:.3rem;display:flex;flex-wrap:wrap;gap:.4rem;align-items:baseline}
 </style>
 {% endblock %}
 {% block content %}
@@ -53,6 +58,57 @@
   <div class="text">{{ translation.body_text }}</div>
   <p class="muted">Модель: {{ translation.model_id|default:"не указана" }} · {{ translation.generated_at }}</p>
 </div>
+{% endif %}
+{% if pipeline_error %}
+<h2>Подготовка и публикация</h2>
+<div class="card"><p class="muted">Нет связи с базой конвейера, поэтому подготовку и публикацию сейчас не видно.</p></div>
+{% elif pipeline %}
+<h2>Подготовка</h2>
+<div class="card">
+  <p class="muted">
+    {{ pipeline.status }}{% if pipeline.prepared_at %} · подготовлена {{ pipeline.prepared_at }}{% endif %}
+    {% if pipeline.published_at %} · опубликована {{ pipeline.published_at }}{% endif %}
+    {% if pipeline.model_id %} · модель {{ pipeline.model_id }}{% endif %}
+  </p>
+  {% if pipeline.error %}<p class="bad">Последняя ошибка: {{ pipeline.error }}</p>
+  <p class="muted">Новость вернётся в очередь сама, подготовка повторится в следующий прогон.</p>{% endif %}
+  {% if pipeline.title %}<h3>{{ pipeline.title }}</h3>{% endif %}
+  <div class="text">{{ pipeline.body }}</div>
+</div>
+{% if pipeline.images %}
+<div class="card">
+  <h3>Картинки</h3>
+  <div class="gallery">
+    {% for image in pipeline.images %}
+    <figure>
+      <img src="{% url 'news_image' item.pk image.filename %}" alt="{{ image.caption|default:'иллюстрация' }}" loading="lazy">
+      <figcaption>
+        {% if image.lead %}<span class="pill ok">ведущая</span> {% endif %}
+        {{ image.caption }}
+        {% if image.domain %}<span class="muted">{{ image.domain }}</span>{% endif %}
+      </figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% if pipeline.publications %}
+<h2>Публикация</h2>
+<table>
+  <tr><th>Площадка</th><th>Итог</th><th>Попыток</th><th>Когда</th></tr>
+  {% for row in pipeline.publications %}
+  <tr>
+    <td>{{ row.title }}</td>
+    <td>
+      {% if row.status == "ok" %}<a href="{{ row.url }}">пост вышел</a>
+      {% else %}<span class="bad">не вышло</span> <span class="muted">{{ row.error }}</span>{% endif %}
+    </td>
+    <td class="num">{{ row.attempts }}</td>
+    <td class="muted">{{ row.updated_at }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
 {% endif %}
 {% if verdict %}
 <h2>Решение отбора</h2>

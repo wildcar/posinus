@@ -302,3 +302,74 @@ def test_queue_action_rejects_nonsense(operator):
 
     assert response.status_code == 200
     assert "Непонятное действие" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_card_shows_the_retelling_the_pictures_and_the_posts(operator, source, make_news, pipeline, tmp_path, settings):
+    item = make_news("Card news", source, day=10, seed="card")
+    pipeline(
+        "INSERT INTO prepared_item (news_id, status, retold_title, retold_body_md, model_id, prepared_at) "
+        "VALUES (?, 'published', 'Кошка вернулась', 'Текст пересказа', 'deepseek-v4-pro', '2026-07-25T10:00:00+00:00')",
+        (item.pk,),
+    )
+    media = tmp_path / "media" / str(item.pk)
+    media.mkdir(parents=True)
+    (media / "cat.jpg").write_bytes(b"not really a jpeg")
+    settings.POSINUS_PIPELINE_MEDIA_DIR = str(tmp_path / "media")
+    pipeline(
+        "INSERT INTO illustration (news_id, position, file_path, caption, source_url) "
+        "VALUES (?, 0, ?, 'кошка на пороге', 'https://ria.ru/photo/1.jpg')",
+        (item.pk, str(media / "cat.jpg")),
+    )
+    pipeline(
+        "INSERT INTO publication (news_id, platform, status, url, attempts, updated_at) "
+        "VALUES (?, 'telegram', 'ok', 'https://t.me/posinus/9', 1, '2026-07-25T10:05:00+00:00')",
+        (item.pk,),
+    )
+
+    html = operator.get(reverse("news_detail", args=[item.pk])).content.decode()
+
+    assert "Кошка вернулась" in html and "Текст пересказа" in html
+    assert "ведущая" in html and "ria.ru" in html
+    assert "https://t.me/posinus/9" in html
+
+
+@pytest.mark.django_db
+def test_pictures_need_a_login_and_a_real_row(operator, source, make_news, pipeline, tmp_path, settings):
+    from django.test import Client
+
+    anonymous = Client()
+    item = make_news("Guarded", source, day=10, seed="guard")
+    media = tmp_path / "media" / str(item.pk)
+    media.mkdir(parents=True)
+    (media / "cat.jpg").write_bytes(b"bytes")
+    settings.POSINUS_PIPELINE_MEDIA_DIR = str(tmp_path / "media")
+    pipeline(
+        "INSERT INTO illustration (news_id, position, file_path, caption, source_url) VALUES (?, 0, ?, '', '')",
+        (item.pk, str(media / "cat.jpg")),
+    )
+    url = reverse("news_image", args=[item.pk, "cat.jpg"])
+
+    assert anonymous.get(url).status_code == 302              # not logged in: to the login page
+    assert operator.get(url).status_code == 200
+    # a name that is not in the database is not a file we serve, traversal or not
+    assert operator.get(reverse("news_image", args=[item.pk, "secret.txt"])).status_code == 404
+
+
+@pytest.mark.django_db
+def test_nginx_serves_the_bytes_when_configured(operator, source, make_news, pipeline, tmp_path, settings):
+    item = make_news("Accel", source, day=10, seed="accel")
+    media = tmp_path / "media" / str(item.pk)
+    media.mkdir(parents=True)
+    (media / "cat.jpg").write_bytes(b"bytes")
+    settings.POSINUS_PIPELINE_MEDIA_DIR = str(tmp_path / "media")
+    settings.POSINUS_MEDIA_ACCEL_PREFIX = "/_pipeline_media"
+    pipeline(
+        "INSERT INTO illustration (news_id, position, file_path, caption, source_url) VALUES (?, 0, ?, '', '')",
+        (item.pk, str(media / "cat.jpg")),
+    )
+
+    response = operator.get(reverse("news_image", args=[item.pk, "cat.jpg"]))
+
+    assert response["X-Accel-Redirect"] == f"/_pipeline_media/{item.pk}/cat.jpg"
+    assert response.content == b""  # Nginx sends the file, not Python

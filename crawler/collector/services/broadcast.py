@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from urllib.parse import urlsplit
 
 from django.conf import settings
 
@@ -352,6 +354,96 @@ def held_items() -> list[dict]:
             continue
         rows.append({"news_id": plan.news_item_id, "title": plan.news_item.title, "state": state})
     return rows
+
+
+ITEM_SQL = """
+SELECT news_id, status, retold_title, retold_body_md, model_id, prepared_at, published_at, error
+FROM prepared_item
+WHERE news_id = ?
+"""
+
+ITEM_IMAGES_SQL = """
+SELECT id, position, file_path, caption, source_url
+FROM illustration
+WHERE news_id = ?
+ORDER BY position, id
+"""
+
+ITEM_PUBLICATIONS_SQL = """
+SELECT platform, status, url, error, attempts, updated_at
+FROM publication
+WHERE news_id = ?
+"""
+
+
+def news_pipeline_state(news_id: int) -> tuple[dict, str]:
+    """Everything the pipeline knows about one news item, for its card.
+
+    Returns an empty dict when the item never reached the pipeline, and the
+    reason as the second value when the database itself is unreachable.
+    """
+    try:
+        rows = fetch_all(ITEM_SQL, (news_id,))
+        if not rows:
+            return {}, ""
+        row = rows[0]
+        images = [
+            {
+                "id": image["id"],
+                "filename": Path(image["file_path"]).name,
+                "caption": image["caption"] or "",
+                "source_url": image["source_url"] or "",
+                "domain": urlsplit(image["source_url"] or "").netloc,
+                "lead": image["position"] == 0,
+            }
+            for image in fetch_all(ITEM_IMAGES_SQL, (news_id,))
+        ]
+        publications = [
+            {
+                "platform": pub["platform"],
+                "title": PLATFORM_TITLES.get(pub["platform"], pub["platform"]),
+                "status": pub["status"],
+                "url": pub["url"] or "",
+                "error": pub["error"] or "",
+                "attempts": pub["attempts"],
+                "updated_at": _moment(pub["updated_at"]),
+            }
+            for pub in fetch_all(ITEM_PUBLICATIONS_SQL, (news_id,))
+        ]
+        publications.sort(key=lambda row: row["title"])
+        return {
+            "status": row["status"],
+            "title": row["retold_title"] or "",
+            "body": row["retold_body_md"] or "",
+            "model_id": row["model_id"] or "",
+            "prepared_at": _moment(row["prepared_at"]),
+            "published_at": _moment(row["published_at"]),
+            "error": row["error"] or "",
+            "images": images,
+            "publications": publications,
+        }, ""
+    except PipelineUnavailable as exc:
+        return {}, str(exc)
+
+
+def image_path(news_id: int, filename: str) -> Path | None:
+    """Absolute path of one illustration, if the pipeline really has that row.
+
+    The name comes from a URL, so it is never trusted: the row must exist in the
+    database and the resolved path must stay inside the media directory.
+    """
+    try:
+        rows = fetch_all(ITEM_IMAGES_SQL, (news_id,))
+    except PipelineUnavailable:
+        return None
+    names = {Path(row["file_path"]).name for row in rows}
+    if filename not in names:
+        return None
+    root = Path(settings.POSINUS_PIPELINE_MEDIA_DIR).resolve()
+    candidate = (root / str(news_id) / filename).resolve()
+    if not candidate.is_relative_to(root):
+        return None
+    return candidate
 
 
 def broadcast_state() -> tuple[dict, str]:
