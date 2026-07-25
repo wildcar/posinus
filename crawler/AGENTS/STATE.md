@@ -29,6 +29,11 @@ Operate a single-host multilingual news crawler whose source list improves from 
 - Agent-authored Russian text follows `.claude/skills/humanizer-ru/SKILL.md`; collected article content stays verbatim.
 - Retention: `purge_rejected_content(days=3)` tombstones news with a `not_positive` verdict and no `positive` one (skipped/undecided/never-reviewed/selected are kept), wired into `maintenance`. Committed, not yet deployed. The external evaluator's backfill already ran on prod (latest reviews: 120 positive, 6108 not_positive), so the first prod run will tombstone ~4230 rejected items older than 3 days.
 
+- The publication queue goes out by «сила», not by preparation time, since 2026-07-25
+  (`exchange_publication_plan` + the `exchange_publication_order` view, migration `0009`), with
+  выше / ниже / отложить / снять on every row of «Эфир». LIVE on prod (commit `db2c1a9`): the
+  view returns 6489 rows with strength from 0.0 to 9.3, and a publisher run through the mailbox
+  read the plan without a single fallback warning.
 - «Эфир» exists since 2026-07-25: queue with expected exit times, published feed with links,
   platform cards; and the dashboard shows «Сейчас», «Требует внимания» and the 30-day source mix.
   All of it reads the pipeline DB and degrades to one line when that DB is unavailable. The queue

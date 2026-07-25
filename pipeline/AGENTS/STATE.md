@@ -50,6 +50,10 @@ a publish-ready retelling, and posts them to the platforms.
 - LIVE on prod since 2026-07-25 19:57 UTC (commit `3f50691`): the pipeline DB reports
   `journal_mode = wal`. The mode flipped on the first open after the update, verified with a
   `publisher.py --dry-run` that sent nothing.
+- Since 2026-07-25 the publisher takes the queue in the order the crawler computes
+  (`exchange_publication_order`: operator rank, then strength, then preparation time), skipping
+  held and dropped items. LIVE on prod at commit `db2c1a9`, verified by a run that read the plan
+  with no fallback warning; 114 prepared items are now ordered by strength.
 - Since 2026-07-25 every run leaves a `service_run` row in the pipeline DB (`runlog.py`):
   service, status, start and end, counters, effective config without secrets. The crawler UI
   reads those rows for its «Машина» block. LIVE on prod since 2026-07-25 21:44 UTC (commit
