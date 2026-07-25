@@ -11,6 +11,8 @@ Two kinds of file:
 - `pause` — the stop cock. While it is there the publisher sends nothing.
 - `run-<service>` — run now. A systemd `.path` unit starts the service within a
   second and the service deletes the file before it works.
+- `edit-<news_id>.json` — the operator's correction of a prepared retelling: the
+  text, the lead picture, the pictures to drop.
 
 The directory does not exist on a development machine, and it must not exist for
 the site to work: every reader here raises `MailboxUnavailable` instead, and the
@@ -19,6 +21,7 @@ views show that in words.
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from dataclasses import dataclass
@@ -98,6 +101,18 @@ def clear_pause() -> None:
             raise MailboxUnavailable(f"{mailbox_dir()} does not exist") from None
     except OSError as exc:
         raise MailboxUnavailable(str(exc)) from exc
+
+
+def request_edit(news_id: int, payload: dict) -> None:
+    """Ask the pipeline to change a prepared item: text, lead picture, dropped ones.
+
+    The web cannot touch that database, so the edit travels as a file and a
+    systemd path unit applies it within a second. One file per news item: a
+    second edit before the first is applied simply replaces it, which is what
+    the operator means by pressing «Сохранить» twice.
+    """
+    body = dict(payload, news_id=int(news_id), requested_at=timezone.now().isoformat())
+    _write(mailbox_dir() / f"edit-{int(news_id)}.json", json.dumps(body, ensure_ascii=False) + "\n")
 
 
 def request_run(service: str) -> None:

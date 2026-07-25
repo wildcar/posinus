@@ -1,0 +1,9 @@
+[Unit]
+Description=Apply operator edits as soon as the web drops one
+
+[Path]
+PathExistsGlob=/var/lib/posinus/pipeline/requests/edit-*.json
+Unit=posinus-apply-edits.service
+
+[Install]
+WantedBy=multi-user.target

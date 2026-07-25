@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-25 · The operator can fix a retelling, through a file
+- What: The card gained an edit form (title, body) and per-picture actions («сделать ведущей», «не использовать»); both write an `edit-<news_id>.json` request into the shared mailbox, logged as an operator event. A published item offers neither. 4 tests added, 115 pass. Pipeline side (`apply_edits.py`, path unit, `edited_at`) in the same commit.
+- Why: step 5 of `../docs/ui-concept.md`. «Спас троих» where the article says four left two options: open `sqlite3` or do not publish. The web still must not write the pipeline's database, so the correction travels as a file.
+- Files: crawler/collector/services/pipeline_mailbox.py, crawler/collector/{views,urls}.py, crawler/templates/collector/news_detail.html, crawler/tests/test_broadcast.py, crawler/AGENTS/SPEC.md
+- Next: the translation still runs inside the HTTP request; move it to a background job.
+
 ## 2026-07-25 · The card shows the retelling, the pictures and the posts
 - What: `news_pipeline_state` reads one item's prepared row, illustrations and publications; the card renders the retelling, a gallery with the domain of each picture and the lead marked, and a table of platforms with links, attempts and errors. Pictures go through `news_image`, which checks the login and that the filename really belongs to that item, then returns an `X-Accel-Redirect` for Nginx (`location /_pipeline_media/`, internal) or streams the file when no prefix is configured. 3 tests added, 111 pass.
 - Why: step 5 of `../docs/ui-concept.md`. Half of the result — the text the reader gets and the pictures chosen for them — existed only inside another database. Serving that directory directly would have put every downloaded photo on the open internet.

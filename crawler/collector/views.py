@@ -44,6 +44,7 @@ from .services.pipeline_mailbox import (
     MailboxUnavailable,
     clear_pause,
     read_pause,
+    request_edit,
     request_run,
     set_pause,
 )
@@ -408,6 +409,52 @@ def news_detail(request, pk):
         ).exists(),
     }
     return render(request, "collector/news_detail.html", context)
+
+
+@login_required
+@require_POST
+def news_edit(request, pk):
+    """Send the operator's correction of a retelling to the pipeline.
+
+    The model writes «спас троих» where the article says four; until this
+    existed the only options were `sqlite3` or not publishing. The web writes a
+    request file — never the pipeline's database — and the pipeline applies it.
+    """
+    item = get_object_or_404(NewsItem, pk=pk)
+    payload = {"operator": request.user.get_username()}
+    title = request.POST.get("title", "").strip()
+    body = request.POST.get("body", "").strip()
+    if title:
+        payload["title"] = title
+    if body:
+        payload["body"] = body
+    lead = request.POST.get("lead_image_id", "")
+    if lead.isdigit():
+        payload["lead_image_id"] = int(lead)
+    drop = [int(value) for value in request.POST.getlist("drop_image_id") if value.isdigit()]
+    if drop:
+        payload["drop_image_ids"] = drop
+
+    if len(payload) == 1:
+        messages.error(request, "Нечего менять: ни текста, ни картинок в запросе.")
+        return redirect("news_detail", pk=pk)
+    try:
+        request_edit(item.pk, payload)
+    except MailboxUnavailable as exc:
+        logger.error("Cannot write an edit request: %s", exc)
+        messages.error(request, "Не получилось передать правку: нет доступа к каталогу заявок конвейера.")
+    else:
+        OperatorEvent.objects.create(
+            event_type="retelling_edited",
+            message=f"Правка пересказа новости {item.pk}",
+            details={"news_id": item.pk, "fields": sorted(set(payload) - {"operator"})},
+        )
+        messages.success(
+            request,
+            "Правка отправлена, конвейер применит её за секунды. После ручной правки пересказ "
+            "больше не перегенерируется, иначе правка потерялась бы при первой же ошибке.",
+        )
+    return redirect("news_detail", pk=pk)
 
 
 @login_required

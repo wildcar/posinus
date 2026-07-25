@@ -70,7 +70,9 @@ CREATE TABLE IF NOT EXISTS prepared_item (
     model_id TEXT,
     prepared_at TEXT,
     published_at TEXT,
-    error TEXT
+    error TEXT,
+    edited_at TEXT,       -- set when the operator fixed the retelling by hand
+    edited_by TEXT
 );
 CREATE TABLE IF NOT EXISTS illustration (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -376,7 +378,17 @@ def _html_source_url(body: str) -> str:
 
 def migrate_own_db(con: sqlite3.Connection) -> None:
     """Bring an older own DB forward: add retold_body_md and backfill it from the
-    HTML that used to be stored (paragraphs + source), so nothing is re-run."""
+    HTML that used to be stored (paragraphs + source), so nothing is re-run.
+
+    Also adds the operator-edit columns. They matter beyond bookkeeping: once a
+    human has fixed a retelling, regenerating it would silently throw the fix
+    away on the first failure and re-queue, so `edited_at` is what stops that.
+    """
+    columns = {row["name"] for row in con.execute("PRAGMA table_info(prepared_item)")}
+    if columns and "edited_at" not in columns:
+        con.execute("ALTER TABLE prepared_item ADD COLUMN edited_at TEXT")
+        con.execute("ALTER TABLE prepared_item ADD COLUMN edited_by TEXT")
+        con.commit()
     columns = {row["name"] for row in con.execute("PRAGMA table_info(prepared_item)")}
     if not columns or "retold_body_md" in columns:
         return
@@ -411,7 +423,19 @@ def open_own_db(path: str) -> sqlite3.Connection:
 
 
 def prepared_ids(con: sqlite3.Connection) -> set[int]:
-    return {row[0] for row in con.execute("SELECT news_id FROM prepared_item WHERE status = 'prepared'")}
+    """News the preparer must not touch again.
+
+    Anything already prepared, plus anything a human has edited by hand. The
+    second half is the important one: a retelling the operator fixed would be
+    silently regenerated after any later failure, and the fix would vanish
+    without anyone noticing until the wrong text was public.
+    """
+    return {
+        row[0]
+        for row in con.execute(
+            "SELECT news_id FROM prepared_item WHERE status = 'prepared' OR edited_at IS NOT NULL"
+        )
+    }
 
 
 def save_prepared(

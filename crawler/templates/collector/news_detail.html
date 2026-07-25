@@ -31,6 +31,11 @@
 .gallery figure{margin:0}
 .gallery img{width:100%;height:auto;border-radius:8px;border:1px solid #e5eaee}
 .gallery figcaption{font-size:.85rem;color:#17212b;margin-top:.3rem;display:flex;flex-wrap:wrap;gap:.4rem;align-items:baseline}
+.image-actions{display:flex;gap:.3rem;margin-top:.35rem}
+.image-actions button{padding:.25rem .5rem;font-size:.8rem;background:#e5edf2;color:#17324d}
+.edit summary{cursor:pointer;color:#176b87}
+.edit label{display:flex;flex-direction:column;gap:.25rem;margin:.6rem 0;font-size:.9rem;color:#61717d}
+.edit textarea{width:100%;max-width:none;font:inherit;line-height:1.5}
 </style>
 {% endblock %}
 {% block content %}
@@ -75,6 +80,22 @@
   {% if pipeline.title %}<h3>{{ pipeline.title }}</h3>{% endif %}
   <div class="text">{{ pipeline.body }}</div>
 </div>
+{% if pipeline.status != "published" %}
+<details class="card edit">
+  <summary>Поправить пересказ</summary>
+  <form method="post" action="{% url 'news_edit' item.pk %}">{% csrf_token %}
+    <label>Заголовок
+      <input type="text" name="title" value="{{ pipeline.title }}" maxlength="300">
+    </label>
+    <label>Текст
+      <textarea name="body" rows="14">{{ pipeline.body }}</textarea>
+    </label>
+    <button>Сохранить правку</button>
+    <p class="muted">После ручной правки пересказ больше не перегенерируется: иначе правка молча
+    пропала бы при первой же ошибке подготовки. Опубликованную новость править уже поздно.</p>
+  </form>
+</details>
+{% endif %}
 {% if pipeline.images %}
 <div class="card">
   <h3>Картинки</h3>
@@ -87,6 +108,12 @@
         {{ image.caption }}
         {% if image.domain %}<span class="muted">{{ image.domain }}</span>{% endif %}
       </figcaption>
+      {% if pipeline.status != "published" %}
+      <form method="post" action="{% url 'news_edit' item.pk %}" class="image-actions">{% csrf_token %}
+        {% if not image.lead %}<button name="lead_image_id" value="{{ image.id }}">сделать ведущей</button>{% endif %}
+        <button name="drop_image_id" value="{{ image.id }}">не использовать</button>
+      </form>
+      {% endif %}
     </figure>
     {% endfor %}
   </div>

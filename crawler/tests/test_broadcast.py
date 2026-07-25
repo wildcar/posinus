@@ -373,3 +373,72 @@ def test_nginx_serves_the_bytes_when_configured(operator, source, make_news, pip
 
     assert response["X-Accel-Redirect"] == f"/_pipeline_media/{item.pk}/cat.jpg"
     assert response.content == b""  # Nginx sends the file, not Python
+
+
+@pytest.fixture
+def mailbox(settings, tmp_path):
+    directory = tmp_path / "requests"
+    directory.mkdir()
+    settings.POSINUS_PIPELINE_REQUESTS_DIR = str(directory)
+    return directory
+
+
+@pytest.mark.django_db
+def test_an_edit_travels_as_a_file_not_a_database_write(operator, source, make_news, pipeline, mailbox):
+    import json
+
+    item = make_news("Wrong number", source, day=10, seed="edit")
+    pipeline(
+        "INSERT INTO prepared_item (news_id, status, retold_title, retold_body_md) "
+        "VALUES (?, 'prepared', 'Спас троих', 'текст')",
+        (item.pk,),
+    )
+
+    operator.post(reverse("news_edit", args=[item.pk]), {"title": "Спас четверых", "body": "правленый текст"})
+
+    request = json.loads((mailbox / f"edit-{item.pk}.json").read_text(encoding="utf-8"))
+    assert request["title"] == "Спас четверых"
+    assert request["body"] == "правленый текст"
+    assert request["operator"] == "operator"
+    from collector.models import OperatorEvent
+
+    assert OperatorEvent.objects.filter(event_type="retelling_edited").exists()
+
+
+@pytest.mark.django_db
+def test_choosing_a_lead_picture_is_the_same_kind_of_request(operator, source, make_news, pipeline, mailbox):
+    import json
+
+    item = make_news("Pictures", source, day=10, seed="lead")
+    pipeline("INSERT INTO prepared_item (news_id, status, retold_title) VALUES (?, 'prepared', 'T')", (item.pk,))
+
+    operator.post(reverse("news_edit", args=[item.pk]), {"lead_image_id": "7"})
+
+    request = json.loads((mailbox / f"edit-{item.pk}.json").read_text(encoding="utf-8"))
+    assert request["lead_image_id"] == 7
+    assert "title" not in request
+
+
+@pytest.mark.django_db
+def test_an_empty_edit_is_refused(operator, source, make_news, pipeline, mailbox):
+    item = make_news("Nothing", source, day=10, seed="empty-edit")
+
+    response = operator.post(reverse("news_edit", args=[item.pk]), {"title": "  "}, follow=True)
+
+    assert "Нечего менять" in response.content.decode()
+    assert not list(mailbox.iterdir())
+
+
+@pytest.mark.django_db
+def test_a_published_item_offers_no_edit_form(operator, source, make_news, pipeline):
+    item = make_news("Already out", source, day=10, seed="published-edit")
+    pipeline(
+        "INSERT INTO prepared_item (news_id, status, retold_title, retold_body_md) "
+        "VALUES (?, 'published', 'T', 'текст')",
+        (item.pk,),
+    )
+
+    html = operator.get(reverse("news_detail", args=[item.pk])).content.decode()
+
+    assert "Поправить пересказ" not in html
+    assert "сделать ведущей" not in html

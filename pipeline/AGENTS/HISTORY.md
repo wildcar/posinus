@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-25 · Apply the operator's corrections to a prepared retelling
+- What: New stdlib-only `apply_edits.py` reads `edit-<news_id>.json` from the mailbox and applies the title, body, lead picture and dropped pictures, then removes the request; a `.path` unit runs it within a second, with no timer and no `ExecStartPre` (deleting requests before reading them would lose the edit). `prepared_item` gained `edited_at`/`edited_by`, and `prepared_ids` now excludes edited items so the preparer can never regenerate over a human fix. Edits to a published item are refused. 7 tests added, 126 pass. Crawler side (form, picture actions) in the same commit.
+- Why: step 5 of `../docs/ui-concept.md`. The correction has to reach this database somehow, and the one thing it must not be is a second writer on the file.
+- Files: pipeline/apply_edits.py, pipeline/preparer.py, pipeline/deploy/{install.sh,posinus-apply-edits.service,posinus-apply-edits-run.path}, pipeline/tests/{test_apply_edits,test_stdlib_only}.py, pipeline/AGENTS/SPEC.md, pipeline/docs/services.md
+- Next: owner reruns install.sh for the new unit.
+
 ## 2026-07-25 · Telegram tells the operator when something is broken
 - What: New stdlib-only `notify.py` with two timers: an hourly alarm check (platform failed ≥3 times, a full day silent inside an open window, an empty queue for 3 days) and a daily one-line digest at 09:00 Moscow. The same alarm repeats at most every 12 hours (`notification` table). Destination is `NOTIFY_CHAT_ID` — the owner's own chat; empty means nothing is sent, which is the default. 9 tests added, 118 pass.
 - Why: step 4 / 8.7 of `../docs/ui-concept.md` and the loudest complaint about the system — you learned about a broken platform only by opening the site. The high bar is deliberate: noise makes the channel worthless in a week, and then the message that matters is ignored with the rest.

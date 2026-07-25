@@ -1,0 +1,16 @@
+[Unit]
+Description=Positive News: apply the operator's edits to a prepared item
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=posinus-pipeline
+Group=posinus-pipeline
+SupplementaryGroups=posinus
+UMask=0007
+EnvironmentFile=/etc/posinus/pipeline.env
+# No ExecStartPre here: the script removes each request file itself, after it
+# has read it — deleting them up front would lose the edit.
+ExecStart=/usr/bin/python3 /opt/posinus/pipeline/apply_edits.py
+NoNewPrivileges=true
+PrivateTmp=true

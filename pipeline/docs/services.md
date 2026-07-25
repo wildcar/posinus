@@ -139,6 +139,10 @@ second; the service removes the file in `ExecStartPre` before doing any work, so
 does not retrigger and a second click during a run is ignored by systemd. This is how the
 operator UI runs a service without sudo and without a second job queue.
 
+`posinus-apply-edits.service` has no timer either: `posinus-apply-edits-run.path` watches for
+`edit-*.json` and runs `apply_edits.py`, which reads each request, applies it and removes the
+file itself (no `ExecStartPre` here — deleting the requests up front would lose the edits).
+
 `posinus-evaluator-backfill.service` has no timer: it exists only for that last request file.
 It runs `evaluator.py --backfill --rescore-all`, which re-applies the selection thresholds in
 force to every news item already scored and writes a correcting event only where the verdict
