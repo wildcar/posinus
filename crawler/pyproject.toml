@@ -3,7 +3,7 @@ requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "positive-news-crawler"
+name = "posinus-crawler"
 version = "0.1.0"
 description = "A small multilingual news crawler with a SQLite feedback loop"
 readme = "README.md"
@@ -26,9 +26,9 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["newscrawler*", "collector*"]
+include = ["posinus_crawler*", "collector*"]
 
 [tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "newscrawler.settings"
+DJANGO_SETTINGS_MODULE = "posinus_crawler.settings"
 python_files = ["test_*.py"]
 addopts = "-ra"

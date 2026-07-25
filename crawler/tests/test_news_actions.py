@@ -37,8 +37,8 @@ def test_translate_action_persists_and_renders_translation(monkeypatch, operator
 @pytest.mark.django_db
 def test_translation_service_sends_configured_model(monkeypatch, settings, source, make_news):
     item = make_news("Original title", source, day=10, seed="service-translation")
-    settings.NEWSCRAWLER_TRANSLATION_PROVIDER = "configured-provider"
-    settings.NEWSCRAWLER_TRANSLATION_MODEL = "configured-model"
+    settings.POSINUS_TRANSLATION_PROVIDER = "configured-provider"
+    settings.POSINUS_TRANSLATION_MODEL = "configured-model"
     captured = {}
 
     def fake_chat(**kwargs):
@@ -98,7 +98,7 @@ def test_select_action_snapshots_scores_and_is_idempotent(
     operator, settings, source, make_news, make_review
 ):
     item = make_news("Selected news", source, day=10, seed="action-selected")
-    settings.NEWSCRAWLER_MANUAL_SCORE_SELECTOR = "evaluator"
+    settings.POSINUS_MANUAL_SCORE_SELECTOR = "evaluator"
     make_review(item, {"positivity": 8, "negativity": 1}, key="automatic")
     url = reverse("news_select", args=[item.pk])
 

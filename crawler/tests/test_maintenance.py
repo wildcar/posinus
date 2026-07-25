@@ -107,7 +107,7 @@ def test_rejected_news_purged_after_three_days():
 
 @pytest.mark.django_db
 def test_backup_is_valid(tmp_path, settings):
-    settings.NEWSCRAWLER_BACKUP_DIR = tmp_path
+    settings.POSINUS_BACKUP_DIR = tmp_path
     settings.DB_PATH = tmp_path / "source.sqlite3"
     source = sqlite3.connect(settings.DB_PATH)
     source.execute("CREATE TABLE sample(value TEXT)")

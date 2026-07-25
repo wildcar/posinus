@@ -1,0 +1,27 @@
+[Unit]
+Description=Positive News Crawler worker
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/posinus/crawler.env
+ConditionPathExists=/var/lib/posinus/posinus.sqlite3
+ConditionPathIsDirectory=/var/lib/posinus
+
+[Service]
+Type=simple
+User=posinus
+Group=posinus
+WorkingDirectory=/opt/posinus/crawler
+EnvironmentFile=/etc/posinus/crawler.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+UMask=0007
+ExecStartPre=/usr/bin/chmod 0660 /var/lib/posinus/posinus.sqlite3
+ExecStart=/opt/posinus/crawler/.venv/bin/python manage.py runworker
+Restart=always
+RestartSec=10
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/posinus /var/log/posinus
+
+[Install]
+WantedBy=multi-user.target

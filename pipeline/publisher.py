@@ -54,7 +54,7 @@ from typing import Any, Callable
 
 import preparer   # own-DB schema + migration, markdown builder
 
-log = logging.getLogger("news-publisher")
+log = logging.getLogger("posinus-publisher")
 
 PUBLISHER_VERSION = "0.1.0"
 TG_CAPTION_LIMIT = 1024      # Telegram photo caption hard limit
@@ -94,7 +94,7 @@ class PublishError(RuntimeError):
 
 @dataclass
 class PublisherConfig:
-    own_db: str = "/var/lib/news-evaluator/evaluator.sqlite3"
+    own_db: str = "/var/lib/posinus/pipeline/evaluator.sqlite3"
     user_agent: str = "PositiveNewsEvaluator/0.1 (+mailto:mail@wildcar.ru)"
     # Telegram
     tg_token: str = ""

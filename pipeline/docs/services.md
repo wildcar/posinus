@@ -5,9 +5,9 @@ published posts. For *what* they produce (the behavior contract) see `AGENTS/SPE
 sections «Подготовка отобранных новостей» and «Публикация». This file is *how they run*:
 units, config, storage, commands, and gotchas.
 
-Both are single-file, stdlib-only Python scripts deployed at `/opt/news-evaluator/`
-next to `evaluator.py`, run as the `newsevaluator` user (supplementary group
-`newscrawler`) by systemd oneshot services plus timers. Everything is installed and
+Both are single-file, stdlib-only Python scripts deployed at `/opt/posinus/pipeline/`
+next to `evaluator.py`, run as the `posinus-pipeline` user (supplementary group
+`posinus`) by systemd oneshot services plus timers. Everything is installed and
 updated by `sudo bash deploy/install.sh` (the owner runs it — agents do not create
 system users).
 
@@ -21,13 +21,13 @@ crawler ──> evaluator ──> preparer ──> publisher
 
 | Service | Script | Timer (unit) | Cadence | Calls the model? |
 |---------|--------|--------------|---------|------------------|
-| evaluator | `evaluator.py` | `news-evaluator.timer` | every 10 min | yes |
-| preparer  | `preparer.py`  | `news-preparer.timer`  | every 15 min | yes |
-| publisher | `publisher.py` | `news-publisher.timer` | every 30 min | no |
+| evaluator | `evaluator.py` | `posinus-evaluator.timer` | every 10 min | yes |
+| preparer  | `preparer.py`  | `posinus-preparer.timer`  | every 15 min | yes |
+| publisher | `publisher.py` | `posinus-publisher.timer` | every 30 min | no |
 
 ## Shared storage (evaluator-owned DB)
 
-`/var/lib/news-evaluator/evaluator.sqlite3` (owner `newsevaluator`, mode 0750). The
+`/var/lib/posinus/pipeline/evaluator.sqlite3` (owner `posinus-pipeline`, mode 0750). The
 crawler exchange contract forbids clients from writing any table but its two exchange
 tables, so all prepared artifacts and publication state live here, keyed by `news_id`.
 
@@ -37,7 +37,7 @@ tables, so all prepared artifacts and publication state live here, keyed by `new
 - `publication(news_id, platform, status, url, error, attempts, updated_at)` — one row per
   `(news_id, platform)`; `status` is `ok` or `error`.
 
-Images live in `/var/lib/news-evaluator/media/<news_id>/`. There are no HTML pages: the
+Images live in `/var/lib/posinus/pipeline/media/<news_id>/`. There are no HTML pages: the
 retelling is markdown in `prepared_item.retold_body_md`. An older DB auto-migrates on open
 (`migrate_own_db` adds `retold_body_md` and backfills it from the previously stored HTML,
 no model calls, no manual step).
@@ -51,7 +51,7 @@ the model for a fresh lively Russian retelling (JSON `{title, body[]}`), stores 
 document plus the downloaded images, and marks it «Подготовлено». On a per-item failure it
 writes `status='error'` with the message; the item re-enters the queue on the next run.
 
-Config (in `/etc/news-evaluator/news-evaluator.env`):
+Config (in `/etc/posinus/pipeline.env`):
 
 - `PREP_BATCH` (default 5) — selected news prepared per run.
 - `EVALUATOR_DB_PATH`, `MEDIA_DIR`, `NEWS_DB_PATH`, `PREPARER_USER_AGENT`.
@@ -127,25 +127,25 @@ and given up on.
 systemctl list-timers 'news-*.timer'
 
 # recent logs
-sudo journalctl -u news-preparer.service -n 50
-sudo journalctl -u news-publisher.service -n 50
+sudo journalctl -u posinus-preparer.service -n 50
+sudo journalctl -u posinus-publisher.service -n 50
 
 # run one batch right now
-sudo systemctl start news-preparer.service
-sudo systemctl start news-publisher.service
+sudo systemctl start posinus-preparer.service
+sudo systemctl start posinus-publisher.service
 
 # preview without side effects (env must be loaded for tokens / enabled platforms)
-sudo -u newsevaluator bash -c 'set -a; . /etc/news-evaluator/news-evaluator.env; set +a; \
-  python3 /opt/news-evaluator/publisher.py --dry-run --news-id N'
+sudo -u posinus-pipeline bash -c 'set -a; . /etc/posinus/pipeline.env; set +a; \
+  python3 /opt/posinus/pipeline/publisher.py --dry-run --news-id N'
 
 # publish one specific item now, ignoring the rate limit
-sudo -u newsevaluator bash -c 'set -a; . /etc/news-evaluator/news-evaluator.env; set +a; \
-  python3 /opt/news-evaluator/publisher.py --news-id N'
+sudo -u posinus-pipeline bash -c 'set -a; . /etc/posinus/pipeline.env; set +a; \
+  python3 /opt/posinus/pipeline/publisher.py --news-id N'
 
 # inspect state
 sudo python3 - <<'PY'
 import sqlite3
-c = sqlite3.connect('/var/lib/news-evaluator/evaluator.sqlite3'); c.row_factory = sqlite3.Row
+c = sqlite3.connect('/var/lib/posinus/pipeline/evaluator.sqlite3'); c.row_factory = sqlite3.Row
 for r in c.execute("SELECT status, COUNT(*) n FROM prepared_item GROUP BY status"):
     print(r['status'], r['n'])
 for r in c.execute("SELECT news_id, platform, status, attempts FROM publication ORDER BY updated_at DESC LIMIT 10"):
@@ -153,7 +153,7 @@ for r in c.execute("SELECT news_id, platform, status, attempts FROM publication 
 PY
 ```
 
-Edits to `/etc/news-evaluator/news-evaluator.env` apply on the next timer run — no
+Edits to `/etc/posinus/pipeline.env` apply on the next timer run — no
 restart, no redeploy.
 
 ## Tuning

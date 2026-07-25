@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_DIR="${APP_DIR:-/opt/newscrawler}"
-ENV_FILE="${ENV_FILE:-/etc/newscrawler/newscrawler.env}"
-EXTRA_SERVICES_FILE="${EXTRA_SERVICES_FILE:-/etc/newscrawler/update-services}"
-SERVICE_USER="${SERVICE_USER:-newscrawler}"
-SERVICE_GROUP="${SERVICE_GROUP:-newscrawler}"
-DB_PATH="${DB_PATH:-/var/lib/newscrawler/newscrawler.sqlite3}"
-BACKUP_DIR="${BACKUP_DIR:-/var/lib/newscrawler/backups}"
-BROWSER_PATH="${BROWSER_PATH:-/var/lib/newscrawler/playwright}"
-LOG_DIR="${LOG_DIR:-/var/log/newscrawler}"
+APP_DIR="${APP_DIR:-/opt/posinus/crawler}"
+ENV_FILE="${ENV_FILE:-/etc/posinus/crawler.env}"
+EXTRA_SERVICES_FILE="${EXTRA_SERVICES_FILE:-/etc/posinus/update-services}"
+SERVICE_USER="${SERVICE_USER:-posinus}"
+SERVICE_GROUP="${SERVICE_GROUP:-posinus}"
+DB_PATH="${DB_PATH:-/var/lib/posinus/posinus.sqlite3}"
+BACKUP_DIR="${BACKUP_DIR:-/var/lib/posinus/backups}"
+BROWSER_PATH="${BROWSER_PATH:-/var/lib/posinus/playwright}"
+LOG_DIR="${LOG_DIR:-/var/log/posinus}"
 BRANCH="${1:-main}"
 PYTHON="$APP_DIR/.venv/bin/python"
 
@@ -29,9 +29,9 @@ for command in curl flock git grep lsof runuser sqlite3 systemctl; do
     }
 done
 
-exec 9>/run/lock/newscrawler-update.lock
+exec 9>/run/lock/posinus-update.lock
 flock -n 9 || {
-    echo "Another newscrawler update is already running." >&2
+    echo "Another posinus update is already running." >&2
     exit 1
 }
 
@@ -42,9 +42,9 @@ flock -n 9 || {
 env_mode=$(stat -c '%a' "$ENV_FILE")
 (( (8#$env_mode & 022) == 0 )) || { echo "$ENV_FILE must not be group- or world-writable." >&2; exit 1; }
 
-grep -Fxq "NEWSCRAWLER_DB_PATH=$DB_PATH" "$ENV_FILE" || { echo "NEWSCRAWLER_DB_PATH must be $DB_PATH." >&2; exit 1; }
-grep -Fxq "NEWSCRAWLER_BACKUP_DIR=$BACKUP_DIR" "$ENV_FILE" || { echo "NEWSCRAWLER_BACKUP_DIR must be $BACKUP_DIR." >&2; exit 1; }
-grep -Fxq "NEWSCRAWLER_LOG_DIR=$LOG_DIR" "$ENV_FILE" || { echo "NEWSCRAWLER_LOG_DIR must be $LOG_DIR." >&2; exit 1; }
+grep -Fxq "POSINUS_DB_PATH=$DB_PATH" "$ENV_FILE" || { echo "POSINUS_DB_PATH must be $DB_PATH." >&2; exit 1; }
+grep -Fxq "POSINUS_BACKUP_DIR=$BACKUP_DIR" "$ENV_FILE" || { echo "POSINUS_BACKUP_DIR must be $BACKUP_DIR." >&2; exit 1; }
+grep -Fxq "POSINUS_LOG_DIR=$LOG_DIR" "$ENV_FILE" || { echo "POSINUS_LOG_DIR must be $LOG_DIR." >&2; exit 1; }
 grep -Fxq "PLAYWRIGHT_BROWSERS_PATH=$BROWSER_PATH" "$ENV_FILE" || { echo "PLAYWRIGHT_BROWSERS_PATH must be $BROWSER_PATH." >&2; exit 1; }
 [[ -f "$DB_PATH" ]] || { echo "Installed database is missing: $DB_PATH" >&2; exit 1; }
 [[ -d "$LOG_DIR" ]] || { echo "Log directory is missing: $LOG_DIR" >&2; exit 1; }
@@ -72,7 +72,7 @@ if (( local_only != 0 )); then
     exit 1
 fi
 
-services=(newscrawler-web.service newscrawler-worker.service)
+services=(posinus-web.service posinus-worker.service)
 if [[ -f "$EXTRA_SERVICES_FILE" ]]; then
     while IFS= read -r service || [[ -n $service ]]; do
         service=${service%%#*}
@@ -108,11 +108,11 @@ env_loaded=0
 
 install_units() {
     install -o root -g root -m 0644 \
-        "$APP_DIR/deploy/systemd/newscrawler-web.service" \
-        /etc/systemd/system/newscrawler-web.service
+        "$APP_DIR/deploy/systemd/posinus-web.service" \
+        /etc/systemd/system/posinus-web.service
     install -o root -g root -m 0644 \
-        "$APP_DIR/deploy/systemd/newscrawler-worker.service" \
-        /etc/systemd/system/newscrawler-worker.service
+        "$APP_DIR/deploy/systemd/posinus-worker.service" \
+        /etc/systemd/system/posinus-worker.service
     systemctl daemon-reload
 }
 
@@ -220,7 +220,7 @@ for service in "${active_services[@]}"; do
         exit 1
     }
 done
-if printf '%s\n' "${active_services[@]}" | grep -qx newscrawler-web.service; then
+if printf '%s\n' "${active_services[@]}" | grep -qx posinus-web.service; then
     web_ready=0
     for _ in {1..10}; do
         if curl --fail --silent --show-error --max-time 2 http://127.0.0.1:8000/login/ >/dev/null; then
@@ -234,7 +234,7 @@ fi
 
 update_succeeded=1
 services_stopped=0
-echo "Updated newscrawler from $old_commit to $(git rev-parse HEAD)."
+echo "Updated posinus from $old_commit to $(git rev-parse HEAD)."
 if [[ -n $backup_path ]]; then
     echo "Pre-update database backup: $backup_path"
 fi

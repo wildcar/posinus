@@ -1,4 +1,4 @@
-# positive-news-evaluator
+# positive-posinus-evaluator
 
 AI news evaluator. Reads every news item collected by Positive News Crawler (sibling
 repo `positive-news-crawler`, exchange via its `exchange_*` SQLite contract), scores it
@@ -20,7 +20,7 @@ Three stdlib-only scripts (Python 3.12):
   only when its secret is set in the env file; idempotent per platform, marks
   «Опубликовано» when all enabled platforms succeed.
 
-The model is configured in `/etc/news-evaluator/news-evaluator.env` (never hard-coded;
+The model is configured in `/etc/posinus/pipeline.env` (never hard-coded;
 each event records the model that actually answered).
 
 ```bash

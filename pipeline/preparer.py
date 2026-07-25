@@ -42,7 +42,7 @@ from typing import Any
 
 import evaluator  # reuse the MCP router client, Config, JSON extraction
 
-log = logging.getLogger("news-preparer")
+log = logging.getLogger("posinus-preparer")
 
 PREPARER_VERSION = "0.1.0"
 MAX_SOURCE_CHARS = 6000
@@ -94,9 +94,9 @@ CONTENT_TYPE_EXT = {
 
 @dataclass
 class PreparerConfig:
-    news_db: str = "/var/lib/newscrawler/newscrawler.sqlite3"
-    own_db: str = "/var/lib/news-evaluator/evaluator.sqlite3"
-    media_dir: str = "/var/lib/news-evaluator/media"
+    news_db: str = "/var/lib/posinus/posinus.sqlite3"
+    own_db: str = "/var/lib/posinus/pipeline/evaluator.sqlite3"
+    media_dir: str = "/var/lib/posinus/pipeline/media"
     user_agent: str = "PositiveNewsEvaluator/0.1 (+mailto:mail@wildcar.ru)"
     fetch_delay: float = 1.0
     max_images: int = MAX_IMAGES

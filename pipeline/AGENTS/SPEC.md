@@ -166,12 +166,12 @@ Bearer-токен). Провайдер и модель задаются конф
 ### Конфигурация
 
 Модель в код не зашита. На хосте всё задаёт файл
-`/etc/news-evaluator/news-evaluator.env`: поменять модель или провайдера значит
+`/etc/posinus/pipeline.env`: поменять модель или провайдера значит
 поправить файл, следующий запуск таймера подхватит без правки кода.
 
 Переменные окружения, в скобках значения по умолчанию:
 
-- `NEWS_DB_PATH` (`/var/lib/newscrawler/newscrawler.sqlite3`) - база краулера;
+- `NEWS_DB_PATH` (`/var/lib/posinus/posinus.sqlite3`) - база краулера;
 - `ROUTER_MCP_URL` (`http://127.0.0.1:8088/mcp`) - MCP-endpoint роутера;
 - `ROUTER_AUTH_TOKEN` (обязателен) - Bearer-токен роутера, лежит в его `.env`;
 - `EVALUATOR_PROVIDER` (`deepseek`) - подсказка роутеру, можно оставить пустой;
@@ -179,7 +179,7 @@ Bearer-токен). Провайдер и модель задаются конф
   отдаёт выбор роутеру по провайдеру и tier;
 - `EVALUATOR_TIER` (пусто) - ценовой tier для выбора модели роутером;
 - `EVALUATOR_BATCH` (25) - размер пачки одного запуска таймера;
-- `SELECTOR_NAME` (`news-evaluator`) - имя оценщика в контракте.
+- `SELECTOR_NAME` (`posinus-evaluator`) - имя оценщика в контракте.
 
 `selector_version` каждого события фиксирует фактическую модель из ответа
 роутера, а не из конфига: `0.2.0+deepseek-chat`. Так история оценок остаётся
@@ -188,19 +188,19 @@ Bearer-токен). Провайдер и модель задаются конф
 
 ### Постоянная работа на хосте
 
-- Код: `/opt/news-evaluator/evaluator.py`. Конфиг:
-  `/etc/news-evaluator/news-evaluator.env` (root:newsevaluator, 0640 - там токен).
-- Пользователь: выделенный системный `newsevaluator` в группе `newscrawler`,
+- Код: `/opt/posinus/pipeline/evaluator.py`. Конфиг:
+  `/etc/posinus/pipeline.env` (root:posinus-pipeline, 0640 - там токен).
+- Пользователь: выделенный системный `posinus-pipeline` в группе `posinus`,
   как требует контракт краулера для прямых клиентов базы.
-- systemd: `news-evaluator.service` (oneshot, `UMask=0007`) плюс
-  `news-evaluator.timer` - каждые 10 минут пачка из `EVALUATOR_BATCH` новостей.
+- systemd: `posinus-evaluator.service` (oneshot, `UMask=0007`) плюс
+  `posinus-evaluator.timer` - каждые 10 минут пачка из `EVALUATOR_BATCH` новостей.
   Пока идёт длинный запуск, следующий не стартует: oneshot-юнит не запускается
   поверх активного.
-- `news-evaluator.service` вписан в `/etc/newscrawler/update-services`, чтобы
+- `posinus-evaluator.service` вписан в `/etc/posinus/update-services`, чтобы
   обновление краулера останавливало оценщик перед миграциями базы.
 - Установка и обновление: `sudo bash deploy/install.sh` из корня репозитория
   (идемпотентен: заводит пользователя, кладёт файлы, включает таймер).
-- Логи: `journalctl -u news-evaluator.service`.
+- Логи: `journalctl -u posinus-evaluator.service`.
 
 ## Пороговая модель и метка «Отобрано»
 
@@ -308,13 +308,13 @@ SPEC), не оценщика. Отобранные и ещё не оценённ
 две. Контракт краулера запрещает клиентам писать куда-либо кроме двух таблиц
 обмена. Картинки и HTML это бинарь и разметка, в обменной базе им не место.
 
-- База оценщика: `/var/lib/news-evaluator/evaluator.sqlite3` (тот же хост, тот же
-  пользователь `newsevaluator`).
+- База оценщика: `/var/lib/posinus/pipeline/evaluator.sqlite3` (тот же хост, тот же
+  пользователь `posinus-pipeline`).
   - `prepared_item(news_id, status, retold_title, retold_body_md,
     model_id, prepared_at, published_at, error)`.
   - `illustration(id, news_id, position, file_path, caption, source_url,
     downloaded_at)`.
-- Файлы: картинки в `/var/lib/news-evaluator/media/<news_id>/`. HTML-страниц нет,
+- Файлы: картинки в `/var/lib/posinus/pipeline/media/<news_id>/`. HTML-страниц нет,
   пересказ хранится как markdown в `retold_body_md`. Старые базы с колонкой
   `retold_body_html` мигрируют сами: `retold_body_md` добавляется и заполняется из
   прежнего HTML при открытии базы, модель заново не вызывается.
@@ -324,8 +324,8 @@ SPEC), не оценщика. Отобранные и ещё не оценённ
 `urllib` для скачивания, `sqlite3` для своей базы. Схема своей базы совпадает с
 описанием выше; при ошибке пишется строка `status='error'` с текстом, новость
 попадёт в подготовку снова на следующем запуске. Развёртывание: `preparer.py`
-кладётся рядом с `evaluator.py`, каталог `/var/lib/news-evaluator` создаёт
-`install.sh`, отдельный `news-preparer.timer` запускает пачку раз в 15 минут.
+кладётся рядом с `evaluator.py`, каталог `/var/lib/posinus/pipeline` создаёт
+`install.sh`, отдельный `posinus-preparer.timer` запускает пачку раз в 15 минут.
 
 Альтернатива - новый контракт публикации в самом краулере с отдельными таблицами.
 Для v1 отклонено: это тащит задачи публикации в сборщик и ломает правило «клиент
@@ -381,8 +381,8 @@ status, url, error, attempts, updated_at)` с уникальностью по п
 ### Развёртывание
 
 `publisher.py` кладётся рядом с `evaluator.py` и `preparer.py`. Отдельный
-`news-publisher.timer` запускает пачку. Секреты площадок лежат в
-`/etc/news-evaluator/news-evaluator.env` (файл владельца, режим 0640). Пока
+`posinus-publisher.timer` запускает пачку. Секреты площадок лежат в
+`/etc/posinus/pipeline.env` (файл владельца, режим 0640). Пока
 секретов нет, таймер работает вхолостую и ничего не постит - это естественный
 предохранитель: публикация в живой канал включается ровно тогда, когда владелец
 добавит доступы. Пачка держится маленькой (`PUB_BATCH`), чтобы бэклог уходил в

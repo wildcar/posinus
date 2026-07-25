@@ -4,7 +4,7 @@ Primary entrypoint for any agent (Claude, Codex, DeepSeek, etc.) working in this
 
 ## Project
 
-positive-news-evaluator — AI agent that scores news collected by Positive News Crawler on a fixed set of characteristics; per-axis thresholds decide which news pass on.
+positive-posinus-evaluator — AI agent that scores news collected by Positive News Crawler on a fixed set of characteristics; per-axis thresholds decide which news pass on.
 
 ## Environment
 
@@ -99,7 +99,7 @@ Hard constraints and invariants this project must not violate. Keep each rule on
 - Respect the crawler's exchange contract (`~/repo/positive-news-crawler/docs/database-contract.md`): read `exchange_news_for_selection` / `exchange_latest_reviews` / `exchange_evaluation_characteristics` / `exchange_latest_evaluation_scores`, append rows only to `exchange_review_events` and `exchange_evaluation_scores`, never touch other tables.
 - Scores are integers 0–10 on independent axes; the axis set is fixed in `AGENTS/SPEC.md` (v1) — changing it is a SPEC change first.
 - All Russian prose must pass the vendored humanizer-ru skill — no exceptions (see Language Rules).
-- `evaluator.py` stays stdlib-only: host deploy is a plain file copy to `/opt/news-evaluator`, no venv to maintain.
+- `evaluator.py` stays stdlib-only: host deploy is a plain file copy to `/opt/posinus/pipeline`, no venv to maintain.
 - Creating system principals (users, groups) is the server owner's call — ask, don't create them from the agent.
 
 ## Stack & Commands
@@ -113,7 +113,7 @@ Python 3.12, standard library only (sqlite3 + urllib): no dependencies to instal
 # prepare 1    — ROUTER_AUTH_TOKEN=... python3 preparer.py --dry-run --news-id N
 # publish 1    — python3 publisher.py --dry-run --news-id N (no model, no router)
 # host deploy  — sudo bash deploy/install.sh (user, config, systemd timers)
-# host status  — systemctl list-timers 'news-*.timer'; journalctl -u news-publisher.service
+# host status  — systemctl list-timers 'news-*.timer'; journalctl -u posinus-publisher.service
 # lint         — none yet
 ```
 

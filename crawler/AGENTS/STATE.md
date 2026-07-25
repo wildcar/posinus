@@ -6,7 +6,7 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 ## Now
 
-- MVP code and repository harness are present in the development checkout and deployed to `/opt/newscrawler` on the Ubuntu production host.
+- MVP code and repository harness are present in the development checkout and deployed to `/opt/posinus/crawler` on the Ubuntu production host.
 - Git is initialized on `main`; the GitHub remote is `https://github.com/wildcar/positive-news-crawler`.
 - SQLite migrations, WAL pragmas, exchange views/triggers, daily backup, retention, source policy, UI, deployment files, and tests are implemented.
 - `https://newscrawler.wildcar.org` is live behind Nginx with a Let's Encrypt certificate; Waitress remains restricted to `127.0.0.1:8000`.
@@ -17,7 +17,7 @@ Operate a single-host multilingual news crawler whose source list improves from 
 - News detail now has an idempotent operator «Отобрано» action. It creates an append-only positive review and snapshots the configured evaluator's latest scores; occurrences retain source URLs for future weight fitting.
 - Retention deletes stored translations when it purges the original full text after 90 days.
 - Production runs commit `e471193`; migration `0006_newstranslation` is applied, `news_translations` exists, web/worker/model-router services are active, HTTPS returns 200, and SQLite integrity is `ok`.
-- The production crawler environment contains `NEWSCRAWLER_ROUTER_AUTH_TOKEN`; web was restarted and its loaded token matches the router process without exposing either value.
+- The production crawler environment contains `POSINUS_ROUTER_AUTH_TOKEN`; web was restarted and its loaded token matches the router process without exposing either value.
 - Production translation smoke test passed for news 5364 with `deepseek-chat`; the Russian body and summary were persisted.
 - A production failure on news 760 exposed invalid JSON from unescaped quotes in model prose. Marker-delimited translation sections with one correction retry are deployed; news 760 translated and persisted successfully after the update.
 - Verified on Ubuntu/Python 3.12: Django checks clean, migrations match models, and all 47 tests pass.
@@ -28,7 +28,7 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 - Deploy the rejected-news retention; expect the first maintenance run to tombstone ~4230 items.
 - Watch live translation errors; malformed model formatting now gets one automatic correction attempt.
-- Register every local SQLite client service in `/etc/newscrawler/update-services` and create the UI operator if still pending.
+- Register every local SQLite client service in `/etc/posinus/update-services` and create the UI operator if still pending.
 - Watch crawl runs and positive-yield statistics; tune per-site rules where extraction fails.
 
 ## Open questions

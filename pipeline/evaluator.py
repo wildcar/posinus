@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-log = logging.getLogger("news-evaluator")
+log = logging.getLogger("posinus-evaluator")
 
 EVALUATOR_VERSION = "0.2.0"
 AXIS_COUNT = 20
@@ -178,7 +178,7 @@ class Config:
     recorded in selector_version per event.
     """
 
-    db_path: str = "/var/lib/newscrawler/newscrawler.sqlite3"
+    db_path: str = "/var/lib/posinus/posinus.sqlite3"
     router_url: str = "http://127.0.0.1:8088/mcp"
     router_token: str = ""
     provider: str = "deepseek"

@@ -1,34 +1,44 @@
 #!/usr/bin/env bash
-# Install or update the news evaluator on this host. Idempotent; run as root:
+# Install or update the pipeline (evaluator, preparer, publisher) on this host.
+# Idempotent; run as root:
 #   sudo bash deploy/install.sh
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Dedicated system user in the newscrawler group (crawler contract for direct
-# DB clients).
-if ! id -u newsevaluator >/dev/null 2>&1; then
-    useradd --system --home-dir /nonexistent --no-create-home \
-        --shell /usr/sbin/nologin --groups newscrawler newsevaluator
-    echo "created system user newsevaluator (group newscrawler)"
+# The crawler owns /var/lib/posinus (its DB lives there, group-shared per the
+# exchange contract). Install the crawler first: creating that directory here
+# would hand the shared parent to the wrong owner, since `install -d` applies
+# -o/-g to every directory it creates, parents included.
+if [ ! -d /var/lib/posinus ]; then
+    echo "/var/lib/posinus is missing — install the crawler first (docs/deployment.md)." >&2
+    exit 1
 fi
 
-install -d -m 0755 /opt/news-evaluator
-install -m 0644 "$REPO_DIR/evaluator.py" /opt/news-evaluator/evaluator.py
-install -m 0644 "$REPO_DIR/preparer.py" /opt/news-evaluator/preparer.py
-install -m 0644 "$REPO_DIR/publisher.py" /opt/news-evaluator/publisher.py
+# Dedicated system user in the posinus group (crawler contract for direct
+# DB clients).
+if ! id -u posinus-pipeline >/dev/null 2>&1; then
+    useradd --system --home-dir /nonexistent --no-create-home \
+        --shell /usr/sbin/nologin --groups posinus posinus-pipeline
+    echo "created system user posinus-pipeline (group posinus)"
+fi
+
+install -d -m 0755 /opt/posinus/pipeline
+install -m 0644 "$REPO_DIR/evaluator.py" /opt/posinus/pipeline/evaluator.py
+install -m 0644 "$REPO_DIR/preparer.py" /opt/posinus/pipeline/preparer.py
+install -m 0644 "$REPO_DIR/publisher.py" /opt/posinus/pipeline/publisher.py
 
 # Evaluator-owned state: own DB and downloaded images (the retelling itself is
 # markdown in the DB). Kept separate from the crawler DB by contract; owned by
 # the service user.
-install -d -o newsevaluator -g newsevaluator -m 0750 /var/lib/news-evaluator
-install -d -o newsevaluator -g newsevaluator -m 0750 /var/lib/news-evaluator/media
+install -d -o posinus-pipeline -g posinus-pipeline -m 0750 /var/lib/posinus/pipeline
+install -d -o posinus-pipeline -g posinus-pipeline -m 0750 /var/lib/posinus/pipeline/media
 
-install -d -m 0755 /etc/news-evaluator
-ENV_FILE=/etc/news-evaluator/news-evaluator.env
+install -d -m 0755 /etc/posinus
+ENV_FILE=/etc/posinus/pipeline.env
 if [ ! -f "$ENV_FILE" ]; then
-    install -o root -g newsevaluator -m 0640 \
-        "$REPO_DIR/deploy/news-evaluator.env.example" "$ENV_FILE"
+    install -o root -g posinus-pipeline -m 0640 \
+        "$REPO_DIR/deploy/pipeline.env.example" "$ENV_FILE"
 fi
 
 # Convenience: pull the router token from its own .env so the file works
@@ -39,7 +49,7 @@ if grep -qx 'ROUTER_AUTH_TOKEN=fill-me' "$ENV_FILE" && [ -r "$ROUTER_ENV" ]; the
     if [ -n "$TOKEN" ]; then
         { grep -v '^ROUTER_AUTH_TOKEN=' "$ENV_FILE"
           printf 'ROUTER_AUTH_TOKEN=%s\n' "$TOKEN"; } > "$ENV_FILE.tmp"
-        chown root:newsevaluator "$ENV_FILE.tmp"
+        chown root:posinus-pipeline "$ENV_FILE.tmp"
         chmod 0640 "$ENV_FILE.tmp"
         mv "$ENV_FILE.tmp" "$ENV_FILE"
         echo "copied AUTH_TOKEN from model-router-mcp into $ENV_FILE"
@@ -49,25 +59,25 @@ if grep -qx 'ROUTER_AUTH_TOKEN=fill-me' "$ENV_FILE"; then
     echo "NOTE: fill ROUTER_AUTH_TOKEN in $ENV_FILE" >&2
 fi
 
-install -m 0644 "$REPO_DIR/deploy/news-evaluator.service" /etc/systemd/system/news-evaluator.service
-install -m 0644 "$REPO_DIR/deploy/news-evaluator.timer" /etc/systemd/system/news-evaluator.timer
-install -m 0644 "$REPO_DIR/deploy/news-preparer.service" /etc/systemd/system/news-preparer.service
-install -m 0644 "$REPO_DIR/deploy/news-preparer.timer" /etc/systemd/system/news-preparer.timer
-install -m 0644 "$REPO_DIR/deploy/news-publisher.service" /etc/systemd/system/news-publisher.service
-install -m 0644 "$REPO_DIR/deploy/news-publisher.timer" /etc/systemd/system/news-publisher.timer
+install -m 0644 "$REPO_DIR/deploy/posinus-evaluator.service" /etc/systemd/system/posinus-evaluator.service
+install -m 0644 "$REPO_DIR/deploy/posinus-evaluator.timer" /etc/systemd/system/posinus-evaluator.timer
+install -m 0644 "$REPO_DIR/deploy/posinus-preparer.service" /etc/systemd/system/posinus-preparer.service
+install -m 0644 "$REPO_DIR/deploy/posinus-preparer.timer" /etc/systemd/system/posinus-preparer.timer
+install -m 0644 "$REPO_DIR/deploy/posinus-publisher.service" /etc/systemd/system/posinus-publisher.service
+install -m 0644 "$REPO_DIR/deploy/posinus-publisher.timer" /etc/systemd/system/posinus-publisher.timer
 systemctl daemon-reload
-systemctl enable --now news-evaluator.timer
-systemctl enable --now news-preparer.timer
-systemctl enable --now news-publisher.timer
+systemctl enable --now posinus-evaluator.timer
+systemctl enable --now posinus-preparer.timer
+systemctl enable --now posinus-publisher.timer
 
 # The crawler's update script stops every service listed here before touching
 # the DB schema (both open the crawler DB).
-touch /etc/newscrawler/update-services
-for unit in news-evaluator.service news-preparer.service news-publisher.service; do
-    if ! grep -qx "$unit" /etc/newscrawler/update-services; then
-        echo "$unit" >> /etc/newscrawler/update-services
-        echo "registered $unit in /etc/newscrawler/update-services"
+touch /etc/posinus/update-services
+for unit in posinus-evaluator.service posinus-preparer.service posinus-publisher.service; do
+    if ! grep -qx "$unit" /etc/posinus/update-services; then
+        echo "$unit" >> /etc/posinus/update-services
+        echo "registered $unit in /etc/posinus/update-services"
     fi
 done
 
-echo "done; check: systemctl list-timers 'news-*.timer'"
+echo "done; check: systemctl list-timers 'posinus-*.timer'"

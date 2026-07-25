@@ -100,18 +100,18 @@ def translate_news(item: NewsItem) -> NewsTranslation:
     last_error = None
     for attempt in range(MAX_FORMAT_ATTEMPTS):
         reply = call_chat(
-            url=settings.NEWSCRAWLER_ROUTER_MCP_URL,
-            token=settings.NEWSCRAWLER_ROUTER_AUTH_TOKEN,
+            url=settings.POSINUS_ROUTER_MCP_URL,
+            token=settings.POSINUS_ROUTER_AUTH_TOKEN,
             messages=messages,
             external_user_id="positive-news-crawler-translation",
-            provider=settings.NEWSCRAWLER_TRANSLATION_PROVIDER,
-            model_id=settings.NEWSCRAWLER_TRANSLATION_MODEL,
-            tier=settings.NEWSCRAWLER_TRANSLATION_TIER,
+            provider=settings.POSINUS_TRANSLATION_PROVIDER,
+            model_id=settings.POSINUS_TRANSLATION_MODEL,
+            tier=settings.POSINUS_TRANSLATION_TIER,
             params={
-                "temperature": settings.NEWSCRAWLER_TRANSLATION_TEMPERATURE,
-                "max_tokens": settings.NEWSCRAWLER_TRANSLATION_MAX_TOKENS,
+                "temperature": settings.POSINUS_TRANSLATION_TEMPERATURE,
+                "max_tokens": settings.POSINUS_TRANSLATION_MAX_TOKENS,
             },
-            timeout=settings.NEWSCRAWLER_ROUTER_TIMEOUT_SECONDS,
+            timeout=settings.POSINUS_ROUTER_TIMEOUT_SECONDS,
         )
         try:
             payload = _extract_translation(reply["text"])
@@ -134,7 +134,7 @@ def translate_news(item: NewsItem) -> NewsTranslation:
     if payload is None or reply is None:
         raise TranslationError("model did not return a valid translation format") from last_error
     fields = payload
-    model_id = str(reply.get("model_id") or settings.NEWSCRAWLER_TRANSLATION_MODEL)
+    model_id = str(reply.get("model_id") or settings.POSINUS_TRANSLATION_MODEL)
     translation, _ = NewsTranslation.objects.update_or_create(
         news_item=item,
         defaults={

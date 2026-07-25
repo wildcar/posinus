@@ -4,7 +4,7 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 
-database = os.environ.get("NEWSCRAWLER_DB_PATH", "data/newscrawler.sqlite3")
+database = os.environ.get("POSINUS_DB_PATH", "data/posinus.sqlite3")
 connection = sqlite3.connect(database, timeout=30)
 connection.execute("PRAGMA journal_mode=WAL")
 connection.execute("PRAGMA foreign_keys=ON")

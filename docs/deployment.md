@@ -1,6 +1,6 @@
 # Развёртывание Positive News Crawler на Ubuntu
 
-Инструкция рассчитана на чистый односерверный production-хост и запуск команд из обычной учётной записи с правами `sudo`. Имя этой учётной записи не используется в путях и правах. Приложение работает под отдельным системным пользователем `newscrawler` без интерактивного входа.
+Инструкция рассчитана на чистый односерверный production-хост и запуск команд из обычной учётной записи с правами `sudo`. Имя этой учётной записи не используется в путях и правах. Приложение работает под отдельным системным пользователем `posinus` без интерактивного входа.
 
 Основной вариант — Ubuntu 24.04 LTS со штатными Python 3.12 и пакетом [python3-venv](https://packages.ubuntu.com/noble/python/python3-venv). Также поддерживаются Python 3.13 и 3.14 на более новых Ubuntu. Не заменяйте системный `/usr/bin/python3` вручную.
 
@@ -8,12 +8,12 @@
 
 | Назначение | Путь | Владелец и доступ |
 |---|---|---|
-| Код и virtualenv | `/opt/newscrawler` | `root:root`, сервисы только читают |
-| Production-конфигурация | `/etc/newscrawler/newscrawler.env` | `root:newscrawler`, `0640` |
-| SQLite, backup, Chromium | `/var/lib/newscrawler` | группа `newscrawler`, setgid/default ACL |
-| Основная база | `/var/lib/newscrawler/newscrawler.sqlite3` | `newscrawler:newscrawler`, `0660` |
-| Логи приложения | `/var/log/newscrawler` | `newscrawler:newscrawler`, setgid/default ACL |
-| systemd units | `/etc/systemd/system/newscrawler-*.service` | `root:root`, `0644` |
+| Код и virtualenv | `/opt/posinus/crawler` | `root:root`, сервисы только читают |
+| Production-конфигурация | `/etc/posinus/crawler.env` | `root:posinus`, `0640` |
+| SQLite, backup, Chromium | `/var/lib/posinus` | группа `posinus`, setgid/default ACL |
+| Основная база | `/var/lib/posinus/posinus.sqlite3` | `posinus:posinus`, `0660` |
+| Логи приложения | `/var/log/posinus` | `posinus:posinus`, setgid/default ACL |
+| systemd units | `/etc/systemd/system/posinus-*.service` | `root:root`, `0644` |
 
 SQLite, worker, web-процесс и все процессы прямого доступа к базе должны находиться на одном хосте и локальном диске. NFS, SMB, OneDrive и доступ к файлу базы с другого компьютера запрещены.
 
@@ -33,40 +33,40 @@ python3 --version
 ## 2. Создать системного пользователя и группу
 
 ```bash
-getent group newscrawler >/dev/null || sudo addgroup --system newscrawler
-id -u newscrawler >/dev/null 2>&1 || sudo adduser --system \
-  --ingroup newscrawler \
-  --home /var/lib/newscrawler \
+getent group posinus >/dev/null || sudo addgroup --system posinus
+id -u posinus >/dev/null 2>&1 || sudo adduser --system \
+  --ingroup posinus \
+  --home /var/lib/posinus \
   --no-create-home \
   --shell /usr/sbin/nologin \
-  newscrawler
+  posinus
 ```
 
-Пользователь `newscrawler` не получает пароль, домашний интерактивный shell или права `sudo`.
+Пользователь `posinus` не получает пароль, домашний интерактивный shell или права `sudo`.
 
 ## 3. Создать каталоги и общий доступ к SQLite
 
 ```bash
-sudo install -d -o root -g root -m 0755 /opt/newscrawler
-sudo install -d -o root -g newscrawler -m 0750 /etc/newscrawler
-sudo install -d -o newscrawler -g newscrawler -m 2770 \
-  /var/lib/newscrawler \
-  /var/lib/newscrawler/backups \
-  /var/log/newscrawler
+sudo install -d -o root -g root -m 0755 /opt/posinus/crawler
+sudo install -d -o root -g posinus -m 0750 /etc/posinus
+sudo install -d -o posinus -g posinus -m 2770 \
+  /var/lib/posinus \
+  /var/lib/posinus/backups \
+  /var/log/posinus
 
-sudo setfacl -m g:newscrawler:rwx,m:rwx,d:g:newscrawler:rwx,d:m:rwx \
-  /var/lib/newscrawler \
-  /var/lib/newscrawler/backups \
-  /var/log/newscrawler
+sudo setfacl -m g:posinus:rwx,m:rwx,d:g:posinus:rwx,d:m:rwx \
+  /var/lib/posinus \
+  /var/lib/posinus/backups \
+  /var/log/posinus
 ```
 
-Режим `2770` сохраняет группу `newscrawler` у новых файлов, а default ACL поддерживает групповой доступ к каталогу. SQLite создаёт основную базу с исходным режимом `0644`, поэтому после миграции ей отдельно назначается `0660`. WAL/SHM создаются на основе режима основной базы; systemd units дополнительно используют `UMask=0007` и перед стартом нормализуют режим базы.
+Режим `2770` сохраняет группу `posinus` у новых файлов, а default ACL поддерживает групповой доступ к каталогу. SQLite создаёт основную базу с исходным режимом `0644`, поэтому после миграции ей отдельно назначается `0660`. WAL/SHM создаются на основе режима основной базы; systemd units дополнительно используют `UMask=0007` и перед стартом нормализуют режим базы.
 
 Проверьте настройки:
 
 ```bash
-getfacl /var/lib/newscrawler
-getfacl /var/log/newscrawler
+getfacl /var/lib/posinus
+getfacl /var/log/posinus
 ```
 
 ## 4. Получить код
@@ -76,70 +76,70 @@ getfacl /var/log/newscrawler
 ```bash
 sudo git clone --branch main --single-branch \
   https://github.com/wildcar/positive-news-crawler.git \
-  /opt/newscrawler
-sudo chown -R root:root /opt/newscrawler
+  /opt/posinus/crawler
+sudo chown -R root:root /opt/posinus/crawler
 ```
 
-Если `git clone` сообщает, что каталог не пуст, убедитесь, что это новый хост и `/opt/newscrawler` не содержит нужных данных. База и секреты в этом каталоге храниться не должны.
+Если `git clone` сообщает, что каталог не пуст, убедитесь, что это новый хост и `/opt/posinus/crawler` не содержит нужных данных. База и секреты в этом каталоге храниться не должны.
 
 ## 5. Создать Python-окружение
 
 ```bash
-sudo python3 -m venv /opt/newscrawler/.venv
-sudo /opt/newscrawler/.venv/bin/python -m pip install --upgrade pip
-sudo /opt/newscrawler/.venv/bin/python -m pip install -e /opt/newscrawler
+sudo python3 -m venv /opt/posinus/crawler/.venv
+sudo /opt/posinus/crawler/.venv/bin/python -m pip install --upgrade pip
+sudo /opt/posinus/crawler/.venv/bin/python -m pip install -e /opt/posinus/crawler
 ```
 
 Для отдельного Python используйте, например:
 
 ```bash
-sudo /usr/bin/python3.13 -m venv /opt/newscrawler/.venv
+sudo /usr/bin/python3.13 -m venv /opt/posinus/crawler/.venv
 ```
 
 ## 6. Создать production-конфигурацию
 
 ```bash
-sudo install -o root -g newscrawler -m 0640 \
-  /opt/newscrawler/deploy/newscrawler.env.example \
-  /etc/newscrawler/newscrawler.env
+sudo install -o root -g posinus -m 0640 \
+  /opt/posinus/crawler/deploy/crawler.env.example \
+  /etc/posinus/crawler.env
 python3 -c 'import secrets; print(secrets.token_urlsafe(64))'
-sudoedit /etc/newscrawler/newscrawler.env
+sudoedit /etc/posinus/crawler.env
 ```
 
-Вставьте сгенерированное значение в `NEWSCRAWLER_SECRET_KEY` и обязательно измените:
+Вставьте сгенерированное значение в `POSINUS_SECRET_KEY` и обязательно измените:
 
-- `NEWSCRAWLER_ALLOWED_HOSTS` — домены/IP через запятую;
-- `NEWSCRAWLER_CSRF_TRUSTED_ORIGINS` — полные HTTPS-origin через запятую, если используется reverse proxy;
-- email в `NEWSCRAWLER_USER_AGENT` — действующий технический контакт;
-- `NEWSCRAWLER_SECURE=1` — только после настройки HTTPS.
+- `POSINUS_ALLOWED_HOSTS` — домены/IP через запятую;
+- `POSINUS_CSRF_TRUSTED_ORIGINS` — полные HTTPS-origin через запятую, если используется reverse proxy;
+- email в `POSINUS_USER_AGENT` — действующий технический контакт;
+- `POSINUS_SECURE=1` — только после настройки HTTPS.
 
-Для перевода новостей укажите `NEWSCRAWLER_ROUTER_AUTH_TOKEN`. Это `AUTH_TOKEN` из конфигурации локального `model-router-mcp`. Модель задаёт `NEWSCRAWLER_TRANSLATION_MODEL`; шаблон использует `deepseek-chat`, как и News Evaluator. Токен остаётся только в `/etc/newscrawler/newscrawler.env` с правами `0640`.
+Для перевода новостей укажите `POSINUS_ROUTER_AUTH_TOKEN`. Это `AUTH_TOKEN` из конфигурации локального `model-router-mcp`. Модель задаёт `POSINUS_TRANSLATION_MODEL`; шаблон использует `deepseek-chat`, как и News Evaluator. Токен остаётся только в `/etc/posinus/crawler.env` с правами `0640`.
 
 Строки файла должны оставаться совместимыми с форматом shell `KEY=value`; значения с пробелами заключайте в двойные кавычки. Пути production менять без необходимости не следует:
 
 ```text
-NEWSCRAWLER_DB_PATH=/var/lib/newscrawler/newscrawler.sqlite3
-NEWSCRAWLER_BACKUP_DIR=/var/lib/newscrawler/backups
-NEWSCRAWLER_LOG_DIR=/var/log/newscrawler
-PLAYWRIGHT_BROWSERS_PATH=/var/lib/newscrawler/playwright
+POSINUS_DB_PATH=/var/lib/posinus/posinus.sqlite3
+POSINUS_BACKUP_DIR=/var/lib/posinus/backups
+POSINUS_LOG_DIR=/var/log/posinus
+PLAYWRIGHT_BROWSERS_PATH=/var/lib/posinus/playwright
 ```
 
 Проверьте владельца и права без вывода секрета:
 
 ```bash
-sudo stat -c '%U:%G %a %n' /etc/newscrawler/newscrawler.env
+sudo stat -c '%U:%G %a %n' /etc/posinus/crawler.env
 ```
 
-Ожидается `root:newscrawler 640`.
+Ожидается `root:posinus 640`.
 
 ## 7. Установить Chromium для Playwright
 
 ```bash
-sudo install -d -o root -g newscrawler -m 2750 /var/lib/newscrawler/playwright
-sudo env PLAYWRIGHT_BROWSERS_PATH=/var/lib/newscrawler/playwright \
-  /opt/newscrawler/.venv/bin/python -m playwright install --with-deps chromium
-sudo chown -R root:newscrawler /var/lib/newscrawler/playwright
-sudo chmod -R g+rX,o-rwx /var/lib/newscrawler/playwright
+sudo install -d -o root -g posinus -m 2750 /var/lib/posinus/playwright
+sudo env PLAYWRIGHT_BROWSERS_PATH=/var/lib/posinus/playwright \
+  /opt/posinus/crawler/.venv/bin/python -m playwright install --with-deps chromium
+sudo chown -R root:posinus /var/lib/posinus/playwright
+sudo chmod -R g+rX,o-rwx /var/lib/posinus/playwright
 ```
 
 Chromium хранится вне Git-репозитория и доступен сервисному пользователю только на чтение и исполнение.
@@ -147,44 +147,44 @@ Chromium хранится вне Git-репозитория и доступен 
 ## 8. Создать схему базы и собрать static files
 
 ```bash
-sudo install -d -o newscrawler -g newscrawler -m 0750 /opt/newscrawler/staticfiles
-sudo -u newscrawler /bin/bash -c '
+sudo install -d -o posinus -g posinus -m 0750 /opt/posinus/crawler/staticfiles
+sudo -u posinus /bin/bash -c '
   set -a
-  . /etc/newscrawler/newscrawler.env
+  . /etc/posinus/crawler.env
   set +a
   umask 0007
-  cd /opt/newscrawler
+  cd /opt/posinus/crawler
   .venv/bin/python manage.py migrate
   .venv/bin/python manage.py collectstatic --noinput
   .venv/bin/python manage.py check
 '
-sudo chown newscrawler:newscrawler /var/lib/newscrawler/newscrawler.sqlite3
-sudo chmod 0660 /var/lib/newscrawler/newscrawler.sqlite3
-sudo chown -R root:root /opt/newscrawler/staticfiles
-sudo find /opt/newscrawler/staticfiles -type d -exec chmod 0755 {} +
-sudo find /opt/newscrawler/staticfiles -type f -exec chmod 0644 {} +
+sudo chown posinus:posinus /var/lib/posinus/posinus.sqlite3
+sudo chmod 0660 /var/lib/posinus/posinus.sqlite3
+sudo chown -R root:root /opt/posinus/crawler/staticfiles
+sudo find /opt/posinus/crawler/staticfiles -type d -exec chmod 0755 {} +
+sudo find /opt/posinus/crawler/staticfiles -type f -exec chmod 0644 {} +
 ```
 
 Проверьте базу и права:
 
 ```bash
-sudo sqlite3 /var/lib/newscrawler/newscrawler.sqlite3 'PRAGMA integrity_check;'
-sudo stat -c '%U:%G %a %n' /var/lib/newscrawler/newscrawler.sqlite3
+sudo sqlite3 /var/lib/posinus/posinus.sqlite3 'PRAGMA integrity_check;'
+sudo stat -c '%U:%G %a %n' /var/lib/posinus/posinus.sqlite3
 ```
 
-Ожидаются `ok` и `newscrawler:newscrawler 660`.
+Ожидаются `ok` и `posinus:posinus 660`.
 
 ## 9. Создать пользователя веб-интерфейса
 
 Имя ниже относится к Django, а не к системной учётной записи Ubuntu:
 
 ```bash
-sudo -u newscrawler /bin/bash -c '
+sudo -u posinus /bin/bash -c '
   set -a
-  . /etc/newscrawler/newscrawler.env
+  . /etc/posinus/crawler.env
   set +a
   umask 0007
-  cd /opt/newscrawler
+  cd /opt/posinus/crawler
   .venv/bin/python manage.py createoperator crawler-admin
 '
 ```
@@ -195,21 +195,21 @@ sudo -u newscrawler /bin/bash -c '
 
 ```bash
 sudo install -o root -g root -m 0644 \
-  /opt/newscrawler/deploy/systemd/newscrawler-web.service \
-  /etc/systemd/system/newscrawler-web.service
+  /opt/posinus/crawler/deploy/systemd/posinus-web.service \
+  /etc/systemd/system/posinus-web.service
 sudo install -o root -g root -m 0644 \
-  /opt/newscrawler/deploy/systemd/newscrawler-worker.service \
-  /etc/systemd/system/newscrawler-worker.service
+  /opt/posinus/crawler/deploy/systemd/posinus-worker.service \
+  /etc/systemd/system/posinus-worker.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now newscrawler-web.service newscrawler-worker.service
+sudo systemctl enable --now posinus-web.service posinus-worker.service
 ```
 
 Проверка:
 
 ```bash
-sudo systemctl status --no-pager newscrawler-web.service newscrawler-worker.service
+sudo systemctl status --no-pager posinus-web.service posinus-worker.service
 curl -I http://127.0.0.1:8000/login/
-sudo journalctl -u newscrawler-web.service -u newscrawler-worker.service -n 100 --no-pager
+sudo journalctl -u posinus-web.service -u posinus-worker.service -n 100 --no-pager
 ```
 
 Waitress слушает только `127.0.0.1:8000`. Не публикуйте его напрямую.
@@ -221,27 +221,27 @@ Waitress слушает только `127.0.0.1:8000`. Не публикуйте
 ```bash
 sudo apt install -y nginx certbot python3-certbot-nginx
 sudo install -o root -g root -m 0644 \
-  /opt/newscrawler/deploy/nginx/newscrawler.conf \
-  /etc/nginx/sites-available/newscrawler
-sudo ln -s /etc/nginx/sites-available/newscrawler \
-  /etc/nginx/sites-enabled/newscrawler
+  /opt/posinus/crawler/deploy/nginx/posinus.conf \
+  /etc/nginx/sites-available/posinus
+sudo ln -s /etc/nginx/sites-available/posinus \
+  /etc/nginx/sites-enabled/posinus
 sudo nginx -t
 sudo systemctl reload nginx
 sudo certbot --nginx -d newscrawler.wildcar.org --redirect
 ```
 
-Certbot получит сертификат, добавит TLS в server block и перенаправит HTTP на HTTPS. После успешной выдачи сертификата задайте в `/etc/newscrawler/newscrawler.env`:
+Certbot получит сертификат, добавит TLS в server block и перенаправит HTTP на HTTPS. После успешной выдачи сертификата задайте в `/etc/posinus/crawler.env`:
 
 ```text
-NEWSCRAWLER_ALLOWED_HOSTS=127.0.0.1,localhost,newscrawler.wildcar.org
-NEWSCRAWLER_CSRF_TRUSTED_ORIGINS=https://newscrawler.wildcar.org
-NEWSCRAWLER_SECURE=1
+POSINUS_ALLOWED_HOSTS=127.0.0.1,localhost,newscrawler.wildcar.org
+POSINUS_CSRF_TRUSTED_ORIGINS=https://newscrawler.wildcar.org
+POSINUS_SECURE=1
 ```
 
 Перезапустите web-сервис и проверьте внешний endpoint, TLS-сертификат и привязку Waitress:
 
 ```bash
-sudo systemctl restart newscrawler-web.service
+sudo systemctl restart posinus-web.service
 curl -I https://newscrawler.wildcar.org/login/
 sudo certbot renew --dry-run
 sudo ss -ltnp | grep ':8000'
@@ -254,7 +254,7 @@ sudo ss -ltnp | grep ':8000'
 Для каждого отдельного системного пользователя процесса выполните:
 
 ```bash
-sudo usermod -aG newscrawler selector-user
+sudo usermod -aG posinus selector-user
 ```
 
 Замените `selector-user` реальным именем. После изменения группы перезапустите systemd unit процесса или завершите и начните новую login-сессию. Не добавляйте обычных пользователей без необходимости: член группы может технически изменить любую таблицу SQLite.
@@ -263,32 +263,32 @@ sudo usermod -aG newscrawler selector-user
 
 ```ini
 [Service]
-SupplementaryGroups=newscrawler
+SupplementaryGroups=posinus
 UMask=0007
-Environment=NEWSCRAWLER_DB_PATH=/var/lib/newscrawler/newscrawler.sqlite3
+Environment=POSINUS_DB_PATH=/var/lib/posinus/posinus.sqlite3
 ```
 
 Проверка без изменения данных:
 
 ```bash
-sudo -u selector-user test -r /var/lib/newscrawler/newscrawler.sqlite3
-sudo -u selector-user test -w /var/lib/newscrawler/newscrawler.sqlite3
-sudo -u selector-user test -w /var/lib/newscrawler
-sudo -u selector-user sqlite3 /var/lib/newscrawler/newscrawler.sqlite3 \
+sudo -u selector-user test -r /var/lib/posinus/posinus.sqlite3
+sudo -u selector-user test -w /var/lib/posinus/posinus.sqlite3
+sudo -u selector-user test -w /var/lib/posinus
+sudo -u selector-user sqlite3 /var/lib/posinus/posinus.sqlite3 \
   'SELECT count(*) FROM exchange_news_for_selection;'
 ```
 
 Все клиенты обязаны устанавливать `PRAGMA foreign_keys=ON`, `PRAGMA busy_timeout=30000` и быстро завершать транзакции. Подробности записи событий находятся в [database-contract.md](database-contract.md).
 
-Ровно один экземпляр `newscrawler-worker.service` может работать с базой. Дополнительные процессы используют только стабильный `exchange_*` контракт.
+Ровно один экземпляр `posinus-worker.service` может работать с базой. Дополнительные процессы используют только стабильный `exchange_*` контракт.
 
 ## 13. Настроить обновление
 
 Скрипт всегда останавливает web и worker. Если другие systemd-сервисы открывают SQLite, перечислите их по одному в файле:
 
 ```bash
-sudo install -o root -g root -m 0644 /dev/null /etc/newscrawler/update-services
-sudoedit /etc/newscrawler/update-services
+sudo install -o root -g root -m 0644 /dev/null /etc/posinus/update-services
+sudoedit /etc/posinus/update-services
 ```
 
 Пример:
@@ -303,13 +303,13 @@ report-exporter.service
 Запуск обновления ветки `main`:
 
 ```bash
-sudo /opt/newscrawler/scripts/update-ubuntu.sh
+sudo /opt/posinus/crawler/scripts/update-ubuntu.sh
 ```
 
 Явное имя ветки:
 
 ```bash
-sudo /opt/newscrawler/scripts/update-ubuntu.sh main
+sudo /opt/posinus/crawler/scripts/update-ubuntu.sh main
 ```
 
 Скрипт:
@@ -327,11 +327,11 @@ sudo /opt/newscrawler/scripts/update-ubuntu.sh main
 После успешного обновления скрипт выводит старый/новый commit и путь к backup. Проверка:
 
 ```bash
-cd /opt/newscrawler
+cd /opt/posinus/crawler
 sudo git status --short
 sudo git log -1 --oneline
-sudo systemctl is-active newscrawler-web.service newscrawler-worker.service
-sudo sqlite3 /var/lib/newscrawler/newscrawler.sqlite3 'PRAGMA integrity_check;'
+sudo systemctl is-active posinus-web.service posinus-worker.service
+sudo sqlite3 /var/lib/posinus/posinus.sqlite3 'PRAGMA integrity_check;'
 ```
 
 ## 14. Диагностика прав доступа
@@ -339,20 +339,20 @@ sudo sqlite3 /var/lib/newscrawler/newscrawler.sqlite3 'PRAGMA integrity_check;'
 Если клиент получает `attempt to write a readonly database`, проверяйте не только файл базы, но и каталог и sidecar-файлы:
 
 ```bash
-namei -l /var/lib/newscrawler/newscrawler.sqlite3
-getfacl /var/lib/newscrawler
-ls -la /var/lib/newscrawler/newscrawler.sqlite3*
+namei -l /var/lib/posinus/posinus.sqlite3
+getfacl /var/lib/posinus
+ls -la /var/lib/posinus/posinus.sqlite3*
 id selector-user
 ```
 
 Восстановление ожидаемых прав:
 
 ```bash
-sudo chown newscrawler:newscrawler /var/lib/newscrawler/newscrawler.sqlite3
-sudo chmod 0660 /var/lib/newscrawler/newscrawler.sqlite3
-sudo chmod 2770 /var/lib/newscrawler /var/lib/newscrawler/backups
-sudo setfacl -m g:newscrawler:rwx,m:rwx,d:g:newscrawler:rwx,d:m:rwx \
-  /var/lib/newscrawler /var/lib/newscrawler/backups
+sudo chown posinus:posinus /var/lib/posinus/posinus.sqlite3
+sudo chmod 0660 /var/lib/posinus/posinus.sqlite3
+sudo chmod 2770 /var/lib/posinus /var/lib/posinus/backups
+sudo setfacl -m g:posinus:rwx,m:rwx,d:g:posinus:rwx,d:m:rwx \
+  /var/lib/posinus /var/lib/posinus/backups
 ```
 
 Не копируйте живой SQLite-файл обычным `cp`. Используйте backup, созданный приложением или скриптом обновления, и останавливайте все прямые клиенты перед ручным восстановлением.

@@ -7,9 +7,9 @@ Collect multilingual articles from public mainstream and niche news sites into a
 ## Naming contract
 
 - Product and repository name: `positive-news-crawler` / Positive News Crawler.
-- Django project package, deployment directory, and operating-system service account: `newscrawler`.
-- Runtime environment variable prefix: `NEWSCRAWLER_`.
-- Runtime database, log, backup, service, and scheduled-task names use `newscrawler` or Positive News Crawler exclusively.
+- Django project package, deployment directory, and operating-system service account: `posinus`.
+- Runtime environment variable prefix: `POSINUS_`.
+- Runtime database, log, backup, service, and scheduled-task names use `posinus` or Positive News Crawler exclusively.
 
 ## Stack
 
@@ -43,7 +43,7 @@ External selector <- exchange views -> append-only review events-+
 
 - ✅ Configure WAL, foreign keys, 30-second busy timeout, and normal synchronization on Django connections.
 - ✅ Allow one worker via OS file lock; lease due sources and recover expired leases.
-- ✅ On Ubuntu, store production SQLite state in `/var/lib/newscrawler`, shared by the local `newscrawler` group through a setgid directory, default ACLs, an explicit `0660` database mode, and `umask 0007`; every database client must run on the same host and belong to that group.
+- ✅ On Ubuntu, store production SQLite state in `/var/lib/posinus`, shared by the local `posinus` group through a setgid directory, default ACLs, an explicit `0660` database mode, and `umask 0007`; every database client must run on the same host and belong to that group.
 - ✅ Group exact normalized-body SHA-256 duplicates.
 - ✅ Group near duplicates of the same language within 48 hours using SimHash and title similarity; translations remain separate.
 - ✅ Retain every occurrence/source URL while exposing one logical item to the selector.
@@ -74,7 +74,7 @@ External selector <- exchange views -> append-only review events-+
 - ✅ Single local operator account; authenticated dashboard, source editor, news/duplicate view, crawl runs, events, source statistics, backup status.
 - ✅ News list sorting by date or by source name (both directions) and filtering by source, review decision, and evaluation scores: all 20 characteristics are shown at once as dual-threshold 0–10 range sliders; every active range must match the latest evaluation of the news item (via `exchange_latest_evaluation_scores`), so any tightened range excludes news without scores.
 - ✅ News detail renders the latest evaluation of each selector as a heat scale: one cell per characteristic on an 11-step single-hue ramp (monotone lightness, per-step text contrast ≥ 4.5:1), grouped by category, value digits always visible, axis anchors in tooltips, plus a 0–10 legend; news without scores show a placeholder.
-- ✅ News detail can request and persist a Russian title/body translation plus a short Russian summary through the local `model-router-mcp` `chat` tool. Router URL, token, provider, model, tier, and generation limits come from `NEWSCRAWLER_*` settings; the default configured model hint is DeepSeek Chat and can be changed without editing code.
+- ✅ News detail can request and persist a Russian title/body translation plus a short Russian summary through the local `model-router-mcp` `chat` tool. Router URL, token, provider, model, tier, and generation limits come from `POSINUS_*` settings; the default configured model hint is DeepSeek Chat and can be changed without editing code.
 - ✅ An operator can mark a news item as selected. The append-only manual review event is idempotent per operator/news pair and snapshots the configured evaluator's latest characteristic scores in the same transaction; the event's news relation retains access to every occurrence URL for later weight fitting.
 - ✅ CLI commands for operator creation, worker, and maintenance.
 - ✅ Windows/Ubuntu install and service files, structured rotating logs, CI matrix.
@@ -86,7 +86,7 @@ External selector <- exchange views -> append-only review events-+
 
 ```text
 collector/       Django domain, migrations, services, commands, views
-newscrawler/     Django project configuration
+posinus/     Django project configuration
 templates/       Russian operator interface
 tests/           parser, policy, database contract, UI and worker tests
 docs/            selector contract and ADRs
@@ -97,8 +97,8 @@ deploy/systemd/  Ubuntu service units
 
 ## Deployment
 
-- Store production configuration in `/etc/newscrawler/newscrawler.env`, application code in `/opt/newscrawler`, mutable database/backups/browser state in `/var/lib/newscrawler`, and logs in `/var/log/newscrawler`.
-- Run services as the non-login `newscrawler` system user and group; grant other local database clients group membership rather than ownership of the application tree.
+- Store production configuration in `/etc/posinus/crawler.env`, application code in `/opt/posinus/crawler`, mutable database/backups/browser state in `/var/lib/posinus`, and logs in `/var/log/posinus`.
+- Run services as the non-login `posinus` system user and group; grant other local database clients group membership rather than ownership of the application tree.
 - Run migrations, create the operator, install Chromium, then start Waitress and exactly one worker.
 - Publish the operator UI only through the HTTPS reverse proxy; keep Waitress on `127.0.0.1:8000` and serve collected static files directly from Nginx.
 - Keep the database, backup directory, logs, worker, UI, and every direct SQLite client on the same local filesystem and machine.

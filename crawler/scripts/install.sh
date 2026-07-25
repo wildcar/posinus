@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 set -eu
-# Local/development installer. For Ubuntu production use docs/ubuntu-deployment.md.
+# Local/development installer. For Ubuntu production use ../docs/deployment.md.
 PYTHON="${PYTHON:-python3}"
 "$PYTHON" -m venv .venv
 .venv/bin/python -m pip install --upgrade pip

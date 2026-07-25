@@ -22,7 +22,7 @@ def mark_selected(item: NewsItem, username: str) -> tuple[ReviewEvent, bool, int
         return event, False, event.evaluation_scores.count()
     latest_scores = LatestEvaluationScore.objects.filter(
         news_id=item.pk,
-        selector_name=settings.NEWSCRAWLER_MANUAL_SCORE_SELECTOR,
+        selector_name=settings.POSINUS_MANUAL_SCORE_SELECTOR,
     )
     scores = [
         EvaluationScore(

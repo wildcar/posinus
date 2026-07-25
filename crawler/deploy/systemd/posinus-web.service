@@ -1,0 +1,26 @@
+[Unit]
+Description=Positive News Crawler web UI
+After=network.target model-router-mcp.service
+ConditionPathExists=/etc/posinus/crawler.env
+ConditionPathExists=/var/lib/posinus/posinus.sqlite3
+ConditionPathIsDirectory=/var/lib/posinus
+
+[Service]
+Type=simple
+User=posinus
+Group=posinus
+WorkingDirectory=/opt/posinus/crawler
+EnvironmentFile=/etc/posinus/crawler.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+UMask=0007
+ExecStartPre=/usr/bin/chmod 0660 /var/lib/posinus/posinus.sqlite3
+ExecStart=/opt/posinus/crawler/.venv/bin/python -m waitress --listen=127.0.0.1:8000 --trusted-proxy=127.0.0.1 --trusted-proxy-headers=x-forwarded-proto posinus_crawler.wsgi:application
+Restart=always
+RestartSec=5
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/posinus /var/log/posinus
+
+[Install]
+WantedBy=multi-user.target

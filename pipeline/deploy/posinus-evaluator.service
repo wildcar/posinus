@@ -6,14 +6,14 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=newsevaluator
-Group=newsevaluator
-SupplementaryGroups=newscrawler
+User=posinus-pipeline
+Group=posinus-pipeline
+SupplementaryGroups=posinus
 # Group access to the crawler DB sidecar files (-wal/-shm) per the contract.
 UMask=0007
 # Defaults; /etc file overrides them.
 Environment=EVALUATOR_BATCH=25
-EnvironmentFile=/etc/news-evaluator/news-evaluator.env
-ExecStart=/usr/bin/python3 /opt/news-evaluator/evaluator.py --limit ${EVALUATOR_BATCH}
+EnvironmentFile=/etc/posinus/pipeline.env
+ExecStart=/usr/bin/python3 /opt/posinus/pipeline/evaluator.py --limit ${EVALUATOR_BATCH}
 NoNewPrivileges=true
 PrivateTmp=true

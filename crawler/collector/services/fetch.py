@@ -76,10 +76,10 @@ def allowed_by_robots(url: str) -> bool:
         return cached[1]
     parser = urllib.robotparser.RobotFileParser(robots_url)
     try:
-        request = urllib.request.Request(robots_url, headers={"User-Agent": settings.NEWSCRAWLER_USER_AGENT})
+        request = urllib.request.Request(robots_url, headers={"User-Agent": settings.POSINUS_USER_AGENT})
         with urllib.request.build_opener(SafeRedirectHandler()).open(request, timeout=10) as response:
             parser.parse(response.read(1_000_000).decode("utf-8", errors="replace").splitlines())
-        allowed = parser.can_fetch(settings.NEWSCRAWLER_USER_AGENT, url)
+        allowed = parser.can_fetch(settings.POSINUS_USER_AGENT, url)
     except urllib.error.HTTPError as exc:
         allowed = exc.code == 404
     except (urllib.error.URLError, TimeoutError, ValueError):
@@ -99,7 +99,7 @@ def fetch_url(url: str, *, etag="", last_modified="", playwright=False, delay=0.
             from playwright.sync_api import sync_playwright
             with sync_playwright() as engine:
                 browser = engine.chromium.launch(headless=True)
-                context = browser.new_context(user_agent=settings.NEWSCRAWLER_USER_AGENT)
+                context = browser.new_context(user_agent=settings.POSINUS_USER_AGENT)
                 def safe_route(route):
                     request_url = route.request.url
                     if urlsplit(request_url).scheme not in {"http", "https"}:
@@ -122,7 +122,7 @@ def fetch_url(url: str, *, etag="", last_modified="", playwright=False, delay=0.
                 return FetchResult(final_url, status, content, {})
         except Exception as exc:
             raise RuntimeError(f"Playwright fetch failed: {exc}") from exc
-    headers = {"User-Agent": settings.NEWSCRAWLER_USER_AGENT, "Accept-Encoding": "gzip"}
+    headers = {"User-Agent": settings.POSINUS_USER_AGENT, "Accept-Encoding": "gzip"}
     if etag:
         headers["If-None-Match"] = etag
     if last_modified:

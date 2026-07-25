@@ -6,7 +6,7 @@ Host facts, tools, credentials pointers, and command cheat-sheet for this projec
 
 - **Dev**: Windows, PowerShell, repository `D:\repo\positive-news-crawler`.
 - **Supported runtime**: Windows or Ubuntu on one machine with a local filesystem.
-- **Production layout**: code `/opt/newscrawler`, configuration `/etc/newscrawler`, shared local state `/var/lib/newscrawler`, logs `/var/log/newscrawler`, service user/group `newscrawler`.
+- **Production layout**: code `/opt/posinus/crawler`, configuration `/etc/posinus`, shared local state `/var/lib/posinus`, logs `/var/log/posinus`, service user/group `posinus`.
 
 ## Tools
 
@@ -18,9 +18,9 @@ Host facts, tools, credentials pointers, and command cheat-sheet for this projec
 
 ## Credentials & secrets
 
-- Runtime values come from `NEWSCRAWLER_*` environment variables; template: `.env.example`.
+- Runtime values come from `POSINUS_*` environment variables; template: `.env.example`.
 - Never store the Django secret key, operator password, or site credentials in the repository.
-- The router token is `AUTH_TOKEN` in `/opt/model-router-mcp/.env`; copy its value to `NEWSCRAWLER_ROUTER_AUTH_TOKEN` in the protected crawler environment file, never to Git.
+- The router token is `AUTH_TOKEN` in `/opt/model-router-mcp/.env`; copy its value to `POSINUS_ROUTER_AUTH_TOKEN` in the protected crawler environment file, never to Git.
 - `.env`, `data/*.sqlite3`, backups, logs, and lock files are gitignored.
 
 ## Environments
@@ -38,7 +38,7 @@ Host facts, tools, credentials pointers, and command cheat-sheet for this projec
 ./scripts/install.ps1
 ./.venv/Scripts/python.exe manage.py migrate
 ./.venv/Scripts/python.exe manage.py createoperator operator
-./.venv/Scripts/python.exe -m waitress --listen=127.0.0.1:8000 newscrawler.wsgi:application
+./.venv/Scripts/python.exe -m waitress --listen=127.0.0.1:8000 posinus_crawler.wsgi:application
 ./.venv/Scripts/python.exe manage.py runworker
 ./.venv/Scripts/python.exe -m pytest
 ```
@@ -48,9 +48,9 @@ When using the already installed system Python during development, replace `./.v
 ### Prod — Ubuntu
 
 ```bash
-sudo /opt/newscrawler/scripts/update-ubuntu.sh
-sudo systemctl status --no-pager newscrawler-web.service newscrawler-worker.service
-sudo sqlite3 /var/lib/newscrawler/newscrawler.sqlite3 'PRAGMA integrity_check;'
+sudo /opt/posinus/crawler/scripts/update-ubuntu.sh
+sudo systemctl status --no-pager posinus-web.service posinus-worker.service
+sudo sqlite3 /var/lib/posinus/posinus.sqlite3 'PRAGMA integrity_check;'
 ```
 
 Initial deployment, shared-group permissions, and update-service registration are documented in `docs/ubuntu-deployment.md`.
@@ -75,6 +75,6 @@ python -m pytest
 
 ### Prod
 
-- Set `NEWSCRAWLER_SECURE=1` only after HTTPS termination is configured.
+- Set `POSINUS_SECURE=1` only after HTTPS termination is configured.
 - Playwright on Ubuntu needs browser system packages; `scripts/install.sh` uses `--with-deps`.
-- All direct SQLite clients must run on the same host, belong to the `newscrawler` group, and be registered in `/etc/newscrawler/update-services` when managed by systemd.
+- All direct SQLite clients must run on the same host, belong to the `posinus` group, and be registered in `/etc/posinus/update-services` when managed by systemd.

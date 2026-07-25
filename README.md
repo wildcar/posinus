@@ -23,8 +23,8 @@ Windows PowerShell:
 Copy-Item .env.example .env
 ./scripts/install.ps1
 ./.venv/Scripts/python.exe manage.py createoperator operator
-$env:NEWSCRAWLER_SECRET_KEY = "replace-with-a-long-random-secret"
-./.venv/Scripts/python.exe -m waitress --listen=127.0.0.1:8000 newscrawler.wsgi:application
+$env:POSINUS_SECRET_KEY = "replace-with-a-long-random-secret"
+./.venv/Scripts/python.exe -m waitress --listen=127.0.0.1:8000 posinus_crawler.wsgi:application
 ```
 
 В другом окне:
@@ -33,11 +33,11 @@ $env:NEWSCRAWLER_SECRET_KEY = "replace-with-a-long-random-secret"
 ./.venv/Scripts/python.exe manage.py runworker
 ```
 
-Для production-развёртывания на Ubuntu — включая системного пользователя, каталоги, права общей SQLite-базы, Chromium, systemd и обновления — используйте [пошаговую инструкцию](docs/ubuntu-deployment.md).
+Для production-развёртывания на Ubuntu — включая системного пользователя, каталоги, права общей SQLite-базы, Chromium, systemd и обновления — используйте [пошаговую инструкцию](docs/deployment.md).
 
-UI локального запуска будет доступен на `http://127.0.0.1:8000/`. Production-сайт `newscrawler.wildcar.org` публикуется через Nginx с HTTPS; Waitress остаётся на loopback. Пошаговая настройка описана в `docs/ubuntu-deployment.md`.
+UI локального запуска будет доступен на `http://127.0.0.1:8000/`. Production-сайт `newscrawler.wildcar.org` публикуется через Nginx с HTTPS; Waitress остаётся на loopback. Пошаговая настройка описана в `docs/deployment.md`.
 
-> Django не читает `.env` автоматически. При ручном запуске экспортируйте значения в окружение; systemd использует `/etc/newscrawler/newscrawler.env`. В Windows постоянные значения можно задать через системные переменные среды.
+> Django не читает `.env` автоматически. При ручном запуске экспортируйте значения в окружение; systemd использует `/etc/posinus/crawler.env`. В Windows постоянные значения можно задать через системные переменные среды.
 
 ## Работа worker
 
@@ -75,22 +75,22 @@ python manage.py runworker --once
 
 Страница отдельной новости показывает публикации, историю решений и блок «Баллы по характеристикам»: последняя оценка каждого отборщика раскладывается по категориям, значение каждой характеристики выводится цифрой на тепловой шкале от светлого (0) к тёмному (10). Подсказка у названия характеристики расшифровывает смысл крайних значений.
 
-На той же странице есть кнопка «Перевести на русский». Она отправляет заголовок и текст в локальный `model-router-mcp`, затем сохраняет русский перевод и краткий пересказ. Повторный перевод заменяет предыдущий. Адрес роутера, токен и модель задаются переменными `NEWSCRAWLER_ROUTER_*` и `NEWSCRAWLER_TRANSLATION_*`; по умолчанию выбраны провайдер `deepseek` и модель `deepseek-chat`.
+На той же странице есть кнопка «Перевести на русский». Она отправляет заголовок и текст в локальный `model-router-mcp`, затем сохраняет русский перевод и краткий пересказ. Повторный перевод заменяет предыдущий. Адрес роутера, токен и модель задаются переменными `POSINUS_ROUTER_*` и `POSINUS_TRANSLATION_*`; по умолчанию выбраны провайдер `deepseek` и модель `deepseek-chat`.
 
-Кнопка «Отобрано» записывает ручное положительное решение один раз для каждой пары оператора и новости. Вместе с решением сохраняется снимок последних баллов от отборщика, указанного в `NEWSCRAWLER_MANUAL_SCORE_SELECTOR`. Событие связано с новостью, поэтому при последующей настройке весов доступны её баллы и все исходные ссылки.
+Кнопка «Отобрано» записывает ручное положительное решение один раз для каждой пары оператора и новости. Вместе с решением сохраняется снимок последних баллов от отборщика, указанного в `POSINUS_MANUAL_SCORE_SELECTOR`. Событие связано с новостью, поэтому при последующей настройке весов доступны её баллы и все исходные ссылки.
 
 ## Контракт отборщика
 
 Отборщик открывает тот же локальный файл, устанавливая обязательные pragma:
 
 ```python
-connection = sqlite3.connect("data/newscrawler.sqlite3", timeout=30)
+connection = sqlite3.connect("data/posinus.sqlite3", timeout=30)
 connection.execute("PRAGMA journal_mode=WAL")
 connection.execute("PRAGMA foreign_keys=ON")
 connection.execute("PRAGMA busy_timeout=30000")
 ```
 
-На Ubuntu production путь базы — `/var/lib/newscrawler/newscrawler.sqlite3`; клиент должен работать на том же хосте под пользователем из группы `newscrawler`.
+На Ubuntu production путь базы — `/var/lib/posinus/posinus.sqlite3`; клиент должен работать на том же хосте под пользователем из группы `posinus`.
 
 Доступны:
 
@@ -118,15 +118,15 @@ connection.execute("PRAGMA busy_timeout=30000")
 
 ## Нативные службы
 
-Шаблоны systemd находятся в `deploy/systemd`. Они используют `/opt/newscrawler`, конфигурацию `/etc/newscrawler/newscrawler.env`, общую базу в `/var/lib/newscrawler` и пользователя/группу `newscrawler`:
+Шаблоны systemd находятся в `deploy/systemd`. Они используют `/opt/posinus/crawler`, конфигурацию `/etc/posinus/crawler.env`, общую базу в `/var/lib/posinus` и пользователя/группу `posinus`:
 
 ```bash
-sudo cp deploy/systemd/newscrawler-*.service /etc/systemd/system/
+sudo cp deploy/systemd/posinus-*.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now newscrawler-web newscrawler-worker
+sudo systemctl enable --now posinus-web posinus-worker
 ```
 
-Полная установка и безопасное обновление описаны в [docs/ubuntu-deployment.md](docs/ubuntu-deployment.md). Обновление установленной системы запускается командой `sudo /opt/newscrawler/scripts/update-ubuntu.sh`.
+Полная установка и безопасное обновление описаны в [docs/deployment.md](docs/deployment.md). Обновление установленной системы запускается командой `sudo /opt/posinus/crawler/scripts/update-ubuntu.sh`.
 
 На Windows после установки запустите PowerShell от имени администратора:
 

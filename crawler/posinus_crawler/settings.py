@@ -2,10 +2,10 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-SECRET_KEY = os.environ.get("NEWSCRAWLER_SECRET_KEY", "unsafe-development-key-change-me")
-DEBUG = os.environ.get("NEWSCRAWLER_DEBUG", "0") == "1"
-ALLOWED_HOSTS = [x.strip() for x in os.environ.get("NEWSCRAWLER_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",") if x.strip()]
-CSRF_TRUSTED_ORIGINS = [x.strip() for x in os.environ.get("NEWSCRAWLER_CSRF_TRUSTED_ORIGINS", "").split(",") if x.strip()]
+SECRET_KEY = os.environ.get("POSINUS_SECRET_KEY", "unsafe-development-key-change-me")
+DEBUG = os.environ.get("POSINUS_DEBUG", "0") == "1"
+ALLOWED_HOSTS = [x.strip() for x in os.environ.get("POSINUS_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",") if x.strip()]
+CSRF_TRUSTED_ORIGINS = [x.strip() for x in os.environ.get("POSINUS_CSRF_TRUSTED_ORIGINS", "").split(",") if x.strip()]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -25,7 +25,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
-ROOT_URLCONF = "newscrawler.urls"
+ROOT_URLCONF = "posinus_crawler.urls"
 TEMPLATES = [{
     "BACKEND": "django.template.backends.django.DjangoTemplates",
     "DIRS": [BASE_DIR / "templates"],
@@ -36,8 +36,8 @@ TEMPLATES = [{
         "django.contrib.messages.context_processors.messages",
     ]},
 }]
-WSGI_APPLICATION = "newscrawler.wsgi.application"
-DB_PATH = Path(os.environ.get("NEWSCRAWLER_DB_PATH", BASE_DIR / "data" / "newscrawler.sqlite3")).resolve()
+WSGI_APPLICATION = "posinus_crawler.wsgi.application"
+DB_PATH = Path(os.environ.get("POSINUS_DB_PATH", BASE_DIR / "data" / "posinus.sqlite3")).resolve()
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 DATABASES = {"default": {
     "ENGINE": "django.db.backends.sqlite3",
@@ -60,20 +60,20 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "dashboard"
 LOGOUT_REDIRECT_URL = "login"
-NEWSCRAWLER_USER_AGENT = os.environ.get("NEWSCRAWLER_USER_AGENT", "PositiveNewsCrawler/0.1 (+operator@example.invalid)")
-NEWSCRAWLER_ROUTER_MCP_URL = os.environ.get("NEWSCRAWLER_ROUTER_MCP_URL", "http://127.0.0.1:8088/mcp")
-NEWSCRAWLER_ROUTER_AUTH_TOKEN = os.environ.get("NEWSCRAWLER_ROUTER_AUTH_TOKEN", "")
-NEWSCRAWLER_ROUTER_TIMEOUT_SECONDS = float(os.environ.get("NEWSCRAWLER_ROUTER_TIMEOUT_SECONDS", "300"))
-NEWSCRAWLER_TRANSLATION_PROVIDER = os.environ.get("NEWSCRAWLER_TRANSLATION_PROVIDER", "deepseek")
-NEWSCRAWLER_TRANSLATION_MODEL = os.environ.get("NEWSCRAWLER_TRANSLATION_MODEL", "deepseek-chat")
-NEWSCRAWLER_TRANSLATION_TIER = os.environ.get("NEWSCRAWLER_TRANSLATION_TIER", "")
-NEWSCRAWLER_TRANSLATION_TEMPERATURE = float(os.environ.get("NEWSCRAWLER_TRANSLATION_TEMPERATURE", "0.2"))
-NEWSCRAWLER_TRANSLATION_MAX_TOKENS = int(os.environ.get("NEWSCRAWLER_TRANSLATION_MAX_TOKENS", "8192"))
-NEWSCRAWLER_MANUAL_SCORE_SELECTOR = os.environ.get("NEWSCRAWLER_MANUAL_SCORE_SELECTOR", "news-evaluator")
-NEWSCRAWLER_BACKUP_DIR = Path(os.environ.get("NEWSCRAWLER_BACKUP_DIR", BASE_DIR / "data" / "backups")).resolve()
-NEWSCRAWLER_LOG_DIR = Path(os.environ.get("NEWSCRAWLER_LOG_DIR", BASE_DIR / "data" / "logs")).resolve()
-NEWSCRAWLER_LOG_DIR.mkdir(parents=True, exist_ok=True)
-SECURE_MODE = os.environ.get("NEWSCRAWLER_SECURE", "0") == "1"
+POSINUS_USER_AGENT = os.environ.get("POSINUS_USER_AGENT", "PositiveNewsCrawler/0.1 (+operator@example.invalid)")
+POSINUS_ROUTER_MCP_URL = os.environ.get("POSINUS_ROUTER_MCP_URL", "http://127.0.0.1:8088/mcp")
+POSINUS_ROUTER_AUTH_TOKEN = os.environ.get("POSINUS_ROUTER_AUTH_TOKEN", "")
+POSINUS_ROUTER_TIMEOUT_SECONDS = float(os.environ.get("POSINUS_ROUTER_TIMEOUT_SECONDS", "300"))
+POSINUS_TRANSLATION_PROVIDER = os.environ.get("POSINUS_TRANSLATION_PROVIDER", "deepseek")
+POSINUS_TRANSLATION_MODEL = os.environ.get("POSINUS_TRANSLATION_MODEL", "deepseek-chat")
+POSINUS_TRANSLATION_TIER = os.environ.get("POSINUS_TRANSLATION_TIER", "")
+POSINUS_TRANSLATION_TEMPERATURE = float(os.environ.get("POSINUS_TRANSLATION_TEMPERATURE", "0.2"))
+POSINUS_TRANSLATION_MAX_TOKENS = int(os.environ.get("POSINUS_TRANSLATION_MAX_TOKENS", "8192"))
+POSINUS_MANUAL_SCORE_SELECTOR = os.environ.get("POSINUS_MANUAL_SCORE_SELECTOR", "news-evaluator")
+POSINUS_BACKUP_DIR = Path(os.environ.get("POSINUS_BACKUP_DIR", BASE_DIR / "data" / "backups")).resolve()
+POSINUS_LOG_DIR = Path(os.environ.get("POSINUS_LOG_DIR", BASE_DIR / "data" / "logs")).resolve()
+POSINUS_LOG_DIR.mkdir(parents=True, exist_ok=True)
+SECURE_MODE = os.environ.get("POSINUS_SECURE", "0") == "1"
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_SSL_REDIRECT = SECURE_MODE
 SESSION_COOKIE_SECURE = SECURE_MODE
@@ -87,7 +87,7 @@ LOGGING = {
     "formatters": {"json": {"format": '{{"time":"{asctime}","level":"{levelname}","logger":"{name}","message":"{message}"}}', "style": "{"}},
     "handlers": {
         "console": {"class": "logging.StreamHandler", "formatter": "json"},
-        "file": {"class": "logging.handlers.RotatingFileHandler", "filename": NEWSCRAWLER_LOG_DIR / "newscrawler.log", "maxBytes": 5_000_000, "backupCount": 5, "formatter": "json", "encoding": "utf-8"},
+        "file": {"class": "logging.handlers.RotatingFileHandler", "filename": POSINUS_LOG_DIR / "posinus-crawler.log", "maxBytes": 5_000_000, "backupCount": 5, "formatter": "json", "encoding": "utf-8"},
     },
-    "root": {"handlers": ["console", "file"], "level": os.environ.get("NEWSCRAWLER_LOG_LEVEL", "INFO")},
+    "root": {"handlers": ["console", "file"], "level": os.environ.get("POSINUS_LOG_LEVEL", "INFO")},
 }

@@ -100,7 +100,7 @@ sh scripts/install.sh
 python manage.py migrate
 python manage.py createoperator operator
 # web / worker
-python -m waitress --listen=127.0.0.1:8000 newscrawler.wsgi:application
+python -m waitress --listen=127.0.0.1:8000 posinus_crawler.wsgi:application
 python manage.py runworker
 # verify
 python manage.py check

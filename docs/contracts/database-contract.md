@@ -4,11 +4,11 @@
 
 ## Доступ к production-базе на Ubuntu
 
-Production-файл находится в `/var/lib/newscrawler/newscrawler.sqlite3` и должен иметь режим `0660` с группой `newscrawler`. Каждый прямой клиент должен работать на том же хосте под отдельным системным пользователем из этой группы. Каталог имеет setgid/default ACL, а процессы используют `umask 0007`, чтобы SQLite sidecar-файлы `-wal` и `-shm` оставались доступны группе.
+Production-файл находится в `/var/lib/posinus/posinus.sqlite3` и должен иметь режим `0660` с группой `posinus`. Каждый прямой клиент должен работать на том же хосте под отдельным системным пользователем из этой группы. Каталог имеет setgid/default ACL, а процессы используют `umask 0007`, чтобы SQLite sidecar-файлы `-wal` и `-shm` оставались доступны группе.
 
 SQLite не поддерживает табличные роли: член группы с правом записи технически может изменить любую таблицу. Прикладной контракт разрешает клиентам читать `exchange_news_for_selection`, `exchange_latest_reviews`, `exchange_evaluation_characteristics` и `exchange_latest_evaluation_scores`; добавлять строки можно только в `exchange_review_events` и `exchange_evaluation_scores`.
 
-Перед миграциями или восстановлением базы остановите все прямые клиенты. systemd units таких клиентов перечисляются в `/etc/newscrawler/update-services`; подробности находятся в [ubuntu-deployment.md](ubuntu-deployment.md).
+Перед миграциями или восстановлением базы остановите все прямые клиенты. systemd units таких клиентов перечисляются в `/etc/posinus/update-services`; подробности находятся в [deployment.md](../deployment.md).
 
 ## Чтение очереди
 
