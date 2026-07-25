@@ -52,8 +52,11 @@ a publish-ready retelling, and posts them to the platforms.
   `publisher.py --dry-run` that sent nothing.
 - Since 2026-07-25 every run leaves a `service_run` row in the pipeline DB (`runlog.py`):
   service, status, start and end, counters, effective config without secrets. The crawler UI
-  reads those rows for its «Машина» block. Needs `install.sh` so the web can read the DB and
-  its sidecars.
+  reads those rows for its «Машина» block. LIVE on prod since 2026-07-25 21:44 UTC (commit
+  `6835aae`): a publisher run recorded `{"published": 11, "queue": 124, "window_open": false}`
+  with its config. The staleness rule proved itself immediately — `update-ubuntu.sh` SIGTERMed a
+  running preparer, so its row stayed on 'running' with no way to close it, which is exactly what
+  the reader reports as «прервался» past twice the timer interval.
 - Since 2026-07-25 the selection rule is not in the code: `load_profile` reads
   `exchange_active_selection_profile` from the crawler DB, `selector_version` carries
   `default.r1`, and `--builtin-profile` forces the hard-coded fallback (which also kicks in when

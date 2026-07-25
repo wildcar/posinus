@@ -34,7 +34,12 @@ Operate a single-host multilingual news crawler whose source list improves from 
   The dashboard's «Машина» block shows the last run of every pipeline service from the new
   `service_run` table, and the daily backup now copies that database too (rotation of seven,
   `pipeline-*.sqlite3`). Everything degrades to one honest line when the file is missing, as it
-  is on a development machine. Needs `install.sh` on prod for the group read access.
+  is on a development machine. LIVE on prod since 2026-07-25 21:44 UTC (commit `6835aae`):
+  the web user reads `service_run` and a write attempt is refused by `query_only`. One thing had
+  to be corrected there: `mode=ro` cannot open a WAL database whose `-shm` is absent, and it is
+  absent between runs because the pipeline services are oneshots — the first prod query failed
+  with «attempt to write a readonly database». The connection is `mode=rw` now, and the group
+  has `0660` on the DB; the pragma is the guarantee, not the file mode.
 - Selection thresholds live in the crawler DB since 2026-07-25 (migration `0008_selection_profile`):
   `exchange_selection_profile` + `exchange_selection_bound`, read by the pipeline through the
   `exchange_active_selection_profile` view. The owner's rule is seeded as `default` r1. The news
