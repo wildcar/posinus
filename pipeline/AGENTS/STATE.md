@@ -61,7 +61,9 @@ a publish-ready retelling, and posts them to the platforms.
   `/var/lib/news-evaluator/media/...`. The files themselves were moved and all 336 are present
   under `/var/lib/posinus/pipeline/media/`, so nothing was lost. Fixed in code, not in data:
   the publisher falls back to `MEDIA_DIR/<news_id>/<filename>`. The stale rows can be rewritten
-  later for tidiness; they no longer change behavior.
+  later for tidiness; they no longer change behavior. LIVE on prod (commit `b885377`,
+  2026-07-25 20:07 UTC): a `--dry-run` on queued news 111 logs «illustration moved» and reports
+  `image=True` for Telegram and VK.
 - One VK row is a dead tail, not a live failure: news 6775, 24 attempts, error 27 (group auth),
   accumulated before the classic user token was installed. 15 VK posts are `ok`, so the token
   works; the item is past `PUB_MAX_ATTEMPTS` and finalizes best-effort on the next real run.
