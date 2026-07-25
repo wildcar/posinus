@@ -18,9 +18,9 @@ Operate a single-host multilingual news crawler whose source list improves from 
 - News detail now has a model-backed Russian translation action. It saves the translated title, full text, short summary, actual model identifier, and generation time. Router address, token, provider, model, tier, temperature, token limit, and timeout are environment settings; the default model matches the pipeline's `deepseek-v4-pro`.
 - News detail now has an idempotent operator «Отправить в публикацию» action. It creates an append-only positive review and snapshots the configured evaluator's latest scores; occurrences retain source URLs for future weight fitting.
 - Retention deletes stored translations when it purges the original full text after 90 days.
-- Production runs commit `2978f31` since 2026-07-25 20:43 UTC (updated with `update-ubuntu.sh`);
-  no migrations pending, web and worker active, HTTPS `/login/` 200. Pre-update backup:
-  `/var/lib/posinus/backups/pre-update-20260725T204343Z.sqlite3`.
+- Production runs commit `c83cc8a` since 2026-07-25 21:06 UTC (updated with `update-ubuntu.sh`);
+  migration `0008_selection_profile` applied, web and worker active, HTTPS `/login/` 200.
+  Pre-update backup: `/var/lib/posinus/backups/pre-update-20260725T210644Z.sqlite3`.
 - Earlier: production ran commit `b885377` from 2026-07-25 20:07 UTC (updated with `update-ubuntu.sh`); migrations through `0007_latestreview` are applied, web/worker/model-router services are active, HTTPS `/login/` returns 200, SQLite integrity is `ok`. Pre-update backup: `/var/lib/posinus/backups/pre-update-20260725T195627Z.sqlite3`.
 - The production crawler environment carries the router token as `POSINUS_ROUTER_AUTH_TOKEN`, plus `POSINUS_TRANSLATION_PROVIDER`/`POSINUS_TRANSLATION_MODEL` which the file never had before 2026-07-25; web was restarted and its loaded environment was verified.
 - Production translation smoke test passed for news 5364, back when the model was `deepseek-chat`; the Russian body and summary were persisted. Not re-run since the switch to `deepseek-v4-pro`.
@@ -34,8 +34,11 @@ Operate a single-host multilingual news crawler whose source list improves from 
   `exchange_active_selection_profile` view. The owner's rule is seeded as `default` r1. The news
   card explains each verdict from those rows and the «Отбор» screen replays a draft over the whole
   scored corpus (counts, biggest blocker, added / removed / near-miss lists), applies it with a
-  revision bump, and can request a full recompute. 76 tests pass. Not on prod yet: needs
-  `update-ubuntu.sh` for the migration and `install.sh` for the backfill unit.
+  revision bump, and can request a full recompute. 76 tests pass. LIVE on prod since
+  2026-07-25 21:06 UTC (commit `c83cc8a`, migration `0008` applied, `install.sh` rerun):
+  the view returns `default|1|11 rows`, and a dry-run rescore over all 6469 scored items
+  reported 0 corrections — the seeded thresholds reproduce every existing verdict exactly.
+  The screen's own pivot query costs 0.2s on those 129380 score rows.
 - The stop cock is in the UI since 2026-07-25: the dashboard writes a `pause` file into
   `POSINUS_PIPELINE_REQUESTS_DIR` (hour / end of day / until lifted, with a reason) and the
   publisher honours it. LIVE on prod since 2026-07-25 20:44 UTC (commit `2978f31`): the mailbox

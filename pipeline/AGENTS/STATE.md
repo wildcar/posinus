@@ -56,7 +56,13 @@ a publish-ready retelling, and posts them to the platforms.
   the view is missing or empty). `--backfill --rescore-all` re-verdicts the whole scored corpus
   from stored scores, writing only changes; it runs from `posinus-evaluator-backfill.service`,
   which has no timer and only fires on a `run-evaluator-backfill` request file. 99 tests pass.
-  Ships with the next crawler update; the new unit needs `install.sh`.
+  LIVE on prod since 2026-07-25 21:06 UTC (commit `c83cc8a`): a run triggered through the
+  mailbox logs «selection profile default.r1», and `--backfill --rescore-all --dry-run` over the
+  whole corpus reports 6469 news, 125 selected, 0 corrections — the thresholds in the database
+  reproduce every verdict the hard-coded rule had produced. That pass takes ~18s, almost all of
+  it in the join of `exchange_latest_evaluation_scores` with `exchange_latest_reviews` (two
+  window-function views materialized); fine for a background oneshot, and the UI's own pivot
+  reads the score view alone in 0.2s.
 - Since 2026-07-25 the publisher has two safety catches, both from step 1 of
   `../docs/ui-concept.md`. The stop cock: a `pause` file in `REQUESTS_DIR`
   (`/var/lib/posinus/pipeline/requests`) holds every send, expires by itself and fails towards
