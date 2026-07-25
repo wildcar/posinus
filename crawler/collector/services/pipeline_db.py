@@ -5,9 +5,12 @@ posts, what each service did on its last run — lives in a database this proces
 does not own. Three rules make reading it safe:
 
 1. **Never write.** The connection sets `PRAGMA query_only = ON`. The file system
-   permissions still allow writing, and that is deliberate: SQLite has to be able
-   to recover a journal, and a read-only mount would fail in a random place a week
-   after install. The pragma is the honest guard, the group access is the plumbing.
+   permissions still allow writing, and that is deliberate: a WAL database cannot
+   be opened `mode=ro` unless its `-shm` file already exists, and it does not
+   exist between runs — the pipeline services are oneshots, and SQLite removes the
+   sidecars on a clean close. Found exactly that way on prod. So the connection is
+   `mode=rw` (which still refuses to create a missing file) and the pragma is what
+   actually guarantees we never write.
 2. **Never block a writer.** A short busy timeout, two seconds. The publisher
    sends a post and then records it; a web page that holds a lock long enough to
    fail that write causes a duplicate post. Better a page that says «нет связи».
@@ -42,9 +45,11 @@ def db_path() -> Path:
 def connection():
     """Read-only connection to the pipeline DB, or `PipelineUnavailable`.
 
-    Opened with the `ro` URI mode as well as the pragma: the mode refuses at
-    connect time if the file is missing, instead of quietly creating an empty
-    database that would then diverge from the real one forever.
+    Opened with `mode=rw`: it refuses at connect time if the file is missing,
+    instead of quietly creating an empty database that would then diverge from
+    the real one forever, and unlike `mode=ro` it can attach the WAL index that
+    SQLite recreates on every first open. `query_only` is the guard against
+    writing, see the module docstring.
     """
     path = db_path()
     try:
@@ -57,7 +62,7 @@ def connection():
         raise PipelineUnavailable(f"{path} does not exist")
     con = None
     try:
-        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=BUSY_TIMEOUT_MS / 1000)
+        con = sqlite3.connect(f"file:{path}?mode=rw", uri=True, timeout=BUSY_TIMEOUT_MS / 1000)
         con.row_factory = sqlite3.Row
         con.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
         con.execute("PRAGMA query_only = ON")

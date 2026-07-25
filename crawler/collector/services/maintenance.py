@@ -216,9 +216,9 @@ def backup_pipeline_db(keep=7):
     """Copy the pipeline's own database into the same rotation.
 
     It holds the retellings, the captions and the links to published posts, and
-    nobody was copying it: losing it would mean publishing everything again. The
-    copy is read-only from here — `sqlite3.backup` on a `mode=ro` connection —
-    so a failure is reported and never touches the pipeline's data.
+    nobody was copying it: losing it would mean publishing everything again.
+    `mode=rw` plus `PRAGMA query_only` for the same reason as the UI reader: a
+    WAL database has no `-shm` between runs and `mode=ro` cannot create one.
     """
     source_path = Path(settings.POSINUS_PIPELINE_DB_PATH)
     try:
@@ -232,7 +232,8 @@ def backup_pipeline_db(keep=7):
     source = destination = None
     error = None
     try:
-        source = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True, timeout=30)
+        source = sqlite3.connect(f"file:{source_path}?mode=rw", uri=True, timeout=30)
+        source.execute("PRAGMA query_only = ON")
         destination = sqlite3.connect(str(filename))
         source.backup(destination)
         result = destination.execute("PRAGMA integrity_check").fetchone()[0]

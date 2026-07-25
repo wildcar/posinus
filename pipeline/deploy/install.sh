@@ -49,13 +49,18 @@ install -d -o posinus-pipeline -g posinus-pipeline -m 0750 /var/lib/posinus/pipe
 # without them a new -wal file lands in the wrong group and the UI goes blind at
 # a random moment weeks after the install. Same reasoning as the crawler DB in
 # section 3 of docs/deployment.md.
+# Write access on the database and its directory is required, not sloppy: a WAL
+# database recreates its -shm index on the first open, and these services are
+# oneshots, so between runs there is no -shm to attach to. A reader without write
+# access simply cannot open the file. The guarantee that the web never writes is
+# `PRAGMA query_only` on its connection, not the file mode.
 chgrp posinus /var/lib/posinus/pipeline /var/lib/posinus/pipeline/media
-chmod 2710 /var/lib/posinus/pipeline        # traverse only: the web reaches what is inside
+chmod 2770 /var/lib/posinus/pipeline
 chmod 2750 /var/lib/posinus/pipeline/media  # the gallery needs to list it
 for f in /var/lib/posinus/pipeline/evaluator.sqlite3 \
          /var/lib/posinus/pipeline/evaluator.sqlite3-wal \
          /var/lib/posinus/pipeline/evaluator.sqlite3-shm; do
-    [ -e "$f" ] && chgrp posinus "$f" && chmod 0640 "$f"
+    [ -e "$f" ] && chgrp posinus "$f" && chmod 0660 "$f"
 done
 if command -v setfacl >/dev/null 2>&1; then
     setfacl -m g:posinus:rx -d -m g:posinus:r-x /var/lib/posinus/pipeline/media
@@ -72,10 +77,6 @@ fi
 # posinus with setgid, so files created by the web stay group-readable for the
 # pipeline user and vice versa.
 install -d -o posinus-pipeline -g posinus -m 2770 /var/lib/posinus/pipeline/requests
-# The pipeline directory itself must be traversable by the web user, otherwise
-# it cannot reach the mailbox inside it.
-chgrp posinus /var/lib/posinus/pipeline
-chmod 0710 /var/lib/posinus/pipeline
 
 install -d -m 0755 /etc/posinus
 ENV_FILE=/etc/posinus/pipeline.env
