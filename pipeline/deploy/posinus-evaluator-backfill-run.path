@@ -1,0 +1,11 @@
+[Unit]
+Description=Recompute verdicts as soon as the operator asks for it
+Documentation=file:///opt/posinus/docs/ui-concept.md
+
+[Path]
+# Written by the web UI after the operator changes the selection thresholds.
+PathExists=/var/lib/posinus/pipeline/requests/run-evaluator-backfill
+Unit=posinus-evaluator-backfill.service
+
+[Install]
+WantedBy=multi-user.target

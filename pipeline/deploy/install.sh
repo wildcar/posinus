@@ -79,12 +79,16 @@ if grep -qx 'ROUTER_AUTH_TOKEN=fill-me' "$ENV_FILE"; then
 fi
 
 install -m 0644 "$REPO_DIR/deploy/posinus-evaluator.service" /etc/systemd/system/posinus-evaluator.service
+# Recompute verdicts on request (the operator changed the selection thresholds).
+# No timer: it runs only when the web drops a request file.
+install -m 0644 "$REPO_DIR/deploy/posinus-evaluator-backfill.service" /etc/systemd/system/posinus-evaluator-backfill.service
 install -m 0644 "$REPO_DIR/deploy/posinus-evaluator.timer" /etc/systemd/system/posinus-evaluator.timer
 install -m 0644 "$REPO_DIR/deploy/posinus-preparer.service" /etc/systemd/system/posinus-preparer.service
 install -m 0644 "$REPO_DIR/deploy/posinus-preparer.timer" /etc/systemd/system/posinus-preparer.timer
 install -m 0644 "$REPO_DIR/deploy/posinus-publisher.service" /etc/systemd/system/posinus-publisher.service
 install -m 0644 "$REPO_DIR/deploy/posinus-publisher.timer" /etc/systemd/system/posinus-publisher.timer
-for unit in posinus-evaluator-run.path posinus-preparer-run.path posinus-publisher-run.path; do
+for unit in posinus-evaluator-run.path posinus-preparer-run.path posinus-publisher-run.path \
+            posinus-evaluator-backfill-run.path; do
     install -m 0644 "$REPO_DIR/deploy/$unit" "/etc/systemd/system/$unit"
 done
 systemctl daemon-reload
@@ -94,11 +98,13 @@ systemctl enable --now posinus-publisher.timer
 systemctl enable --now posinus-evaluator-run.path
 systemctl enable --now posinus-preparer-run.path
 systemctl enable --now posinus-publisher-run.path
+systemctl enable --now posinus-evaluator-backfill-run.path
 
 # The crawler's update script stops every service listed here before touching
 # the DB schema (both open the crawler DB).
 touch /etc/posinus/update-services
-for unit in posinus-evaluator.service posinus-preparer.service posinus-publisher.service; do
+for unit in posinus-evaluator.service posinus-preparer.service posinus-publisher.service \
+            posinus-evaluator-backfill.service; do
     if ! grep -qx "$unit" /etc/posinus/update-services; then
         echo "$unit" >> /etc/posinus/update-services
         echo "registered $unit in /etc/posinus/update-services"

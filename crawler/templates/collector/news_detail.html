@@ -19,6 +19,13 @@
 .heat-10{background:#0b445b;color:#fff}
 .heat-strip{display:inline-flex;gap:2px;vertical-align:middle;margin:0 .4rem}
 .heat-strip i{width:13px;height:11px;border-radius:2px}
+.verdict-ok{border-left:4px solid #197043}
+.verdict-no{border-left:4px solid #a32b2b}
+.verdict-summary{font-size:1.05rem;margin:.2rem 0 .8rem}
+.verdict-table{background:none}
+.verdict-table td,.verdict-table th{border-bottom:1px solid #eef2f5;padding:.35rem .65rem;font-size:.9rem}
+.verdict-table caption{text-align:left;padding:0 .65rem .4rem;font-size:.85rem}
+.verdict-table .num{font-variant-numeric:tabular-nums}
 </style>
 {% endblock %}
 {% block content %}
@@ -45,6 +52,34 @@
   <h4>Полный перевод</h4>
   <div class="text">{{ translation.body_text }}</div>
   <p class="muted">Модель: {{ translation.model_id|default:"не указана" }} · {{ translation.generated_at }}</p>
+</div>
+{% endif %}
+{% if verdict %}
+<h2>Решение отбора</h2>
+<div class="card verdict {% if verdict.passed %}verdict-ok{% else %}verdict-no{% endif %}">
+  <p class="verdict-summary">{{ verdict.summary }}</p>
+  <table class="verdict-table">
+    <caption class="muted">Профиль «{{ verdict.profile_name }}», редакция {{ verdict.revision }}</caption>
+    <tr><th scope="col">Условие</th><th scope="col">Ось</th><th scope="col">Балл</th><th scope="col">Порог</th><th scope="col">Итог</th></tr>
+    {% for condition in verdict.gates %}
+    <tr>
+      <td>{% if forloop.first %}Обязательные{% endif %}</td>
+      <td>{{ condition.title }}</td>
+      <td class="num">{{ condition.value }}</td>
+      <td>{{ condition.requirement }}</td>
+      <td>{% if condition.passed %}<span class="ok">ок</span>{% else %}<span class="bad">не прошло</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    {% for condition in verdict.highlights %}
+    <tr>
+      <td>{% if forloop.first %}Хотя бы одна сильная сторона{% endif %}</td>
+      <td>{{ condition.title }}</td>
+      <td class="num">{{ condition.value }}</td>
+      <td>{{ condition.requirement }}</td>
+      <td>{% if condition.passed %}<span class="ok">прошло</span>{% elif condition == verdict.closest %}ближе всех{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
 </div>
 {% endif %}
 <h2>Публикации</h2>

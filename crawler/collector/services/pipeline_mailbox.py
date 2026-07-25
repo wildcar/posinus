@@ -29,7 +29,7 @@ from django.conf import settings
 from django.utils import timezone
 
 PAUSE_FILE = "pause"
-RUN_SERVICES = ("evaluator", "preparer", "publisher")
+RUN_SERVICES = ("evaluator", "preparer", "publisher", "evaluator-backfill")
 
 
 class MailboxUnavailable(RuntimeError):

@@ -1,10 +1,12 @@
 import logging
+from dataclasses import replace
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Count, Exists, Min, OuterRef
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404, redirect, render
@@ -20,11 +22,27 @@ from .models import (
     NewsItem,
     OperatorEvent,
     ReviewEvent,
+    SelectionBound,
     Source,
+)
+from .services.calibration import (
+    ADDED_LIMIT,
+    NEAR_MISS_LIMIT,
+    apply_profile,
+    corpus_scores,
+    near_misses,
+    titles_for,
 )
 from .services.manual_review import mark_selected
 from .services.model_router import ModelRouterError
-from .services.pipeline_mailbox import MailboxUnavailable, clear_pause, read_pause, set_pause
+from .services.pipeline_mailbox import (
+    MailboxUnavailable,
+    clear_pause,
+    read_pause,
+    request_run,
+    set_pause,
+)
+from .services.selection import Bound, active_profile, explain, profile_bounds
 from .services.translation import TranslationError, translate_news
 
 SCORE_MIN = 0
@@ -276,8 +294,21 @@ def news_detail(request, pk):
         entry["scores"].append({"characteristic": characteristic, "value": row.value})
     for entry in evaluations.values():
         entry["scores"].sort(key=lambda score: score["characteristic"].position)
+
+    # Why this news item did or did not pass, computed from the thresholds in
+    # force — the same rows the evaluator decides by.
+    verdict = None
+    profile = active_profile()
+    evaluator_scores = {
+        row["characteristic"].key: row["value"]
+        for row in evaluations.get(settings.POSINUS_MANUAL_SCORE_SELECTOR, {}).get("scores", [])
+    }
+    if profile is not None and evaluator_scores:
+        verdict = explain(profile.name, profile.revision, profile_bounds(profile), evaluator_scores)
+
     context = {
         "item": item,
+        "verdict": verdict,
         "evaluations": sorted(evaluations.values(), key=lambda entry: entry["selector_name"]),
         "translation": getattr(item, "russian_translation", None),
         "manual_selected": item.review_events.filter(
@@ -323,6 +354,133 @@ def news_select(request, pk):
             "Новость отправлена в публикацию, выйдет примерно через два часа. Баллов автоматической оценки у неё пока нет.",
         )
     return redirect("news_detail", pk=pk)
+
+
+def _draft_from_form(data, bounds: list[Bound]) -> tuple[list[Bound], bool]:
+    """Read the edited thresholds out of the form; unchanged means «no draft»."""
+    draft, changed = [], False
+    for bound in bounds:
+        raw = data.get(f"{bound.kind}__{bound.key}")
+        if raw == "":
+            changed = True  # the operator dropped the condition entirely
+            continue
+        value = _score_bound(raw, bound.value)
+        changed = changed or value != bound.value
+        draft.append(replace(bound, value=value))
+    return draft, changed
+
+
+@login_required
+def selection(request):
+    """The calibration screen: the rule in force, a draft, and what both do to the corpus."""
+    profile = active_profile()
+    if profile is None:
+        return render(request, "collector/selection.html", {"profile": None})
+
+    bounds = profile_bounds(profile)
+    draft, has_draft = _draft_from_form(request.GET, bounds)
+    corpus = corpus_scores()
+    current = apply_profile(bounds, corpus)
+    draft_outcome = apply_profile(draft, corpus) if has_draft else None
+
+    titles = {axis.key: axis.title for axis in EvaluationCharacteristic.objects.all()}
+    blockers = sorted(
+        (
+            {"title": titles.get(key, key) if key else "ни одной сильной стороны", "count": count}
+            for key, count in current.blocked_by.items()
+        ),
+        key=lambda row: row["count"],
+        reverse=True,
+    )
+    used = {bound.key for bound in bounds}
+    unused = [axis.title for axis in EvaluationCharacteristic.objects.all() if axis.key not in used]
+
+    added_ids = (draft_outcome.passed - current.passed) if draft_outcome else set()
+    lost_ids = (current.passed - draft_outcome.passed) if draft_outcome else set()
+    misses = near_misses(draft if has_draft else bounds, corpus)
+
+    context = {
+        "profile": profile,
+        "gates_min": [b for b in bounds if b.kind == SelectionBound.Kind.GATE_MIN],
+        "gates_max": [b for b in bounds if b.kind == SelectionBound.Kind.GATE_MAX],
+        "highlights": [b for b in bounds if b.kind == SelectionBound.Kind.HIGHLIGHT_MIN],
+        "draft": {b.kind + "__" + b.key: b.value for b in draft} if has_draft else {},
+        "has_draft": has_draft,
+        "current": current,
+        "draft_outcome": draft_outcome,
+        "blockers": blockers,
+        "unused_axes": unused,
+        "added_count": len(added_ids),
+        "lost_count": len(lost_ids),
+        "added_items": titles_for(added_ids, ADDED_LIMIT),
+        "lost_items": titles_for(lost_ids, ADDED_LIMIT),
+        "near_miss_count": len(misses),
+        "near_misses": [
+            {"item": item, "reason": dict(misses).get(item.pk, "")}
+            for item in titles_for([news_id for news_id, _ in misses], NEAR_MISS_LIMIT)
+        ],
+    }
+    return render(request, "collector/selection.html", context)
+
+
+@login_required
+@require_POST
+def selection_apply(request):
+    """Make the edited thresholds the rule in force, for both readers at once."""
+    profile = active_profile()
+    if profile is None:
+        messages.error(request, "Действующего профиля нет, применять нечего.")
+        return redirect("selection")
+
+    bounds = profile_bounds(profile)
+    draft, changed = _draft_from_form(request.POST, bounds)
+    if not changed:
+        messages.success(request, "Пороги не изменились.")
+        return redirect("selection")
+
+    with transaction.atomic():
+        profile.bounds.all().delete()
+        SelectionBound.objects.bulk_create(
+            [
+                SelectionBound(profile=profile, characteristic_id=b.key, kind=b.kind, value=b.value)
+                for b in draft
+            ]
+        )
+        profile.revision += 1
+        profile.save(update_fields=["revision", "updated_at"])
+    OperatorEvent.objects.create(
+        event_type="selection_profile_changed",
+        message=f"Профиль «{profile.name}» изменён, редакция {profile.revision}",
+        details={"bounds": [{"axis": b.key, "kind": b.kind, "value": b.value} for b in draft]},
+    )
+    messages.success(
+        request,
+        f"Новые пороги действуют, редакция {profile.revision}. Уже оценённые новости "
+        "не пересчитываются: правило подействует на те, что придут дальше.",
+    )
+    return redirect("selection")
+
+
+@login_required
+@require_POST
+def selection_rescore(request):
+    """Ask the evaluator to re-apply the rule to everything it has already scored."""
+    try:
+        request_run("evaluator-backfill")
+    except MailboxUnavailable as exc:
+        logger.error("Cannot request a rescore: %s", exc)
+        messages.error(request, "Не получилось запросить пересчёт: нет доступа к каталогу заявок конвейера.")
+    else:
+        OperatorEvent.objects.create(
+            event_type="selection_rescore_requested",
+            message="Запрошен пересчёт уже оценённых новостей по действующему профилю",
+        )
+        messages.success(
+            request,
+            "Пересчёт запущен. Модель при этом не вызывается: решения считаются по сохранённым баллам, "
+            "исправления добавляются новыми записями.",
+        )
+    return redirect("selection")
 
 
 @login_required

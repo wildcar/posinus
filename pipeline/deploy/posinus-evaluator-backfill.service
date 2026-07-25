@@ -1,0 +1,19 @@
+[Unit]
+Description=Positive News Evaluator: re-apply the selection profile to everything already scored
+# No model calls: verdicts are recomputed from the stored scores.
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=posinus-pipeline
+Group=posinus-pipeline
+SupplementaryGroups=posinus
+# Group access to the crawler DB sidecar files (-wal/-shm) per the contract.
+UMask=0007
+EnvironmentFile=/etc/posinus/pipeline.env
+# Drop the operator's request first: the .path unit retriggers while the
+# file exists, and a run that started already covers a second click.
+ExecStartPre=-/bin/rm -f /var/lib/posinus/pipeline/requests/run-evaluator-backfill
+ExecStart=/usr/bin/python3 /opt/posinus/pipeline/evaluator.py --backfill --rescore-all
+NoNewPrivileges=true
+PrivateTmp=true

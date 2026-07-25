@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-25 · The selection rule comes from the database, with its revision in the event
+- What: `load_profile` reads `exchange_active_selection_profile` — the fifth readable object of the contract — and falls back to the built-in `DEFAULT_PROFILE` when the view is missing or empty, so a rollback past the crawler migration still evaluates. The profile name and revision travel in `selector_version` (`0.2.0+deepseek-v4-pro+default.r1`). `--profile` is replaced by `--builtin-profile`; `--backfill --rescore-all` re-applies the thresholds to everything already scored and writes only where the verdict changed, behind a new timer-less `posinus-evaluator-backfill.service` and its request file. 7 tests added, 99 pass. Crawler side (tables, view, migration, screens) in the same commit.
+- Why: step 2 of `../docs/ui-concept.md`. One rule for two readers: the evaluator decides by it and the operator screen explains and calibrates by it. A hard-coded copy would have started lying the first time the operator moved a threshold.
+- Files: pipeline/evaluator.py, pipeline/deploy/{install.sh,posinus-evaluator-backfill.service,posinus-evaluator-backfill-run.path}, pipeline/tests/test_evaluator.py, pipeline/AGENTS/SPEC.md, pipeline/docs/services.md, ../docs/contracts/database-contract.md
+- Next: owner-side deploy, then prompt calibration on the new screen.
+
 ## 2026-07-25 · Stop cock, publication window and the request mailbox
 - What: The publisher reads a `pause` file in `REQUESTS_DIR` at the start of a run and sends nothing while it is there (an unreadable or malformed file counts as paused; an expired one is deleted and publication resumes). A new item also waits for the publication window, `PUB_WINDOW_START`–`PUB_WINDOW_END` in `PUB_WINDOW_TZ`, default 08:00–22:00 Europe/Moscow; retries of an already-public item ignore the window. `install.sh` creates the mailbox (group `posinus`, setgid, 2770) and installs three `.path` units that start a service when the web drops `run-<name>`; each service removes the request in `ExecStartPre`. 12 tests added, 92 pass.
 - Why: step 1 of `../docs/ui-concept.md`. The publisher knew one rule, 120 minutes since the last post, and would happily post a kitten at 03:40 or during a day of mourning. The mailbox is also the fundament for running a service from the web without sudo and without a second job queue.

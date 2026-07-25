@@ -29,6 +29,13 @@ Operate a single-host multilingual news crawler whose source list improves from 
 - Agent-authored Russian text follows `.claude/skills/humanizer-ru/SKILL.md`; collected article content stays verbatim.
 - Retention: `purge_rejected_content(days=3)` tombstones news with a `not_positive` verdict and no `positive` one (skipped/undecided/never-reviewed/selected are kept), wired into `maintenance`. Committed, not yet deployed. The external evaluator's backfill already ran on prod (latest reviews: 120 positive, 6108 not_positive), so the first prod run will tombstone ~4230 rejected items older than 3 days.
 
+- Selection thresholds live in the crawler DB since 2026-07-25 (migration `0008_selection_profile`):
+  `exchange_selection_profile` + `exchange_selection_bound`, read by the pipeline through the
+  `exchange_active_selection_profile` view. The owner's rule is seeded as `default` r1. The news
+  card explains each verdict from those rows and the «Отбор» screen replays a draft over the whole
+  scored corpus (counts, biggest blocker, added / removed / near-miss lists), applies it with a
+  revision bump, and can request a full recompute. 76 tests pass. Not on prod yet: needs
+  `update-ubuntu.sh` for the migration and `install.sh` for the backfill unit.
 - The stop cock is in the UI since 2026-07-25: the dashboard writes a `pause` file into
   `POSINUS_PIPELINE_REQUESTS_DIR` (hour / end of day / until lifted, with a reason) and the
   publisher honours it. LIVE on prod since 2026-07-25 20:44 UTC (commit `2978f31`): the mailbox
@@ -51,7 +58,7 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 ## Next
 
-1. Step 2 of `../docs/ui-concept.md`: selection thresholds move into the crawler DB (two tables plus `exchange_active_selection_profile` for the pipeline), one commit with both specs and `load_profile`.
+1. Step 3 of `../docs/ui-concept.md`: the read-only connection to the pipeline DB (ACLs through `install.sh`, a helper that survives a missing file, a backup of that DB, a run table in all three scripts).
 2. Deploy the rejected-news retention; expect the first maintenance run to tombstone ~4230 items.
 3. Watch live translation errors; malformed model formatting now gets one automatic correction attempt.
 4. Register every local SQLite client service in `/etc/posinus/update-services` and create the UI operator if still pending.

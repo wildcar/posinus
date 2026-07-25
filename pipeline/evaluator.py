@@ -78,12 +78,24 @@ VALUES (?, ?, ?)
 # News whose latest event by this selector is still 'skipped' (no verdict yet),
 # together with the scores attached to that event. Feeds the backfill pass.
 BACKFILL_SQL = """
-SELECT s.news_id, s.characteristic_key, s.value
+SELECT s.news_id, r.decision, s.characteristic_key, s.value
 FROM exchange_latest_evaluation_scores AS s
 JOIN exchange_latest_reviews AS r
   ON r.news_id = s.news_id AND r.selector_name = s.selector_name
 WHERE s.selector_name = :selector_name
   AND r.decision = 'skipped'
+ORDER BY s.news_id
+"""
+
+# Every news item this selector has scored, whatever verdict it carries now.
+# Feeds --rescore-all, which re-applies the current thresholds to the whole
+# corpus and only writes where the verdict actually changed.
+RESCORE_SQL = """
+SELECT s.news_id, r.decision, s.characteristic_key, s.value
+FROM exchange_latest_evaluation_scores AS s
+JOIN exchange_latest_reviews AS r
+  ON r.news_id = s.news_id AND r.selector_name = s.selector_name
+WHERE s.selector_name = :selector_name
 ORDER BY s.news_id
 """
 
@@ -390,6 +402,15 @@ class SelectionProfile:
     gates_min: dict[str, int]
     gates_max: dict[str, int]
     highlight_min: dict[str, int]
+    # Revision of the row set this profile was read from; None for the built-in
+    # fallback. It travels in selector_version, because the threshold table is
+    # editable while the events it produced are not.
+    revision: int | None = None
+
+    @property
+    def tag(self) -> str:
+        """How this profile identifies itself inside selector_version."""
+        return f"{self.name}.r{self.revision}" if self.revision is not None else f"{self.name}.builtin"
 
     def selects(self, scores: dict[str, int]) -> bool:
         if any(scores.get(axis, 0) < low for axis, low in self.gates_min.items()):
@@ -421,7 +442,47 @@ DEFAULT_PROFILE = SelectionProfile(
     },
 )
 
-PROFILES = {DEFAULT_PROFILE.name: DEFAULT_PROFILE}
+ACTIVE_PROFILE_SQL = """
+SELECT profile_name, profile_revision, characteristic_key, kind, value
+FROM exchange_active_selection_profile
+"""
+
+
+def load_profile(con: sqlite3.Connection) -> SelectionProfile:
+    """Read the thresholds in force from the crawler DB.
+
+    One rule for two readers: the evaluator decides by it, the operator UI
+    explains decisions by it. Falls back to the built-in DEFAULT_PROFILE when
+    the view is missing (an older database, or the code rolled back past the
+    migration) or holds nothing — a profile with no bounds would select
+    everything, which is the one outcome nobody wants.
+    """
+    try:
+        rows = con.execute(ACTIVE_PROFILE_SQL).fetchall()
+    except sqlite3.OperationalError as exc:
+        log.warning("no exchange_active_selection_profile view (%s); using the built-in profile", exc)
+        return DEFAULT_PROFILE
+    if not rows:
+        log.warning("no active selection profile in the database; using the built-in profile")
+        return DEFAULT_PROFILE
+
+    gates_min: dict[str, int] = {}
+    gates_max: dict[str, int] = {}
+    highlight_min: dict[str, int] = {}
+    buckets = {"gate_min": gates_min, "gate_max": gates_max, "highlight_min": highlight_min}
+    for row in rows:
+        bucket = buckets.get(row["kind"])
+        if bucket is None:
+            log.warning("unknown bound kind %r on axis %s, ignored", row["kind"], row["characteristic_key"])
+            continue
+        bucket[row["characteristic_key"]] = int(row["value"])
+    return SelectionProfile(
+        name=rows[0]["profile_name"],
+        gates_min=gates_min,
+        gates_max=gates_max,
+        highlight_min=highlight_min,
+        revision=int(rows[0]["profile_revision"]),
+    )
 
 
 # ------------------------------------------------------------------ prompt
@@ -537,15 +598,20 @@ def write_review(
     comment: str,
     model_id: str,
     decision: str,
+    profile_tag: str = "",
 ) -> int:
     """Insert the review event and all axis scores in one transaction.
 
     model_id is the model that actually produced the scores (from the router
     reply), so selector_version stays truthful when the configured model changes.
     decision is the verdict from the selection profile (positive/not_positive)
-    or 'skipped' when no verdict is reached.
+    or 'skipped' when no verdict is reached. profile_tag names the thresholds
+    that produced it («default.r3»): the threshold table is editable, the events
+    are not, so without it an old decision cannot be explained later.
     """
     selector_version = f"{EVALUATOR_VERSION}+{model_id or 'router-choice'}"
+    if profile_tag:
+        selector_version = f"{selector_version}+{profile_tag}"
     idempotency_key = f"{news_id}:{selector_version}:{uuid.uuid4().hex[:12]}"
     created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     for attempt in range(DB_LOCK_RETRIES):
@@ -608,7 +674,7 @@ def run(cfg: Config, profile: SelectionProfile, limit: int, dry_run: bool) -> in
             else:
                 model_used = reply.get("model_id") or cfg.model_id
                 event_id = write_review(
-                    con, cfg, news["news_id"], scores, comment, model_used, decision
+                    con, cfg, news["news_id"], scores, comment, model_used, decision, profile.tag
                 )
                 log.info("news %s: event %d %s: %s", news["news_id"], event_id, decision, title)
             done += 1
@@ -621,40 +687,54 @@ def run(cfg: Config, profile: SelectionProfile, limit: int, dry_run: bool) -> in
         con.close()
 
 
-def run_backfill(cfg: Config, profile: SelectionProfile, dry_run: bool) -> int:
-    """Turn earlier 'skipped' verdicts into positive/not_positive from stored scores.
+def run_backfill(cfg: Config, profile: SelectionProfile, dry_run: bool, rescore_all: bool = False) -> int:
+    """Re-verdict already-scored news from the stored scores, without the model.
 
-    Applies the profile to the scores already attached to each news item's latest
-    'skipped' event by this selector, then writes a correcting event with the full
-    score set and a new idempotency key, as the exchange contract requires. No
-    model calls: the verdict is a deterministic function of the stored scores.
+    Two uses of one pass. By default it picks up news whose latest event is still
+    'skipped' (scored before the profile existed). With rescore_all it replays the
+    current thresholds over everything this selector has scored and writes only
+    where the verdict changed — that is the «пересчитать уже оценённые» button
+    after the operator edits the profile, and re-recording an unchanged verdict
+    would only bloat the event log.
+
+    Either way a change is a new event with the full score set and a new
+    idempotency key, as the exchange contract requires.
     """
     con = open_db(cfg.db_path)
     try:
         by_news: dict[int, dict[str, int]] = {}
-        for row in con.execute(BACKFILL_SQL, {"selector_name": cfg.selector_name}):
+        current: dict[int, str] = {}
+        query = RESCORE_SQL if rescore_all else BACKFILL_SQL
+        for row in con.execute(query, {"selector_name": cfg.selector_name}):
             by_news.setdefault(row["news_id"], {})[row["characteristic_key"]] = row["value"]
-        log.info("backfill: %d news with a 'skipped' verdict (profile %s)", len(by_news), profile.name)
+            current[row["news_id"]] = row["decision"]
+        log.info(
+            "%s: %d news to re-verdict (profile %s)",
+            "rescore" if rescore_all else "backfill", len(by_news), profile.tag,
+        )
 
-        processed, selected, incomplete = 0, 0, 0
+        processed, selected, incomplete, unchanged = 0, 0, 0, 0
         for news_id, scores in by_news.items():
             if len(scores) != AXIS_COUNT:
                 incomplete += 1
-                log.warning("news %s: %d/%d scores, skipping backfill", news_id, len(scores), AXIS_COUNT)
+                log.warning("news %s: %d/%d scores, skipping", news_id, len(scores), AXIS_COUNT)
                 continue
             decision = profile.decide(scores)
             selected += decision == "positive"
+            if rescore_all and decision == current.get(news_id):
+                unchanged += 1
+                continue
             if dry_run:
-                log.info("news %s [dry-run] -> %s", news_id, decision)
+                log.info("news %s [dry-run] %s -> %s", news_id, current.get(news_id), decision)
             else:
                 event_id = write_review(
-                    con, cfg, news_id, scores, "", f"backfill:{profile.name}", decision
+                    con, cfg, news_id, scores, "", f"backfill:{profile.name}", decision, profile.tag
                 )
                 log.debug("news %s: event %d %s", news_id, event_id, decision)
             processed += 1
         log.info(
-            "backfill finished: %d processed, %d selected, %d incomplete%s",
-            processed, selected, incomplete,
+            "finished: %d corrected, %d selected by the profile, %d unchanged, %d incomplete%s",
+            processed, selected, unchanged, incomplete,
             " (dry-run, nothing written)" if dry_run else "",
         )
         return 0
@@ -671,7 +751,17 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="re-verdict already-scored 'skipped' news from stored scores; no model calls",
     )
-    parser.add_argument("--profile", default=DEFAULT_PROFILE.name, help="selection profile name")
+    parser.add_argument(
+        "--rescore-all",
+        action="store_true",
+        help="with --backfill: re-apply the profile to every scored news item, "
+             "writing a correction only where the verdict changed",
+    )
+    parser.add_argument(
+        "--builtin-profile",
+        action="store_true",
+        help="ignore the thresholds stored in the crawler DB and use the built-in ones",
+    )
     parser.add_argument("--verbose", action="store_true", help="debug logging")
     args = parser.parse_args(argv)
 
@@ -680,13 +770,18 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(message)s",
         stream=sys.stderr,
     )
-    profile = PROFILES.get(args.profile)
-    if profile is None:
-        log.error("unknown profile %r; known: %s", args.profile, ", ".join(PROFILES))
-        return 2
     cfg = Config.from_env()
+    if args.builtin_profile:
+        profile = DEFAULT_PROFILE
+    else:
+        con = open_db(cfg.db_path)
+        try:
+            profile = load_profile(con)
+        finally:
+            con.close()
+    log.info("selection profile %s", profile.tag)
     if args.backfill:
-        return run_backfill(cfg, profile, dry_run=args.dry_run)
+        return run_backfill(cfg, profile, dry_run=args.dry_run, rescore_all=args.rescore_all)
     if not cfg.router_token:
         log.error("ROUTER_AUTH_TOKEN is not set")
         return 2

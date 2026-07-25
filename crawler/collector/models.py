@@ -223,6 +223,67 @@ class EvaluationCharacteristic(models.Model):
         return self.key
 
 
+class SelectionProfile(models.Model):
+    """Thresholds that turn 20 scores into a verdict.
+
+    The rule used to live in the pipeline's `evaluator.py` while the operator UI
+    explained decisions from its own copy; two copies of one rule drift apart
+    within a month. The thresholds live here instead, and the pipeline reads
+    them through the `exchange_active_selection_profile` view.
+    """
+
+    name = models.CharField(max_length=100, unique=True)
+    is_active = models.BooleanField(default=False)
+    revision = models.PositiveIntegerField(default=1)
+    note = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "exchange_selection_profile"
+        ordering = ["name"]
+        constraints = [
+            # Exactly one profile is in force; the rest are drafts.
+            models.UniqueConstraint(
+                fields=["is_active"], condition=models.Q(is_active=True), name="uq_one_active_selection_profile"
+            )
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class SelectionBound(models.Model):
+    class Kind(models.TextChoices):
+        GATE_MIN = "gate_min", "Обязательное: не ниже"
+        GATE_MAX = "gate_max", "Обязательное: не выше"
+        HIGHLIGHT_MIN = "highlight_min", "Сильная сторона: не ниже"
+
+    profile = models.ForeignKey(SelectionProfile, on_delete=models.CASCADE, related_name="bounds")
+    characteristic = models.ForeignKey(
+        EvaluationCharacteristic,
+        to_field="key",
+        db_column="characteristic_key",
+        on_delete=models.PROTECT,
+        related_name="selection_bounds",
+    )
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    value = models.PositiveSmallIntegerField(validators=[MinValueValidator(0), MaxValueValidator(10)])
+
+    class Meta:
+        db_table = "exchange_selection_bound"
+        ordering = ["kind", "characteristic_id"]
+        constraints = [
+            models.UniqueConstraint(fields=["profile", "characteristic", "kind"], name="uq_selection_bound"),
+            models.CheckConstraint(
+                condition=models.Q(value__gte=0) & models.Q(value__lte=10), name="ck_selection_bound_range"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.profile_id}:{self.characteristic_id} {self.kind} {self.value}"
+
+
 class EvaluationScore(models.Model):
     review_event = models.ForeignKey(ReviewEvent, on_delete=models.PROTECT, related_name="evaluation_scores")
     characteristic = models.ForeignKey(

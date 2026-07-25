@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-25 · Selection thresholds move into the database; a screen to calibrate them
+- What: New `exchange_selection_profile` / `exchange_selection_bound` tables plus the `exchange_active_selection_profile` view (migration `0008_selection_profile`, which also seeds the owner's rule as `default` r1). `collector/services/selection.py` reads the same rows and explains a verdict; `calibration.py` replays a profile over every scored item. News detail now says why an item passed or failed; the new «Отбор» screen compares a draft with the rule in force, names what cuts the most, lists what a draft adds, removes or nearly passed, and has «Применить черновик» (revision +1, operator event) and «Пересчитать уже оценённые». 14 tests added, 76 pass. Pipeline side in the same commit.
+- Why: step 2 of `../docs/ui-concept.md`. The rule lived in `pipeline/evaluator.py`, so the UI would have had to explain decisions from a second copy — and two copies of one rule drift apart within a month. Calibration was also the number one open task in `pipeline/AGENTS/STATE.md`.
+- Files: crawler/collector/{models,views,urls}.py, crawler/collector/migrations/0008_selection_profile.py, crawler/collector/services/{selection,calibration,pipeline_mailbox}.py, crawler/templates/collector/{selection,news_detail,base}.html, crawler/tests/test_selection.py, crawler/AGENTS/SPEC.md, ../docs/contracts/database-contract.md
+- Next: prod deploy (`update-ubuntu.sh` for the migration, `install.sh` for the backfill unit); then step 3, the pipeline DB read-only connection.
+
 ## 2026-07-25 · The stop cock reaches the operator: a button on the dashboard
 - What: New `collector/services/pipeline_mailbox.py` writes the shared request files (`pause`, `run-<service>`) atomically into `POSINUS_PIPELINE_REQUESTS_DIR` and reads the current pause; the dashboard shows the state and carries «Остановить публикации» with a duration (hour / end of day / until lifted) and a reason, plus «Возобновить». Both are logged as operator events. A missing or unwritable mailbox is reported in words instead of a 500. 8 tests added, 62 pass. Pipeline side in the same commit.
 - Why: step 1 of `../docs/ui-concept.md` — the operator needs one button that holds every publication when the world outside the news changes, and it has to work from a phone. A file is the whole protocol: the web must never write the pipeline's database.

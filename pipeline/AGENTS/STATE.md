@@ -50,6 +50,13 @@ a publish-ready retelling, and posts them to the platforms.
 - LIVE on prod since 2026-07-25 19:57 UTC (commit `3f50691`): the pipeline DB reports
   `journal_mode = wal`. The mode flipped on the first open after the update, verified with a
   `publisher.py --dry-run` that sent nothing.
+- Since 2026-07-25 the selection rule is not in the code: `load_profile` reads
+  `exchange_active_selection_profile` from the crawler DB, `selector_version` carries
+  `default.r1`, and `--builtin-profile` forces the hard-coded fallback (which also kicks in when
+  the view is missing or empty). `--backfill --rescore-all` re-verdicts the whole scored corpus
+  from stored scores, writing only changes; it runs from `posinus-evaluator-backfill.service`,
+  which has no timer and only fires on a `run-evaluator-backfill` request file. 99 tests pass.
+  Ships with the next crawler update; the new unit needs `install.sh`.
 - Since 2026-07-25 the publisher has two safety catches, both from step 1 of
   `../docs/ui-concept.md`. The stop cock: a `pause` file in `REQUESTS_DIR`
   (`/var/lib/posinus/pipeline/requests`) holds every send, expires by itself and fails towards
@@ -87,7 +94,9 @@ a publish-ready retelling, and posts them to the platforms.
 
 1. Prompt calibration and soft profiles («Россия» / «Международное»). The `default` profile
    selected 0 of 6 in the first clean v4-pro batch, so calibration should account for how the
-   new model scores, not only for the thresholds.
+   new model scores, not only for the thresholds. The tooling for this now exists: the «Отбор»
+   screen shows what a draft would pass on the current corpus, so calibration is an operator
+   session rather than a code change.
 2. Register `deepseek-v4-pro` properly in model-router-mcp: its `bootstrap.py` still seeds
    only the retired `deepseek-chat` and `deepseek-reasoner`, so the live entry is a manual
    registry row whose prices were copied from deepseek-chat. Costs in the logs are estimates

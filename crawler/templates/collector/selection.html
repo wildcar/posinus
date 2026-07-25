@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Отбор{% endblock %}
+{% block head %}
+<style>
+.bounds{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}
+.bound{display:flex;align-items:center;gap:.6rem;padding:.2rem 0}
+.bound span{flex:1;font-size:.92rem}
+.bound input{width:4.5rem;text-align:center;font-variant-numeric:tabular-nums}
+.num{font-variant-numeric:tabular-nums}
+.check p{margin:.35rem 0}
+.lists{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:1rem}
+.lists ol{margin:.4rem 0;padding-left:1.3rem}
+.lists li{margin:.2rem 0;font-size:.92rem}
+.actions{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-top:.8rem}
+</style>
+{% endblock %}
+{% block content %}
+<h1>Отбор</h1>
+{% if not profile %}
+<div class="card"><p>Действующего профиля нет. Он появляется миграцией краулера; проверьте, что база обновлена.</p></div>
+{% else %}
+
+<form method="get" action="{% url 'selection' %}">
+<div class="card">
+  <h2>Профиль «{{ profile.name }}», редакция {{ profile.revision }}</h2>
+  {% if profile.note %}<p class="muted">{{ profile.note }}</p>{% endif %}
+  <div class="bounds">
+    <section>
+      <h3>Обязательные</h3>
+      {% for bound in gates_min %}
+      <label class="bound"><span>{{ bound.title }}</span> от
+        <input type="number" name="{{ bound.kind }}__{{ bound.key }}" min="0" max="10" value="{{ bound.value }}"></label>
+      {% endfor %}
+      {% for bound in gates_max %}
+      <label class="bound"><span>{{ bound.title }}</span> не больше
+        <input type="number" name="{{ bound.kind }}__{{ bound.key }}" min="0" max="10" value="{{ bound.value }}"></label>
+      {% endfor %}
+    </section>
+    <section>
+      <h3>Хотя бы одна сильная сторона</h3>
+      {% for bound in highlights %}
+      <label class="bound"><span>{{ bound.title }}</span> от
+        <input type="number" name="{{ bound.kind }}__{{ bound.key }}" min="0" max="10" value="{{ bound.value }}"></label>
+      {% endfor %}
+    </section>
+  </div>
+  <p class="muted">Поставьте другие числа и нажмите «Посчитать»: сначала увидите, что изменится, и только потом решите применять.</p>
+  <div class="actions">
+    <button>Посчитать</button>
+    <a class="button" href="{% url 'selection' %}">Вернуть действующие</a>
+  </div>
+</div>
+</form>
+
+{% if unused_axes %}
+<div class="card">
+  <h3>Оцениваются и нигде не используются</h3>
+  <p class="muted">{{ unused_axes|join:", " }}. Модель ставит по ним баллы, но на решение они не влияют.</p>
+</div>
+{% endif %}
+
+<div class="card check">
+  <h2>Проверка на всех оценённых новостях ({{ current.total }})</h2>
+  <p>Действующий профиль пропускает <strong class="num">{{ current.passed_count }}</strong>, это {{ current.passed_share|floatformat:1 }}%.</p>
+  {% if draft_outcome %}
+  <p>Черновик пропустил бы <strong class="num">{{ draft_outcome.passed_count }}</strong>, это {{ draft_outcome.passed_share|floatformat:1 }}%:
+     добавит {{ added_count }}, уберёт {{ lost_count }}.</p>
+  {% endif %}
+  {% if blockers %}
+  <p class="muted">Сильнее всего режет:
+    {% for row in blockers %}{{ row.title }} — {{ row.count }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+    Каждая новость посчитана один раз, по первому условию, на котором споткнулась.</p>
+  {% endif %}
+  {% if draft_outcome %}
+  <form method="post" action="{% url 'selection_apply' %}" class="actions">{% csrf_token %}
+    {% for name, value in draft.items %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+    <button>Применить черновик</button>
+    <span class="muted">Уже оценённые новости не пересчитываются: правило подействует на те, что придут дальше.</span>
+  </form>
+  {% endif %}
+  <form method="post" action="{% url 'selection_rescore' %}" class="actions">{% csrf_token %}
+    <button>Пересчитать уже оценённые</button>
+    <span class="muted">Решения пересчитываются по сохранённым баллам, модель не вызывается, поправки добавляются новыми записями.</span>
+  </form>
+</div>
+
+<div class="card lists">
+  {% if draft_outcome %}
+  <section>
+    <h3>Добавит черновик: {{ added_count }}</h3>
+    <ol>{% for item in added_items %}<li><a href="{% url 'news_detail' item.pk %}">{{ item.title }}</a></li>{% empty %}<li class="muted">ни одной</li>{% endfor %}</ol>
+  </section>
+  <section>
+    <h3>Уберёт черновик: {{ lost_count }}</h3>
+    <ol>{% for item in lost_items %}<li><a href="{% url 'news_detail' item.pk %}">{{ item.title }}</a></li>{% empty %}<li class="muted">ни одной</li>{% endfor %}</ol>
+  </section>
+  {% endif %}
+  <section>
+    <h3>Почти прошли: {{ near_miss_count }}</h3>
+    <p class="muted">Не хватило одного балла по одной оси. Разбор ошибок отбора живёт здесь.</p>
+    <ol>{% for row in near_misses %}<li><a href="{% url 'news_detail' row.item.pk %}">{{ row.item.title }}</a> <span class="muted">— {{ row.reason }}</span></li>{% empty %}<li class="muted">таких нет</li>{% endfor %}</ol>
+  </section>
+</div>
+{% endif %}
+{% endblock %}

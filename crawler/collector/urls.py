@@ -14,6 +14,9 @@ urlpatterns = [
     path("news/<int:pk>/", views.news_detail, name="news_detail"),
     path("news/<int:pk>/translate/", views.news_translate, name="news_translate"),
     path("news/<int:pk>/select/", views.news_select, name="news_select"),
+    path("selection/", views.selection, name="selection"),
+    path("selection/apply/", views.selection_apply, name="selection_apply"),
+    path("selection/rescore/", views.selection_rescore, name="selection_rescore"),
     path("runs/", views.run_list, name="run_list"),
     path("events/", views.event_list, name="event_list"),
 ]

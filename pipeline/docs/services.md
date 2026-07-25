@@ -133,11 +133,16 @@ reason=разбираемся с площадкой
 EOF
 ```
 
-**`run-evaluator` / `run-preparer` / `run-publisher` — run now.** A `posinus-<name>-run.path`
-unit watches for the file and starts the matching service within a second; the service
-removes the file in `ExecStartPre` before doing any work, so the path unit does not retrigger
-and a second click during a run is ignored by systemd. This is how the operator UI runs a
-service without sudo and without a second job queue.
+**`run-evaluator` / `run-preparer` / `run-publisher` / `run-evaluator-backfill` — run now.** A
+`posinus-<name>-run.path` unit watches for the file and starts the matching service within a
+second; the service removes the file in `ExecStartPre` before doing any work, so the path unit
+does not retrigger and a second click during a run is ignored by systemd. This is how the
+operator UI runs a service without sudo and without a second job queue.
+
+`posinus-evaluator-backfill.service` has no timer: it exists only for that last request file.
+It runs `evaluator.py --backfill --rescore-all`, which re-applies the selection thresholds in
+force to every news item already scored and writes a correcting event only where the verdict
+changed. No model calls, so a full recomputation of the corpus costs seconds and no money.
 
 ### VK: the token type matters
 
