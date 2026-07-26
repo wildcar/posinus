@@ -34,8 +34,11 @@ a publish-ready retelling, and posts them to the platforms.
 - Since 2026-07-26 the router sees two callers: scoring sends `external_user_id` =
   `SELECTOR_NAME` (overridable with `ROUTER_USER_ID`), retelling sends `news-preparer`
   (`PREPARER_ROUTER_USER_ID`). Before that both were `news-evaluator`, so the router billed
-  the retellings to the evaluator. Ships with the next crawler update; no `install.sh` needed,
-  but the env template gained the two keys.
+  the retellings to the evaluator. LIVE on prod since 2026-07-26 19:22 UTC (commit `0fe0f42`,
+  `update-ubuntu.sh`, no migrations, backup `pre-update-20260726T192225Z.sqlite3`) and verified
+  there: `preparer.py --dry-run --news-id 3683` retold through the router as `news-preparer`
+  and wrote nothing. `/etc/posinus/pipeline.env` has neither key, so both run on the code
+  defaults - the file only needs an edit to override them.
 - Open, not decided: only the first illustration is ever published, on all three platforms
   (`lead_image_path`, `ORDER BY position LIMIT 1`), while the preparer downloads up to
   `MAX_IMAGES` = 4. On prod 94 of 128 prepared items hold 2–4 pictures that never go out.

@@ -8,6 +8,7 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 - What: `evaluator.Config` gained `router_user` (env `ROUTER_USER_ID`, empty falls back to `selector_name`), `build_chat_arguments` sends it as `external_user_id`, and `preparer.main` sets it to `news-preparer` (env `PREPARER_ROUTER_USER_ID`). 5 tests added, 164 pass.
 - Why: both scoring and retelling arrived at model-router-mcp as `news-evaluator`, so the router's per-user usage could not tell them apart and every retelling token was billed to the evaluator. `selector_name` itself cannot change - it is the frozen contract string on ~6200 review events - so the router identity had to become its own field.
 - Files: pipeline/{evaluator,preparer}.py, pipeline/tests/{test_evaluator,test_preparer}.py, pipeline/deploy/pipeline.env.example, pipeline/AGENTS/SPEC.md, pipeline/docs/services.md
+- Prod: LIVE at 19:22 UTC via `update-ubuntu.sh` (no migrations), verified by a preparer dry run on news 3683 that retold through the router as `news-preparer`.
 - Next: the publisher posts only the first illustration (`ORDER BY position LIMIT 1`) while the preparer downloads up to four — 94 of 128 prepared items hold 2–4 pictures that never go out. Decide per platform (Telegram media group, VK multi-attachment, site body images) or drop the extra downloads.
 
 ## 2026-07-26 · Ten days in the queue, and a preparer that would not let go
