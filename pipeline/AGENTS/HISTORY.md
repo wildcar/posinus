@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-26 · The preparer stops spending the evaluator's name at the router
+- What: `evaluator.Config` gained `router_user` (env `ROUTER_USER_ID`, empty falls back to `selector_name`), `build_chat_arguments` sends it as `external_user_id`, and `preparer.main` sets it to `news-preparer` (env `PREPARER_ROUTER_USER_ID`). 5 tests added, 164 pass.
+- Why: both scoring and retelling arrived at model-router-mcp as `news-evaluator`, so the router's per-user usage could not tell them apart and every retelling token was billed to the evaluator. `selector_name` itself cannot change - it is the frozen contract string on ~6200 review events - so the router identity had to become its own field.
+- Files: pipeline/{evaluator,preparer}.py, pipeline/tests/{test_evaluator,test_preparer}.py, pipeline/deploy/pipeline.env.example, pipeline/AGENTS/SPEC.md, pipeline/docs/services.md
+- Next: the publisher posts only the first illustration (`ORDER BY position LIMIT 1`) while the preparer downloads up to four — 94 of 128 prepared items hold 2–4 pictures that never go out. Decide per platform (Telegram media group, VK multi-attachment, site body images) or drop the extra downloads.
+
 ## 2026-07-26 · Ten days in the queue, and a preparer that would not let go
 - What: The publisher takes a prepared item off the queue after `PUB_EXPIRE_AFTER_DAYS` (10), except one already public somewhere or held by the operator; retention then deletes its pictures, and only ever touches rows that are already out of the queue. Separately: `prepared_ids` now excludes every finished status, and `mark_published` keeps the first publication date. 12 tests added, 159 pass.
 - Why: checking the boundary the owner asked about («у картинок срок выйдет, а новость ещё выйдет») turned up a live bug — only `status = 'prepared'` counted as done, so published items came back into the queue and were retold at the price of a model call: 215 preparations over 129 news items in a day, and ten published posts with their date rewritten to today. The platforms were saved only by the `publication` rows already saying `ok`.

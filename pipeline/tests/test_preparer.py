@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -171,6 +173,34 @@ class OwnDbTests(unittest.TestCase):
         self.assertEqual((row["status"], row["error"]), ("error", "boom"))
         save_prepared(self.con, 7, "t", "md", "m", [])
         self.assertEqual(prepared_ids(self.con), {7})
+
+
+class RouterIdentityTests(unittest.TestCase):
+    """The preparer must not spend the evaluator's identity at the router."""
+
+    def _router_cfg_of_a_dry_run(self, env: dict[str, str]) -> evaluator.Config:
+        captured: list[evaluator.Config] = []
+
+        def fake_run(cfg, router_cfg, **kwargs):
+            captured.append(router_cfg)
+            return 0
+
+        original_run = preparer.run
+        preparer.run = fake_run
+        try:
+            with mock.patch.dict(os.environ, {"ROUTER_AUTH_TOKEN": "t", **env}):
+                self.assertEqual(preparer.main(["--dry-run"]), 0)
+        finally:
+            preparer.run = original_run
+        return captured[0]
+
+    def test_default_router_user_is_the_preparer(self):
+        cfg = self._router_cfg_of_a_dry_run({})
+        self.assertEqual(evaluator.build_chat_arguments(cfg, [])["external_user_id"], "news-preparer")
+
+    def test_router_user_is_configurable(self):
+        cfg = self._router_cfg_of_a_dry_run({"PREPARER_ROUTER_USER_ID": "retelling-bot"})
+        self.assertEqual(evaluator.build_chat_arguments(cfg, [])["external_user_id"], "retelling-bot")
 
 
 if __name__ == "__main__":

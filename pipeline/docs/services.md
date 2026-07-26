@@ -67,6 +67,8 @@ Config (in `/etc/posinus/pipeline.env`):
 - `EVALUATOR_DB_PATH`, `MEDIA_DIR`, `NEWS_DB_PATH`, `PREPARER_USER_AGENT`.
 - Model routing: `ROUTER_AUTH_TOKEN`, `ROUTER_MCP_URL`, `EVALUATOR_PROVIDER`,
   `EVALUATOR_MODEL` (empty → router picks), `EVALUATOR_TIER`.
+- `PREPARER_ROUTER_USER_ID` (default `news-preparer`) — `external_user_id` of the retelling
+  calls, so the router does not bill them to `news-evaluator`.
 
 ## publisher.py
 

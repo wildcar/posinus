@@ -449,6 +449,20 @@ class ChatArgumentsTests(unittest.TestCase):
             self.assertNotIn(hint, args)
         self.assertEqual(args["messages"], self.MESSAGES)
 
+    def test_router_user_defaults_to_selector_name(self):
+        cfg = Config(selector_name="news-evaluator")
+        self.assertEqual(build_chat_arguments(cfg, self.MESSAGES)["external_user_id"], "news-evaluator")
+
+    def test_router_user_overrides_selector_name(self):
+        """The router identity is per calling process; selector_name is a DB contract."""
+        cfg = Config(selector_name="news-evaluator", router_user="news-preparer")
+        self.assertEqual(build_chat_arguments(cfg, self.MESSAGES)["external_user_id"], "news-preparer")
+        self.assertEqual(cfg.selector_name, "news-evaluator")
+
+    def test_router_user_from_env(self):
+        cfg = Config.from_env({"ROUTER_USER_ID": "someone-else"})
+        self.assertEqual(cfg.router_user, "someone-else")
+
 
 class LoadProfileTests(unittest.TestCase):
     """One rule for two readers: the thresholds come from the crawler DB."""

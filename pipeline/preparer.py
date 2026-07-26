@@ -46,6 +46,7 @@ import runlog  # reuse the MCP router client, Config, JSON extraction
 log = logging.getLogger("posinus-preparer")
 
 PREPARER_VERSION = "0.1.0"
+PREPARER_ROUTER_USER = "news-preparer"  # external_user_id at the model router
 MAX_SOURCE_CHARS = 6000
 MAX_RETELL_ATTEMPTS = 2
 MAX_IMAGES = 4
@@ -583,6 +584,10 @@ def main(argv: list[str] | None = None) -> int:
         "temperature": float(os.environ.get("PREPARER_TEMPERATURE", "0.7")),
         "max_tokens": int(os.environ.get("PREPARER_MAX_TOKENS", "4000")),
     }
+    # Retelling is not scoring: the router must see a second caller, or the whole
+    # pipeline's spend lands on one id and `news-evaluator` reads as the source of
+    # tokens it never spent. selector_name stays what it is - it is a DB contract.
+    router_cfg.router_user = os.environ.get("PREPARER_ROUTER_USER_ID", PREPARER_ROUTER_USER)
     if not router_cfg.router_token:
         log.error("ROUTER_AUTH_TOKEN is not set")
         return 2

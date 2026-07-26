@@ -224,6 +224,12 @@ class Config:
     model_id: str = "deepseek-v4-pro"
     tier: str = ""
     selector_name: str = "news-evaluator"
+    # Who the router bills and rate-limits. Kept separate from selector_name on
+    # purpose: selector_name is the frozen contract string in exchange_review_events
+    # (~6200 rows), while every process calling the router wants its own id so the
+    # router's usage reports tell scoring and retelling apart. Empty falls back to
+    # selector_name, which is what the evaluator has always sent.
+    router_user: str = ""
     # max_tokens has to cover the model's reasoning tokens, not just the JSON answer.
     # deepseek-v4-pro spends ~950 completion tokens on one full 20-axis evaluation, and
     # when it hits the cap before writing content the provider returns an empty body —
@@ -241,6 +247,7 @@ class Config:
         cfg.model_id = env.get("EVALUATOR_MODEL", cfg.model_id)
         cfg.tier = env.get("EVALUATOR_TIER", cfg.tier)
         cfg.selector_name = env.get("SELECTOR_NAME", cfg.selector_name)
+        cfg.router_user = env.get("ROUTER_USER_ID", cfg.router_user)
         if value := env.get("EVALUATOR_MAX_TOKENS"):
             cfg.params["max_tokens"] = int(value)
         if value := env.get("EVALUATOR_TEMPERATURE"):
@@ -251,7 +258,7 @@ class Config:
 def build_chat_arguments(cfg: Config, messages: list[dict[str, str]]) -> dict[str, Any]:
     """Router hints are optional: empty ones are omitted, the router decides."""
     arguments: dict[str, Any] = {
-        "external_user_id": cfg.selector_name,
+        "external_user_id": cfg.router_user or cfg.selector_name,
         "messages": messages,
         "params": cfg.params,
     }
