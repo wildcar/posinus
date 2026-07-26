@@ -11,7 +11,7 @@ So a stage is two things:
 - **fate** — what the verdict says: not evaluated, rejected, selected by the
   machine, or selected by a human over a refusal;
 - **progress** — how far it got: not prepared, queued, preparation failed,
-  prepared, waiting to go out, partly published, published.
+  prepared, waiting to go out, partly published, published, taken off the queue.
 
 The list shows progress in one word and marks the row when machine and human
 disagree. Two extra queries per page of 50, not one per row: the first over the
@@ -41,6 +41,7 @@ PROGRESS_TITLES = {
     "prepared": "подготовлена",
     "partial": "вышла частично",
     "published": "опубликована",
+    "expired": "снята с очереди",
 }
 
 
@@ -119,6 +120,10 @@ def _progress(news_ids: list[int]) -> dict[int, tuple[str, tuple[str, ...]]]:
         published = tuple(platform for platform, state in posts.get(news_id, []) if state == "ok")
         if status == "published":
             progress = "published"
+        elif status == "expired":
+            # Waited past its date and was taken off the queue. Never silently:
+            # this is where 112 items would otherwise just stop appearing.
+            progress = "expired"
         elif status == "error":
             progress = "failed"
         elif published:

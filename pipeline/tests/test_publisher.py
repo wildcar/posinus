@@ -594,5 +594,108 @@ class QueueOrderTests(unittest.TestCase):
         self.assertEqual(publisher.load_plan("/nonexistent/posinus.sqlite3"), {})
 
 
+class ExpiryTests(unittest.TestCase):
+    """Ten days in the queue and the news is not news any more.
+
+    The boundary matters more than the rule: an item must leave the queue before
+    anything deletes its pictures, and it must not leave the queue while it is
+    still half published or deliberately held.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = str(Path(self.tmp.name) / "own.sqlite3")
+        self.con = open_own_db(self.path)
+        self.now = datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc)
+
+    def tearDown(self):
+        self.con.close()
+        self.tmp.cleanup()
+
+    def _prepared(self, news_id, age_days):
+        moment = (self.now - timedelta(days=age_days)).isoformat()
+        self.con.execute(
+            "INSERT INTO prepared_item (news_id, status, retold_title, prepared_at) "
+            "VALUES (?, 'prepared', ?, ?)",
+            (news_id, f"Новость {news_id}", moment),
+        )
+        self.con.commit()
+
+    def _queue(self):
+        return self.con.execute(publisher.PREPARED_SQL).fetchall()
+
+    def _status(self, news_id):
+        return self.con.execute(
+            "SELECT status, expired_at FROM prepared_item WHERE news_id = ?", (news_id,)
+        ).fetchone()
+
+    def test_an_item_past_the_period_leaves_the_queue(self):
+        self._prepared(1, age_days=11)
+
+        expired = publisher.expire_stale(self.con, self._queue(), {}, self.now, 10)
+
+        self.assertEqual(expired, [1])
+        row = self._status(1)
+        self.assertEqual(row["status"], "expired")
+        self.assertTrue(row["expired_at"])
+
+    def test_an_item_inside_the_period_stays(self):
+        """9.5 days is still publishable, and its pictures must still be there."""
+        self._prepared(1, age_days=9)
+        self._prepared(2, age_days=9.5)
+
+        self.assertEqual(publisher.expire_stale(self.con, self._queue(), {}, self.now, 10), [])
+        self.assertEqual(self._status(1)["status"], "prepared")
+        self.assertEqual(self._status(2)["status"], "prepared")
+
+    def test_exactly_ten_days_counts_as_waited_too_long(self):
+        self._prepared(1, age_days=10)
+
+        self.assertEqual(publisher.expire_stale(self.con, self._queue(), {}, self.now, 10), [1])
+
+    def test_a_half_published_item_is_finished_not_dropped(self):
+        """Half a post in public is worse than a late one; the rest are retries."""
+        self._prepared(1, age_days=30)
+        publisher.record_publication(self.con, 1, "telegram", "ok", "https://t.me/x", None)
+
+        self.assertEqual(publisher.expire_stale(self.con, self._queue(), {}, self.now, 10), [])
+        self.assertEqual(self._status(1)["status"], "prepared")
+
+    def test_an_item_the_operator_holds_survives_its_date(self):
+        self._prepared(1, age_days=30)
+        plan = {1: publisher.PlanRow(hold_until="2026-08-09T12:00:00+00:00")}
+
+        self.assertEqual(publisher.expire_stale(self.con, self._queue(), plan, self.now, 10), [])
+
+    def test_it_expires_once_the_hold_has_passed(self):
+        self._prepared(1, age_days=30)
+        plan = {1: publisher.PlanRow(hold_until="2026-08-01T12:00:00+00:00")}
+
+        self.assertEqual(publisher.expire_stale(self.con, self._queue(), plan, self.now, 10), [1])
+
+    def test_dry_run_changes_nothing(self):
+        self._prepared(1, age_days=30)
+
+        publisher.expire_stale(self.con, self._queue(), {}, self.now, 10, dry_run=True)
+
+        self.assertEqual(self._status(1)["status"], "prepared")
+
+    def test_the_period_can_be_switched_off(self):
+        self._prepared(1, age_days=300)
+
+        self.assertEqual(publisher.expire_stale(self.con, self._queue(), {}, self.now, 0), [])
+
+    def test_publishing_twice_keeps_the_first_date(self):
+        """A retry pass must not move an old post to today."""
+        self._prepared(1, age_days=30)
+        publisher.mark_published(self.con, 1)
+        first = self.con.execute("SELECT published_at FROM prepared_item WHERE news_id = 1").fetchone()[0]
+
+        publisher.mark_published(self.con, 1)
+
+        again = self.con.execute("SELECT published_at FROM prepared_item WHERE news_id = 1").fetchone()[0]
+        self.assertEqual(first, again)
+
+
 if __name__ == "__main__":
     unittest.main()

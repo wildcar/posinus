@@ -146,9 +146,27 @@ class OwnDbTests(unittest.TestCase):
                                                     {"path": "/c", "caption": "", "source_url": ""}])
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM illustration WHERE news_id=5").fetchone()[0], 2)
 
+    def test_a_published_item_is_never_prepared_again(self):
+        """It was, for three days: 215 preparations over 129 news items in a day.
+
+        A published item is not «prepared», so the old check let it back into the
+        queue; it was retold at the price of a model call, went back to
+        `prepared`, and the publisher rewrote its publication date to today.
+        """
+        save_prepared(self.con, 5, "t", "md", "m", [])
+        self.con.execute("UPDATE prepared_item SET status = 'published' WHERE news_id = 5")
+
+        self.assertEqual(prepared_ids(self.con), {5})
+
+    def test_an_item_taken_off_the_queue_is_not_resurrected(self):
+        save_prepared(self.con, 5, "t", "md", "m", [])
+        self.con.execute("UPDATE prepared_item SET status = 'expired' WHERE news_id = 5")
+
+        self.assertEqual(prepared_ids(self.con), {5})
+
     def test_error_then_recovery(self):
         record_error(self.con, 7, "boom")
-        self.assertEqual(prepared_ids(self.con), set())  # errors are not 'prepared'
+        self.assertEqual(prepared_ids(self.con), set())  # errors are the one retryable status
         row = self.con.execute("SELECT status, error FROM prepared_item WHERE news_id=7").fetchone()
         self.assertEqual((row["status"], row["error"]), ("error", "boom"))
         save_prepared(self.con, 7, "t", "md", "m", [])

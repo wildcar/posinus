@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-26 · Ten days in the queue, and a preparer that would not let go
+- What: The publisher takes a prepared item off the queue after `PUB_EXPIRE_AFTER_DAYS` (10), except one already public somewhere or held by the operator; retention then deletes its pictures, and only ever touches rows that are already out of the queue. Separately: `prepared_ids` now excludes every finished status, and `mark_published` keeps the first publication date. 12 tests added, 159 pass.
+- Why: checking the boundary the owner asked about («у картинок срок выйдет, а новость ещё выйдет») turned up a live bug — only `status = 'prepared'` counted as done, so published items came back into the queue and were retold at the price of a model call: 215 preparations over 129 news items in a day, and ten published posts with their date rewritten to today. The platforms were saved only by the `publication` rows already saying `ok`.
+- Files: pipeline/{publisher,preparer,retention}.py, pipeline/deploy/pipeline.env.example, pipeline/tests/{test_publisher,test_preparer,test_retention}.py, pipeline/AGENTS/SPEC.md, docs/deployment.md
+- Next: watch the first expiries around 2026-08-02 — the whole prepared backlog was made on 23–24 July, so a large batch reaches ten days at once.
+
 ## 2026-07-26 · The rubric, and the first thing that deletes files
 - What: The evaluator reads the closed rubric list from `exchange_topic`, asks the model for one, and writes it to `exchange_news_topic` in the same transaction as the verdict; an unusable answer lands on the placeholder and shows up in the run counter «без темы» rather than throwing a paid evaluation away. New `retention.py` with a daily timer deletes pictures of unpublished candidates after 10 days and of published items after 30, keeping every row. 10 tests added, 147 pass.
 - Why: nothing had ever deleted a pipeline file — the media directory grew about 40 MB a day with no end. Rows are a different matter: a thousand news items cost a quarter of a megabyte and are the whole history «Состав ленты» is built on, so retention never touches them.

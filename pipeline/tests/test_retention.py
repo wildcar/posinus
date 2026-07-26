@@ -33,9 +33,11 @@ class RetentionTests(unittest.TestCase):
         moment = (NOW - timedelta(days=age_days)).isoformat()
         con = preparer.open_own_db(self.own_path)
         con.execute(
-            "INSERT INTO prepared_item (news_id, status, retold_title, prepared_at, published_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (news_id, status, f"Новость {news_id}", moment, moment if status == "published" else None),
+            "INSERT INTO prepared_item (news_id, status, retold_title, prepared_at, published_at, expired_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (news_id, status, f"Новость {news_id}", moment,
+             moment if status == "published" else None,
+             moment if status == "expired" else None),
         )
         directory = self.media / str(news_id)
         directory.mkdir(exist_ok=True)
@@ -62,8 +64,8 @@ class RetentionTests(unittest.TestCase):
         retention.run(self.cfg, counters=counters, now=NOW, **kwargs)
         return counters
 
-    def test_a_candidate_older_than_ten_days_loses_its_pictures(self):
-        self._item(1, "prepared", age_days=11)
+    def test_a_candidate_taken_off_the_queue_loses_its_pictures(self):
+        self._item(1, "expired", age_days=11)
 
         counters = self._run()
 
@@ -82,12 +84,20 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual(row["status"], "published")
         self.assertTrue(row["images_purged_at"])
 
-    def test_a_fresh_candidate_is_left_alone(self):
+    def test_an_item_still_in_the_queue_is_never_touched(self):
+        """The safety rail: whatever its age, a publishable item keeps its pictures.
+
+        This is the boundary the whole design turns on — if retention judged age
+        instead of status, an item could lose its pictures at 03:30 and be
+        published at 04:00 without them.
+        """
         self._item(1, "prepared", age_days=9)
+        self._item(2, "prepared", age_days=40)
 
         counters = self._run()
 
         self.assertTrue((self.media / "1" / "0.jpg").exists())
+        self.assertTrue((self.media / "2" / "0.jpg").exists())
         self.assertEqual(counters["checked"], 0)
 
     def test_a_published_item_keeps_its_pictures_for_thirty_days(self):
@@ -101,7 +111,7 @@ class RetentionTests(unittest.TestCase):
         self.assertFalse((self.media / "2").exists())
 
     def test_dry_run_deletes_nothing(self):
-        self._item(1, "prepared", age_days=30)
+        self._item(1, "expired", age_days=30)
 
         self._run(dry_run=True)
 
@@ -109,7 +119,7 @@ class RetentionTests(unittest.TestCase):
         self.assertIsNone(self._rows("SELECT images_purged_at FROM prepared_item")[0]["images_purged_at"])
 
     def test_a_purged_item_is_not_visited_twice(self):
-        self._item(1, "prepared", age_days=30)
+        self._item(1, "expired", age_days=30)
         self._run()
 
         counters = self._run()
@@ -137,7 +147,7 @@ class RetentionTests(unittest.TestCase):
 
     def test_missing_files_still_close_the_item(self):
         """A crash between the files and the rows must not loop forever."""
-        self._item(1, "prepared", age_days=30)
+        self._item(1, "expired", age_days=30)
         for path in (self.media / "1").iterdir():
             path.unlink()
         (self.media / "1").rmdir()
@@ -146,11 +156,16 @@ class RetentionTests(unittest.TestCase):
 
         self.assertTrue(self._rows("SELECT images_purged_at FROM prepared_item")[0]["images_purged_at"])
 
-    def test_the_periods_can_be_set_from_the_environment(self):
-        cfg = retention.RetentionConfig.from_env(
-            {"KEEP_UNPUBLISHED_DAYS": "3", "KEEP_PUBLISHED_DAYS": "7"}
-        )
-        self.assertEqual((cfg.keep_unpublished_days, cfg.keep_published_days), (3, 7))
+    def test_a_failed_preparation_keeps_its_files(self):
+        """The preparer retries an error item and re-downloads on success."""
+        self._item(1, "error", age_days=40)
+
+        self.assertEqual(self._run()["checked"], 0)
+        self.assertTrue((self.media / "1" / "0.jpg").exists())
+
+    def test_the_period_can_be_set_from_the_environment(self):
+        cfg = retention.RetentionConfig.from_env({"KEEP_PUBLISHED_DAYS": "7"})
+        self.assertEqual(cfg.keep_published_days, 7)
 
 
 if __name__ == "__main__":

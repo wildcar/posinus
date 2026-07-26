@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS prepared_item (
     error TEXT,
     edited_at TEXT,       -- set when the operator fixed the retelling by hand
     edited_by TEXT,
-    images_purged_at TEXT -- set by retention.py when the pictures were deleted
+    images_purged_at TEXT, -- set by retention.py when the pictures were deleted
+    expired_at TEXT       -- set by publisher.py when the item waited too long
 );
 CREATE TABLE IF NOT EXISTS illustration (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -393,6 +394,10 @@ def migrate_own_db(con: sqlite3.Connection) -> None:
         con.execute("ALTER TABLE prepared_item ADD COLUMN images_purged_at TEXT")
         con.commit()
     columns = {row["name"] for row in con.execute("PRAGMA table_info(prepared_item)")}
+    if columns and "expired_at" not in columns:
+        con.execute("ALTER TABLE prepared_item ADD COLUMN expired_at TEXT")
+        con.commit()
+    columns = {row["name"] for row in con.execute("PRAGMA table_info(prepared_item)")}
     if columns and "edited_at" not in columns:
         con.execute("ALTER TABLE prepared_item ADD COLUMN edited_at TEXT")
         con.execute("ALTER TABLE prepared_item ADD COLUMN edited_by TEXT")
@@ -433,15 +438,28 @@ def open_own_db(path: str) -> sqlite3.Connection:
 def prepared_ids(con: sqlite3.Connection) -> set[int]:
     """News the preparer must not touch again.
 
-    Anything already prepared, plus anything a human has edited by hand. The
-    second half is the important one: a retelling the operator fixed would be
-    silently regenerated after any later failure, and the fix would vanish
-    without anyone noticing until the wrong text was public.
+    Everything the pipeline has already finished with — prepared, published,
+    taken off the queue — plus anything a human has edited by hand.
+
+    Only `status = 'prepared'` was checked here from the first version, and that
+    was wrong in a way nothing noticed for three days: a published item is not
+    «prepared», so it came back into the queue, was retold again at the price of
+    a model call, and went back to `prepared`. On 2026-07-26 that was 215
+    preparations in a day over 129 news items, and ten published posts had their
+    publication date rewritten to today. The platforms were saved only by the
+    `publication` rows: every one of them already said `ok`, so nothing was
+    posted twice.
+
+    The edited half matters for its own reason: a retelling the operator fixed
+    would be silently regenerated after any later failure, and the fix would
+    vanish without anyone noticing until the wrong text was public.
+
+    `error` is the one status left retryable — that is what it is for.
     """
     return {
         row[0]
         for row in con.execute(
-            "SELECT news_id FROM prepared_item WHERE status = 'prepared' OR edited_at IS NOT NULL"
+            "SELECT news_id FROM prepared_item WHERE status <> 'error' OR edited_at IS NOT NULL"
         )
     }
 

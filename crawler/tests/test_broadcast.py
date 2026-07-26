@@ -13,7 +13,8 @@ from collector.services import broadcast
 SCHEMA = """
 CREATE TABLE prepared_item (
     news_id INTEGER PRIMARY KEY, status TEXT NOT NULL, retold_title TEXT,
-    retold_body_md TEXT, model_id TEXT, prepared_at TEXT, published_at TEXT, error TEXT
+    retold_body_md TEXT, model_id TEXT, prepared_at TEXT, published_at TEXT, error TEXT,
+    edited_at TEXT, edited_by TEXT, images_purged_at TEXT, expired_at TEXT
 );
 CREATE TABLE illustration (
     id INTEGER PRIMARY KEY AUTOINCREMENT, news_id INTEGER NOT NULL, position INTEGER NOT NULL,
@@ -442,3 +443,34 @@ def test_a_published_item_offers_no_edit_form(operator, source, make_news, pipel
 
     assert "Поправить пересказ" not in html
     assert "сделать ведущей" not in html
+
+
+@pytest.mark.django_db
+def test_an_item_taken_off_the_queue_is_shown_not_vanished(operator, source, make_news, pipeline):
+    """A queue longer than ten days loses its tail; the tail has to be somewhere."""
+    item = make_news("Ждала слишком долго", source, day=10, seed="expired-1")
+    pipeline(
+        "INSERT INTO prepared_item (news_id, status, retold_title, prepared_at, expired_at, images_purged_at) "
+        "VALUES (?, 'expired', 'Ждала слишком долго', ?, ?, ?)",
+        (item.pk, "2026-07-01T10:00:00+00:00", "2026-07-11T10:00:00+00:00", "2026-07-12T03:30:00+00:00"),
+    )
+
+    html = operator.get(reverse("broadcast")).content.decode()
+
+    assert "Снятые с очереди" in html
+    assert "Ждала слишком долго" in html
+    assert "удалены" in html
+
+
+@pytest.mark.django_db
+def test_the_flow_calls_it_snyata_s_ocheredi(operator, source, make_news, make_review, pipeline):
+    item = make_news("Снятая", source, day=10, seed="expired-2")
+    make_review(item, {"positivity": 9}, key="e2")
+    pipeline(
+        "INSERT INTO prepared_item (news_id, status, retold_title) VALUES (?, 'expired', 'Снятая')",
+        (item.pk,),
+    )
+
+    html = operator.get(reverse("news_list")).content.decode()
+
+    assert "снята с очереди" in html

@@ -8,12 +8,21 @@ at the end of it.
 
 Two clocks, because the two kinds of file are worth different things:
 
-- a candidate that was prepared and never went out loses its pictures after
-  `KEEP_UNPUBLISHED_DAYS`. There are far more of these than of anything else and
-  nobody will ever look at them;
+- a candidate that waited too long for its turn loses its pictures once the
+  publisher has taken it off the queue (`status = 'expired'`, past
+  `PUB_EXPIRE_AFTER_DAYS`, ten days). There are far more of these than of
+  anything else and nobody will ever look at them;
 - a published item keeps its pictures for `KEEP_PUBLISHED_DAYS`. The copies that
   matter are already in Telegram and VK; the local file only serves the operator
   screen, and a month of history is more than the screen shows.
+
+The order of those two is the safety rail. This module never touches a
+`prepared` row — it deletes files only for items that are already out of the
+queue — so «картинки удалили, а новость всё ещё выйдет» cannot happen no matter
+when the two timers fire relative to each other. Taking an item off the queue is
+the publisher's job, not this one's: the queue belongs to the service that reads
+it, and doing it there means a stale item stops being publishable within the
+hour rather than at half past three.
 
 What is never deleted is the rows. A thousand news items cost a quarter of a
 megabyte, and they are the whole history: what was prepared, what went out and
@@ -44,17 +53,25 @@ import runlog
 
 log = logging.getLogger("posinus-retention")
 
-KEEP_UNPUBLISHED_DAYS = 10
+# How long a published item keeps its pictures. There is deliberately no second
+# number here for unpublished ones: that period is `PUB_EXPIRE_AFTER_DAYS` in the
+# publisher, which owns the queue, and one rule with two copies drifts apart.
 KEEP_PUBLISHED_DAYS = 30
 
-# Candidates and published items, with the moment their clock starts. An item
-# still being prepared has no prepared_at yet and is never touched.
+# Only items that are out of the queue for good. This is the safety rail of the
+# whole design: a `prepared` row is still publishable, so its pictures are never
+# touched here, and a `published` one cannot be published a second time. The
+# publisher is what takes a stale item off the queue (`status = 'expired'`), and
+# only after that may its files go — so the boundary case «картинок уже нет, а
+# новость ещё выйдет» cannot happen, whatever order the two timers fire in.
+#
+# `expired` needs no date test: the publisher only sets it past the same period.
 DUE_SQL = """
-SELECT news_id, status, prepared_at, published_at
+SELECT news_id, status, prepared_at, published_at, expired_at
 FROM prepared_item
 WHERE images_purged_at IS NULL
   AND ((status = 'published' AND published_at IS NOT NULL AND published_at < :published_before)
-       OR (status <> 'published' AND prepared_at IS NOT NULL AND prepared_at < :prepared_before))
+       OR status = 'expired')
 """
 
 
@@ -62,7 +79,6 @@ WHERE images_purged_at IS NULL
 class RetentionConfig:
     own_db: str = "/var/lib/posinus/pipeline/evaluator.sqlite3"
     media_dir: str = "/var/lib/posinus/pipeline/media"
-    keep_unpublished_days: int = KEEP_UNPUBLISHED_DAYS
     keep_published_days: int = KEEP_PUBLISHED_DAYS
 
     @classmethod
@@ -70,8 +86,6 @@ class RetentionConfig:
         cfg = cls()
         cfg.own_db = env.get("EVALUATOR_DB_PATH", cfg.own_db)
         cfg.media_dir = env.get("MEDIA_DIR", cfg.media_dir)
-        if value := env.get("KEEP_UNPUBLISHED_DAYS"):
-            cfg.keep_unpublished_days = int(value)
         if value := env.get("KEEP_PUBLISHED_DAYS"):
             cfg.keep_published_days = int(value)
         return cfg
@@ -80,10 +94,7 @@ class RetentionConfig:
 def due_items(con: sqlite3.Connection, cfg: RetentionConfig, now: datetime) -> list[sqlite3.Row]:
     return con.execute(
         DUE_SQL,
-        {
-            "published_before": (now - timedelta(days=cfg.keep_published_days)).isoformat(),
-            "prepared_before": (now - timedelta(days=cfg.keep_unpublished_days)).isoformat(),
-        },
+        {"published_before": (now - timedelta(days=cfg.keep_published_days)).isoformat()},
     ).fetchall()
 
 
@@ -197,7 +208,6 @@ def main(argv: list[str] | None = None) -> int:
         return run(cfg, dry_run=True)
     config = {
         "media_dir": cfg.media_dir,
-        "keep_unpublished_days": cfg.keep_unpublished_days,
         "keep_published_days": cfg.keep_published_days,
     }
     with runlog.record("retention", cfg.own_db, config) as counters:

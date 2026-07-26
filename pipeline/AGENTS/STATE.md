@@ -127,9 +127,15 @@ a publish-ready retelling, and posts them to the platforms.
   unpublished candidate after 10 days, of a published item after 30, plus media directories no row
   knows about. Rows are never deleted. Before it the media directory grew ~40 MB a day: 113 MB in
   three days, 129 directories, 370 files. NOT YET DEPLOYED as of this writing.
-- Known consequence of the 10-day period: the prepared queue is longer than ten days (112 items at
-  3–5 posts a day), so an item that waits its turn past the tenth day goes out without a picture.
-  Needs either a staleness threshold in the queue or a longer period.
+- A prepared item that waited `PUB_EXPIRE_AFTER_DAYS` (10) is taken off the queue by the publisher
+  (`status = 'expired'`), unless it is already public somewhere or held by the operator. Retention
+  deletes files only for rows already out of the queue, so «картинок нет, а новость ещё выйдет»
+  cannot happen. Visible on «Эфир» as «Снятые с очереди» and in the flow as «снята с очереди».
+- The preparer was resurrecting published items: only `status = 'prepared'` counted as done, so a
+  published row came back into the queue and was retold — 215 preparations over 129 news items in
+  the 24 hours before the fix, and ten posts with their publication date rewritten to today. Fixed
+  on 2026-07-26 together with `mark_published`, which now keeps the first date. Nothing was posted
+  twice: every `publication` row already said `ok`.
 
 ## Next
 

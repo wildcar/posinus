@@ -83,6 +83,21 @@
   {% endfor %}
 </table>
 {% endif %}
+{% if expired %}
+<h2>Снятые с очереди</h2>
+<p class="muted">Новость ждала очереди больше десяти дней и уже не новость. Вернуть её нельзя: картинки удаляются следом.</p>
+<table>
+  <tr><th>Новость</th><th>Подготовлена</th><th>Снята</th><th>Картинки</th></tr>
+  {% for row in expired %}
+  <tr class="held">
+    <td><a href="{% url 'news_detail' row.news_id %}">{{ row.title }}</a></td>
+    <td class="num">{{ row.prepared_at|date:"d.m.Y" }}</td>
+    <td class="num">{{ row.expired_at|date:"d.m.Y"|default:"—" }}</td>
+    <td class="muted">{% if row.images_gone %}удалены{% else %}ещё есть{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
 {% if failed %}
 <h2>Не удалось подготовить</h2>
 <p class="muted">Эти новости вернутся в очередь сами: подготовка повторится в следующий прогон.</p>

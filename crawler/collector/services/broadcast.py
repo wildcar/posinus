@@ -338,6 +338,37 @@ def failed_preparations() -> list[dict]:
     ]
 
 
+EXPIRED_SQL = """
+SELECT news_id, retold_title, prepared_at, expired_at, images_purged_at
+FROM prepared_item
+WHERE status = 'expired'
+ORDER BY expired_at DESC, news_id DESC
+LIMIT 50
+"""
+
+
+def expired_items() -> list[dict]:
+    """What waited too long and was taken off the queue.
+
+    It has to be somewhere on screen. Otherwise the tail of a queue longer than
+    ten days simply stops appearing, and «где та новость про кота» has no answer.
+    """
+    try:
+        rows = fetch_all(EXPIRED_SQL)
+    except PipelineUnavailable:
+        return []
+    return [
+        {
+            "news_id": row["news_id"],
+            "title": row["retold_title"] or f"Новость {row['news_id']}",
+            "prepared_at": _moment(row["prepared_at"]),
+            "expired_at": _moment(row["expired_at"]),
+            "images_gone": bool(row["images_purged_at"]),
+        }
+        for row in rows
+    ]
+
+
 def held_items() -> list[dict]:
     """What the operator took out of the queue, and how to put it back."""
     now = datetime.now(timezone.utc)
@@ -462,6 +493,7 @@ def broadcast_state() -> tuple[dict, str]:
             "platforms": platforms(),
             "failed": failed_preparations(),
             "held": held_items(),
+            "expired": expired_items(),
         }, ""
     except PipelineUnavailable as exc:
         return {}, str(exc)

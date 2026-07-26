@@ -77,8 +77,18 @@ PAUSE_FILE = "pause"         # stop cock, written by the web UI into the mailbox
 
 _own_db_path: str | None = None   # set by open_own_db, read by _unrecorded_marker
 
+# How long a prepared item may wait for its turn. Past it the news is not news
+# any more, and the queue is longer than this: 112 items at three to five posts a
+# day means the tail would go out three weeks late if nothing stopped it.
+#
+# The same number bounds how long the pictures live, and the order of the two
+# matters. Retention never touches a `prepared` row — it deletes files only for
+# items already out of the queue — so an item can never lose its pictures while
+# it is still publishable. That is the whole handshake between the two.
+EXPIRE_AFTER_DAYS = 10
+
 PREPARED_SQL = """
-SELECT news_id, retold_title, retold_body_md
+SELECT news_id, retold_title, retold_body_md, prepared_at
 FROM prepared_item
 WHERE status = 'prepared'
 ORDER BY prepared_at ASC, news_id ASC
@@ -136,6 +146,7 @@ class PublisherConfig:
     # after this many attempts so it can't block the queue forever.
     min_interval_minutes: int = 120
     max_attempts: int = 8
+    expire_after_days: int = EXPIRE_AFTER_DAYS
     # Publication window: a new item appears only between these local times.
     # An empty start or end switches the window off entirely.
     window_start: str = "08:00"
@@ -165,6 +176,7 @@ class PublisherConfig:
         cfg.vk_api_version = env.get("VK_API_VERSION", cfg.vk_api_version)
         cfg.min_interval_minutes = int(env.get("PUB_MIN_INTERVAL_MINUTES", cfg.min_interval_minutes))
         cfg.max_attempts = int(env.get("PUB_MAX_ATTEMPTS", cfg.max_attempts))
+        cfg.expire_after_days = int(env.get("PUB_EXPIRE_AFTER_DAYS", cfg.expire_after_days))
         cfg.window_start = env.get("PUB_WINDOW_START", cfg.window_start).strip()
         cfg.window_end = env.get("PUB_WINDOW_END", cfg.window_end).strip()
         cfg.window_tz = env.get("PUB_WINDOW_TZ", cfg.window_tz).strip() or "UTC"
@@ -896,12 +908,66 @@ def record_publication(
 
 
 def mark_published(con: sqlite3.Connection, news_id: int) -> None:
+    """Mark the item published, keeping the moment it first went out.
+
+    `COALESCE` rather than a plain assignment: this runs again on every retry
+    pass, and overwriting the date would move an old post to today — which is
+    what happened while the preparer was resurrecting published items, and what
+    «Вышло» and the retention clock both read.
+    """
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with con:
         con.execute(
-            "UPDATE prepared_item SET status = 'published', published_at = ? WHERE news_id = ?",
+            "UPDATE prepared_item SET status = 'published', "
+            "published_at = COALESCE(published_at, ?) WHERE news_id = ?",
             (now, news_id),
         )
+
+
+def expire_stale(
+    con: sqlite3.Connection,
+    rows: list[sqlite3.Row],
+    plan: dict[int, PlanRow],
+    now: datetime,
+    days: int,
+    dry_run: bool = False,
+) -> list[int]:
+    """Take out of the queue everything that waited too long. Returns their ids.
+
+    Three exceptions, and each of them is a way this could do harm:
+
+    - an item already public somewhere is finished, never dropped. Half a post is
+      worse than a late one, and the remaining platforms are retries;
+    - an item the operator held until a future moment is left alone: a human is
+      deliberately watching it, and it will expire on its own once the hold ends;
+    - a row with no `prepared_at` has no clock to read.
+
+    Nothing here happens while publication is paused — `run` returns before the
+    queue is even read, so a week-long pause cannot quietly kill the queue.
+    """
+    if days <= 0:
+        return []
+    cutoff = now - timedelta(days=days)
+    expired: list[int] = []
+    for row in rows:
+        moment = _parse_moment(row["prepared_at"]) if "prepared_at" in row.keys() else None
+        if moment is None or moment > cutoff:
+            continue
+        hold = _parse_moment(plan.get(row["news_id"], PlanRow()).hold_until or "")
+        if hold and hold > now:
+            continue
+        if any(status == "ok" for status, _ in publication_state(con, row["news_id"]).values()):
+            continue
+        expired.append(row["news_id"])
+        log.info("news %s: %s days in the queue, taken off (%s)",
+                 row["news_id"], (now - moment).days, (row["retold_title"] or "")[:60])
+    if expired and not dry_run:
+        with con:
+            con.executemany(
+                "UPDATE prepared_item SET status = 'expired', expired_at = ? WHERE news_id = ?",
+                [(now.isoformat(timespec="seconds"), news_id) for news_id in expired],
+            )
+    return expired
 
 
 def build_item(own: sqlite3.Connection, row: sqlite3.Row, media_dir: str | None = None) -> PreparedNews:
@@ -959,7 +1025,15 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None,
 
     own = open_own_db(cfg.own_db)
     try:
-        prepared = order_queue(own.execute(PREPARED_SQL).fetchall(), load_plan(cfg.news_db), now)
+        plan = load_plan(cfg.news_db)
+        waiting = own.execute(PREPARED_SQL).fetchall()
+        # Before anything is sent: an item past its date leaves the queue, and only
+        # then may retention delete its pictures. Doing it here rather than in
+        # retention keeps the two apart — the queue is this service's business and
+        # the files are that one's — and means the item stops being publishable
+        # within the hour, not at half past three.
+        stale = set(expire_stale(own, waiting, plan, now, cfg.expire_after_days, dry_run))
+        prepared = order_queue([row for row in waiting if row["news_id"] not in stale], plan, now)
         last_ok = last_success_at(own)
         throttled_new = False
         if last_ok:
@@ -1038,7 +1112,7 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None,
                  published, incomplete, " (dry-run, nothing sent)" if dry_run else "")
         if counters is not None:
             counters.update(queue=len(prepared), published=published, incomplete=incomplete,
-                            new_posted=new_posted, window_open=window_open)
+                            new_posted=new_posted, expired=len(stale), window_open=window_open)
         return 0
     finally:
         own.close()
