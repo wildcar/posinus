@@ -28,8 +28,11 @@
 <div class="card mix">
   <h2>Состав ленты за {{ feed_mix.days }} дней</h2>
   <p>Вышло {{ feed_mix.total }} постов, в среднем {{ feed_mix.per_day }} в день.</p>
+  <h3>Темы</h3>
+  <p>{% for row in feed_mix.topics %}{% if row.key %}<a href="{% url 'news_list' %}?topic={{ row.key }}">{{ row.name }}</a>{% else %}{{ row.name }}{% endif %} {{ row.share }}%{% if not forloop.last %} · {% endif %}{% endfor %}</p>
+  <h3>Источники</h3>
   <p>{% for row in feed_mix.sources %}{{ row.name }} {{ row.share }}%{% if not forloop.last %} · {% endif %}{% endfor %}</p>
-  <p class="muted">Доля источника считается по первому источнику новости. Если одно агентство даёт больше половины постов, это уже ретрансляция, а не своя лента.</p>
+  <p class="muted">Доля источника считается по первому источнику новости. Если одна тема или одно агентство даёт больше половины постов, читатель видит однообразие раньше, чем счётчик подписчиков.</p>
 </div>
 {% endif %}
 <h2>Последние обходы</h2>

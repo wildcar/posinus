@@ -82,7 +82,7 @@ def test_last_runs_report_counters_per_service(pipeline_db):
 
     assert runs["preparer"].status == "ok"
     assert runs["preparer"].counters == {"prepared": 3, "failed": 0}  # only the latest row
-    assert "prepared 3" in runs["preparer"].summary
+    assert "подготовлено 3" in runs["preparer"].summary  # counters speak Russian on screen
     assert runs["publisher"].status == "failed"
     assert runs["publisher"].summary == "VK не отвечает"
 
@@ -106,7 +106,7 @@ def test_dashboard_shows_the_machine_block(operator, pipeline_db):
     html = operator.get(reverse("dashboard")).content.decode()
 
     assert "Машина" in html
-    assert "Публикация" in html and "published 2" in html
+    assert "Публикация" in html and "опубликовано 2" in html
 
 
 @pytest.mark.django_db

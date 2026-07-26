@@ -98,13 +98,19 @@ Operate a single-host multilingual news crawler whose source list improves from 
   filter on `POSINUS_MANUAL_SCORE_SELECTOR` so the operator snapshot is not counted as a second
   evaluation. 52 tests pass; the `make_review` fixture now defaults to `news-evaluator`.
 
+- The rubric of a news item is in the contract since 2026-07-26 (migration `0011`): `exchange_topic`
+  holds ten rubrics plus the non-assignable placeholder `unknown`, `exchange_news_topic` one row per
+  news item, and the evaluator writes it with the verdict. The whole already-evaluated corpus carries
+  the placeholder by the owner's decision — re-reading it would cost model calls on news whose text
+  the purge blanks. The flow filters and shows «Тема», the card names it, «Состав ленты» shows rubric
+  shares. NOT YET DEPLOYED as of this writing.
+
 ## Next
 
-1. Step 3 of `../docs/ui-concept.md`: the read-only connection to the pipeline DB (ACLs through `install.sh`, a helper that survives a missing file, a backup of that DB, a run table in all three scripts).
-2. Deploy the rejected-news retention; expect the first maintenance run to tombstone ~4230 items.
+1. Deploy migration `0011` and watch the first evaluator runs: how often the model's rubric misses the closed list («без темы» in the run counters).
+2. Step 6 of `../docs/ui-concept.md`: removing a published post (needs Telegram/VK message ids stored first), VK response counts, «похоже на уже опубликованное», bulk actions, source trust level.
 3. Watch live translation errors; malformed model formatting now gets one automatic correction attempt.
-4. Register every local SQLite client service in `/etc/posinus/update-services` and create the UI operator if still pending.
-5. Watch crawl runs and positive-yield statistics; tune per-site rules where extraction fails.
+4. Watch crawl runs and positive-yield statistics; tune per-site rules where extraction fails.
 
 ## Open questions
 

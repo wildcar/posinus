@@ -1,0 +1,11 @@
+[Unit]
+Description=Delete pipeline pictures past their retention period, once a day
+
+[Timer]
+# Half past three, after the crawler's own maintenance pass and its backup at
+# three: the copy of the day should already be made when the files go.
+OnCalendar=*-*-* 03:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

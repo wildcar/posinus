@@ -24,6 +24,7 @@ SERVICE_TITLES = {
     "evaluator-backfill": "Пересчёт решений",
     "notify-check": "Проверка на аварии",
     "notify-digest": "Сводка за день",
+    "retention": "Чистка картинок",
 }
 
 # Twice the timer interval plus a little: past this an unfinished run is not
@@ -35,6 +36,24 @@ STALE_AFTER = {
     "evaluator-backfill": timedelta(minutes=30),
     "notify-check": timedelta(hours=2),
     "notify-digest": timedelta(hours=26),
+    "retention": timedelta(hours=26),
+}
+
+# The counters travel as JSON keys the pipeline chose for itself; the screen is
+# in Russian. An unknown key falls back to itself rather than being hidden — a
+# number nobody named is still a number worth seeing.
+COUNTER_TITLES = {
+    "queue": "в очереди",
+    "evaluated": "оценено",
+    "selected": "отобрано",
+    "failed": "не получилось",
+    "without_topic": "без темы",
+    "prepared": "подготовлено",
+    "published": "опубликовано",
+    "images": "картинок",
+    "checked": "проверено",
+    "removed": "удалено картинок",
+    "freed_mb": "освобождено, МБ",
 }
 
 LAST_RUNS_SQL = """
@@ -70,7 +89,11 @@ class ServiceRun:
             return self.error or "прогон завершился ошибкой"
         if self.status == "running":
             return "идёт"
-        parts = [f"{name} {value}" for name, value in self.counters.items() if isinstance(value, int)]
+        parts = [
+            f"{COUNTER_TITLES.get(name, name)} {value}"
+            for name, value in self.counters.items()
+            if isinstance(value, int)
+        ]
         return ", ".join(parts) if parts else "без изменений"
 
 

@@ -77,6 +77,31 @@ INSERT INTO exchange_evaluation_scores (review_event_id, characteristic_key, val
 VALUES (?, ?, ?)
 """
 
+# The closed list of rubrics, minus the placeholder: `unknown` is what we write
+# ourselves when the answer is unusable, and offering it to the model would make
+# it the easy way out of every hard call.
+TOPICS_SQL = """
+SELECT key, title, description
+FROM exchange_topic
+WHERE assignable = 1
+ORDER BY position
+"""
+
+# One row per news item, so a re-evaluation corrects the rubric in place. Unlike
+# a verdict there is nothing to keep a history of: the rubric describes the story,
+# not a decision about it.
+INSERT_TOPIC_SQL = """
+INSERT INTO exchange_news_topic (news_id, topic_key, selector_name, selector_version, created_at)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(news_id) DO UPDATE SET
+    topic_key = excluded.topic_key,
+    selector_name = excluded.selector_name,
+    selector_version = excluded.selector_version,
+    created_at = excluded.created_at
+"""
+
+PLACEHOLDER_TOPIC = "unknown"
+
 # News whose latest event by this selector is still 'skipped' (no verdict yet),
 # together with the scores attached to that event. Feeds the backfill pass.
 BACKFILL_SQL = """
@@ -333,12 +358,19 @@ def validate_evaluation(
     payload: dict[str, Any],
     expected_news_id: int,
     axis_keys: list[str],
-) -> tuple[dict[str, int], str, list[str]]:
+    topic_keys: list[str] | None = None,
+) -> tuple[dict[str, int], str, str, list[str]]:
     """Check a parsed model reply against the contract.
 
-    Returns (scores, comment, warnings); raises EvaluationInvalid when the
-    reply cannot be trusted. Validation messages are in Russian because they
+    Returns (scores, comment, topic, warnings); raises EvaluationInvalid when
+    the reply cannot be trusted. Validation messages are in Russian because they
     are fed back to the model, whose instruction is Russian.
+
+    A missing or unknown rubric is a warning, not a rejection: the scores are
+    what the verdict is made of and what the model was paid for, while a rubric
+    is one line in a report. Throwing a valid evaluation away over it would cost
+    a second full answer. Such replies land on the placeholder rubric, and the
+    run counters carry how often that happened.
     """
     warnings: list[str] = []
 
@@ -374,7 +406,7 @@ def validate_evaluation(
     if problems:
         raise EvaluationInvalid("; ".join(problems))
 
-    known = set(axis_keys) | ({"news_id", "comment"} if raw_scores is payload else set())
+    known = set(axis_keys) | ({"news_id", "comment", "topic"} if raw_scores is payload else set())
     extra = sorted(set(raw_scores) - known)
     if extra:
         warnings.append("лишние ключи в scores игнорируются: " + ", ".join(extra))
@@ -385,7 +417,18 @@ def validate_evaluation(
         comment = ""
     comment = " ".join(comment.split())[:MAX_COMMENT_CHARS]
 
-    return scores, comment, warnings
+    topic = PLACEHOLDER_TOPIC
+    if topic_keys:
+        raw_topic = payload.get("topic")
+        candidate = raw_topic.strip().lower() if isinstance(raw_topic, str) else ""
+        if candidate in topic_keys:
+            topic = candidate
+        elif not candidate:
+            warnings.append("темы в ответе нет, поставлена заглушка")
+        else:
+            warnings.append(f"неизвестная тема {raw_topic!r}, поставлена заглушка")
+
+    return scores, comment, topic, warnings
 
 
 # -------------------------------------------------------- selection profile
@@ -490,7 +533,21 @@ def load_profile(con: sqlite3.Connection) -> SelectionProfile:
 # ------------------------------------------------------------------ prompt
 
 
-def build_system_prompt(axes: list[sqlite3.Row]) -> str:
+def load_topics(con: sqlite3.Connection) -> list[sqlite3.Row]:
+    """The rubrics on offer, or nothing when the database predates them.
+
+    Same graceful degradation as the selection profile: an older crawler database
+    (or code rolled back past the migration) must not stop the evaluator. Without
+    the table the prompt says nothing about rubrics and no topic row is written.
+    """
+    try:
+        return con.execute(TOPICS_SQL).fetchall()
+    except sqlite3.OperationalError as exc:
+        log.warning("no exchange_topic table (%s); news will be evaluated without a rubric", exc)
+        return []
+
+
+def build_system_prompt(axes: list[sqlite3.Row], topics: list[sqlite3.Row] | None = None) -> str:
     lines = [
         "Ты оценщик новостей. Оцени новость по 20 характеристикам, "
         "каждую целым числом от 0 до 10.",
@@ -511,12 +568,24 @@ def build_system_prompt(axes: list[sqlite3.Row]) -> str:
             f"- {axis['key']} ({axis['title']}). {axis['description']}"
             f" 0: {axis['anchor_low']}. 10: {axis['anchor_high']}."
         )
+    topic_field = ""
+    if topics:
+        lines += ["", "Рубрики. Выбери ровно одну, ту, о чём новость в первую очередь."]
+        for topic in topics:
+            lines.append(f"- {topic['key']} ({topic['title']}). {topic['description']}")
+        lines.append(
+            "Если новость подходит под несколько рубрик, бери ту, без которой "
+            "новости бы не было. Ключ бери ровно из списка, ничего своего."
+        )
+        topic_field = '"topic": "<ключ одной рубрики из списка>", '
+
     lines += [
         "",
         "Формат ответа.",
         "Верни один JSON-объект и больше ничего: ни пояснений, ни markdown-разметки.",
         'Схема: {"news_id": <номер новости из задания>, '
-        '"scores": {<все 20 ключей осей с целыми значениями>}, '
+        + topic_field
+        + '"scores": {<все 20 ключей осей с целыми значениями>}, '
         '"comment": "<одно предложение по-русски: главное впечатление от новости>"}',
         "В scores обязаны быть все 20 ключей из списка выше.",
     ]
@@ -564,7 +633,8 @@ def evaluate_news(
     news: sqlite3.Row,
     system_prompt: str,
     axis_keys: list[str],
-) -> tuple[dict[str, int], str, dict[str, Any]]:
+    topic_keys: list[str] | None = None,
+) -> tuple[dict[str, int], str, str, dict[str, Any]]:
     """Ask the model, validate; retry with the validation error as feedback."""
     messages = [
         {"role": "system", "content": system_prompt},
@@ -576,7 +646,9 @@ def evaluate_news(
         text = reply["text"]
         try:
             payload = extract_json_object(text)
-            scores, comment, warnings = validate_evaluation(payload, news["news_id"], axis_keys)
+            scores, comment, topic, warnings = validate_evaluation(
+                payload, news["news_id"], axis_keys, topic_keys
+            )
         except EvaluationInvalid as exc:
             last_error = str(exc)
             log.warning(
@@ -588,7 +660,7 @@ def evaluate_news(
             continue
         for warning in warnings:
             log.info("news %s: %s", news["news_id"], warning)
-        return scores, comment, reply
+        return scores, comment, topic, reply
     raise EvaluationInvalid(last_error)
 
 
@@ -601,6 +673,7 @@ def write_review(
     model_id: str,
     decision: str,
     profile_tag: str = "",
+    topic: str = "",
 ) -> int:
     """Insert the review event and all axis scores in one transaction.
 
@@ -629,6 +702,14 @@ def write_review(
                     INSERT_SCORE_SQL,
                     [(event_id, key, value) for key, value in scores.items()],
                 )
+                # Same transaction as the event on purpose: a scored news item
+                # without a rubric would be invisible to «Состав ленты» and there
+                # is no second pass that would come back for it.
+                if topic:
+                    con.execute(
+                        INSERT_TOPIC_SQL,
+                        (news_id, topic, cfg.selector_name, selector_version, created_at),
+                    )
             return event_id
         except sqlite3.OperationalError as exc:
             if "locked" not in str(exc).lower() or attempt == DB_LOCK_RETRIES - 1:
@@ -645,17 +726,21 @@ def run(cfg: Config, profile: SelectionProfile, limit: int, dry_run: bool,
     try:
         axes = fetch_axes(con)
         axis_keys = [axis["key"] for axis in axes]
-        system_prompt = build_system_prompt(axes)
+        topics = load_topics(con)
+        topic_keys = [topic["key"] for topic in topics]
+        system_prompt = build_system_prompt(axes, topics)
         queue = con.execute(
             QUEUE_SQL, {"selector_name": cfg.selector_name, "batch_size": limit}
         ).fetchall()
         log.info("queue: %d news to evaluate (limit %d, profile %s)", len(queue), limit, profile.name)
 
-        done, failed, selected, total_cost = 0, 0, 0, 0.0
+        done, failed, selected, total_cost, no_topic = 0, 0, 0, 0.0, 0
         for news in queue:
             title = (news["title"] or "")[:60]
             try:
-                scores, comment, reply = evaluate_news(cfg, news, system_prompt, axis_keys)
+                scores, comment, topic, reply = evaluate_news(
+                    cfg, news, system_prompt, axis_keys, topic_keys
+                )
             except EvaluationInvalid as exc:
                 failed += 1
                 log.error("news %s: giving up, stays in queue: %s", news["news_id"], exc)
@@ -666,18 +751,20 @@ def run(cfg: Config, profile: SelectionProfile, limit: int, dry_run: bool,
                 continue
             decision = profile.decide(scores)
             selected += decision == "positive"
+            no_topic += bool(topic_keys) and topic == PLACEHOLDER_TOPIC
             total_cost += reply.get("cost_usd") or 0.0
             if dry_run:
-                log.info("news %s [dry-run] %s -> %s", news["news_id"], title, decision)
+                log.info("news %s [dry-run] %s -> %s (%s)", news["news_id"], title, decision, topic)
                 print(json.dumps(
-                    {"news_id": news["news_id"], "decision": decision,
+                    {"news_id": news["news_id"], "decision": decision, "topic": topic,
                      "scores": scores, "comment": comment},
                     ensure_ascii=False,
                 ))
             else:
                 model_used = reply.get("model_id") or cfg.model_id
                 event_id = write_review(
-                    con, cfg, news["news_id"], scores, comment, model_used, decision, profile.tag
+                    con, cfg, news["news_id"], scores, comment, model_used, decision,
+                    profile.tag, topic if topic_keys else "",
                 )
                 log.info("news %s: event %d %s: %s", news["news_id"], event_id, decision, title)
             done += 1
@@ -687,7 +774,8 @@ def run(cfg: Config, profile: SelectionProfile, limit: int, dry_run: bool,
         )
         if counters is not None:
             counters.update(queue=len(queue), evaluated=done, selected=selected,
-                            failed=failed, cost_usd=round(total_cost, 4))
+                            failed=failed, cost_usd=round(total_cost, 4),
+                            without_topic=no_topic)
         return 0 if failed == 0 else 1
     finally:
         con.close()

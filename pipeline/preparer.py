@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS prepared_item (
     published_at TEXT,
     error TEXT,
     edited_at TEXT,       -- set when the operator fixed the retelling by hand
-    edited_by TEXT
+    edited_by TEXT,
+    images_purged_at TEXT -- set by retention.py when the pictures were deleted
 );
 CREATE TABLE IF NOT EXISTS illustration (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -384,6 +385,13 @@ def migrate_own_db(con: sqlite3.Connection) -> None:
     human has fixed a retelling, regenerating it would silently throw the fix
     away on the first failure and re-queue, so `edited_at` is what stops that.
     """
+    # Every service adds it, not just retention.py: the operator UI reads this
+    # column, and a database that has not seen a retention run yet must not make
+    # the card say «нет связи с базой конвейера».
+    columns = {row["name"] for row in con.execute("PRAGMA table_info(prepared_item)")}
+    if columns and "images_purged_at" not in columns:
+        con.execute("ALTER TABLE prepared_item ADD COLUMN images_purged_at TEXT")
+        con.commit()
     columns = {row["name"] for row in con.execute("PRAGMA table_info(prepared_item)")}
     if columns and "edited_at" not in columns:
         con.execute("ALTER TABLE prepared_item ADD COLUMN edited_at TEXT")

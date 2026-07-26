@@ -177,10 +177,11 @@ def attention() -> list[Attention]:
 def feed_mix(days: int = 30) -> dict:
     """What the channel has actually been made of lately.
 
-    Only sources for now: the topic of a news item is not in the contract yet, so
-    the «рубрики» half of this block waits for that decision. Even the source
-    shares answer the sharper question — if one agency gives seventy percent of
-    the posts, this is a relay, not a feed.
+    Two halves, and both are needed. Rubrics catch monotony: the twenty axes
+    happily give a ninth rescued dog the same nine they gave the first, and the
+    subscriber count notices a week later than this block does. Source shares
+    catch the other failure — if one agency gives seventy percent of the posts,
+    this is a relay, not a feed.
     """
     since = timezone.now() - timedelta(days=days)
     try:
@@ -195,13 +196,29 @@ def feed_mix(days: int = 30) -> dict:
         return {"total": 0, "per_day": 0.0, "sources": []}
 
     counts = Counter()
-    for item in NewsItem.objects.filter(pk__in=news_ids).prefetch_related("occurrences__source"):
+    topics = Counter()
+    published = NewsItem.objects.filter(pk__in=news_ids).select_related(
+        "topic_row__topic"
+    ).prefetch_related("occurrences__source")
+    for item in published:
         names = sorted({occ.source.name for occ in item.occurrences.all()})
         counts[names[0] if names else "неизвестно"] += 1
+        row = getattr(item, "topic_row", None)
+        topics[(row.topic_id, row.topic.title) if row else ("", "Не определена")] += 1
 
     total = len(news_ids)
     shares = [
         {"name": name, "count": count, "share": round(100 * count / total)}
         for name, count in counts.most_common(8)
     ]
-    return {"total": total, "per_day": round(total / days, 1), "sources": shares, "days": days}
+    topic_shares = [
+        {"key": key, "name": title, "count": count, "share": round(100 * count / total)}
+        for (key, title), count in topics.most_common(10)
+    ]
+    return {
+        "total": total,
+        "per_day": round(total / days, 1),
+        "sources": shares,
+        "topics": topic_shares,
+        "days": days,
+    }

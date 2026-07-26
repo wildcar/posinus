@@ -342,6 +342,70 @@ class PublicationPlan(models.Model):
         ordering = ["rank", "news_item_id"]
 
 
+class Topic(models.Model):
+    """The closed list of rubrics a news item can belong to.
+
+    A rubric is not a score: the twenty axes say how good a story is, and none of
+    them notices that it is the third rescued dog this week. Monotony is what
+    makes a reader see a robot and unsubscribe, and the only way to see it before
+    the subscriber count does is to know what the feed is made of.
+
+    The list is closed and lives here rather than in the evaluator's prompt for
+    the same reason the thresholds do: two copies of one list drift apart, and
+    then the shares in «Состав ленты» stop adding up. `assignable` is False for
+    the placeholder rubric — it exists so that every news item has a topic, and
+    the model must never be offered it as an answer.
+    """
+
+    key = models.CharField(max_length=32, unique=True)
+    title = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    assignable = models.BooleanField(default=True)
+    position = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = "exchange_topic"
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        return self.key
+
+
+class NewsTopic(models.Model):
+    """Which rubric a news item fell into, as the evaluator saw it.
+
+    One row per news item, not per selector: unlike a verdict, the rubric is a
+    property of the story itself and there is nothing to correct by appending.
+    The evaluator writes it in the same transaction as the review event, so a
+    scored news item always has a topic — `unknown` when the model's answer was
+    unusable, and never a missing row.
+    """
+
+    news_item = models.OneToOneField(
+        NewsItem,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        db_column="news_id",
+        related_name="topic_row",
+    )
+    topic = models.ForeignKey(
+        Topic,
+        to_field="key",
+        db_column="topic_key",
+        on_delete=models.PROTECT,
+        related_name="news",
+    )
+    selector_name = models.CharField(max_length=200)
+    selector_version = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "exchange_news_topic"
+
+    def __str__(self):
+        return f"{self.news_item_id}:{self.topic_id}"
+
+
 class EvaluationScore(models.Model):
     review_event = models.ForeignKey(ReviewEvent, on_delete=models.PROTECT, related_name="evaluation_scores")
     characteristic = models.ForeignKey(

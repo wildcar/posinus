@@ -118,6 +118,9 @@ install -m 0644 "$REPO_DIR/deploy/posinus-notify.service" /etc/systemd/system/po
 install -m 0644 "$REPO_DIR/deploy/posinus-notify.timer" /etc/systemd/system/posinus-notify.timer
 install -m 0644 "$REPO_DIR/deploy/posinus-notify-digest.service" /etc/systemd/system/posinus-notify-digest.service
 install -m 0644 "$REPO_DIR/deploy/posinus-notify-digest.timer" /etc/systemd/system/posinus-notify-digest.timer
+# Retention: the only thing that deletes pipeline files. Daily, after the backup.
+install -m 0644 "$REPO_DIR/deploy/posinus-retention.service" /etc/systemd/system/posinus-retention.service
+install -m 0644 "$REPO_DIR/deploy/posinus-retention.timer" /etc/systemd/system/posinus-retention.timer
 # Operator edits: no timer, it runs when the web drops an edit-*.json request.
 install -m 0644 "$REPO_DIR/deploy/posinus-apply-edits.service" /etc/systemd/system/posinus-apply-edits.service
 for unit in posinus-evaluator-run.path posinus-preparer-run.path posinus-publisher-run.path \
@@ -135,6 +138,7 @@ systemctl enable --now posinus-evaluator-backfill-run.path
 systemctl enable --now posinus-notify.timer
 systemctl enable --now posinus-notify-digest.timer
 systemctl enable --now posinus-apply-edits-run.path
+systemctl enable --now posinus-retention.timer
 
 # The crawler's update script stops every service listed here before touching
 # the DB schema (both open the crawler DB).

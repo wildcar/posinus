@@ -98,14 +98,14 @@ class CoerceScoreTests(unittest.TestCase):
 class ValidateEvaluationTests(unittest.TestCase):
     def test_happy_path(self):
         payload = {"news_id": 5, "scores": full_scores(), "comment": "норм"}
-        scores, comment, warnings = validate_evaluation(payload, 5, AXIS_KEYS)
+        scores, comment, _, warnings = validate_evaluation(payload, 5, AXIS_KEYS)
         self.assertEqual(scores, full_scores())
         self.assertEqual(comment, "норм")
         self.assertEqual(warnings, [])
 
     def test_flat_payload_accepted_with_warning(self):
         payload = {**full_scores(), "news_id": 5, "comment": "ок"}
-        scores, _, warnings = validate_evaluation(payload, 5, AXIS_KEYS)
+        scores, _, _, warnings = validate_evaluation(payload, 5, AXIS_KEYS)
         self.assertEqual(scores, full_scores())
         self.assertTrue(warnings)
 
@@ -115,7 +115,7 @@ class ValidateEvaluationTests(unittest.TestCase):
             validate_evaluation(payload, 5, AXIS_KEYS)
 
     def test_news_id_optional(self):
-        scores, _, _ = validate_evaluation({"scores": full_scores()}, 5, AXIS_KEYS)
+        scores, _, _, _ = validate_evaluation({"scores": full_scores()}, 5, AXIS_KEYS)
         self.assertEqual(len(scores), 20)
 
     def test_missing_axis(self):
@@ -138,30 +138,86 @@ class ValidateEvaluationTests(unittest.TestCase):
     def test_extra_keys_ignored_with_warning(self):
         scores = full_scores()
         scores["vibes"] = 9
-        result, _, warnings = validate_evaluation({"scores": scores}, 5, AXIS_KEYS)
+        result, _, _, warnings = validate_evaluation({"scores": scores}, 5, AXIS_KEYS)
         self.assertNotIn("vibes", result)
         self.assertTrue(any("vibes" in w for w in warnings))
 
     def test_string_scores_coerced(self):
         scores = {key: "7" for key in AXIS_KEYS}
-        result, _, _ = validate_evaluation({"scores": scores}, 5, AXIS_KEYS)
+        result, _, _, _ = validate_evaluation({"scores": scores}, 5, AXIS_KEYS)
         self.assertEqual(result, full_scores(7))
 
     def test_comment_normalized_and_capped(self):
         payload = {"scores": full_scores(), "comment": "  много \n пробелов  " + "х" * 600}
-        _, comment, _ = validate_evaluation(payload, 5, AXIS_KEYS)
+        _, comment, _, _ = validate_evaluation(payload, 5, AXIS_KEYS)
         self.assertLessEqual(len(comment), evaluator.MAX_COMMENT_CHARS)
         self.assertNotIn("\n", comment)
 
     def test_non_string_comment_tolerated(self):
         payload = {"scores": full_scores(), "comment": 42}
-        _, comment, warnings = validate_evaluation(payload, 5, AXIS_KEYS)
+        _, comment, _, warnings = validate_evaluation(payload, 5, AXIS_KEYS)
         self.assertEqual(comment, "")
         self.assertTrue(warnings)
 
     def test_scores_not_a_dict(self):
         with self.assertRaises(EvaluationInvalid):
             validate_evaluation({"scores": [1, 2]}, 5, AXIS_KEYS)
+
+
+TOPIC_KEYS = ["animals", "science", "people"]
+
+
+class TopicValidationTests(unittest.TestCase):
+    """A rubric never costs a valid evaluation: worst case it lands on the placeholder."""
+
+    def test_known_topic_taken(self):
+        payload = {"scores": full_scores(), "topic": "animals"}
+        _, _, topic, warnings = validate_evaluation(payload, 5, AXIS_KEYS, TOPIC_KEYS)
+        self.assertEqual(topic, "animals")
+        self.assertEqual(warnings, [])
+
+    def test_case_and_spaces_forgiven(self):
+        payload = {"scores": full_scores(), "topic": "  Animals "}
+        _, _, topic, _ = validate_evaluation(payload, 5, AXIS_KEYS, TOPIC_KEYS)
+        self.assertEqual(topic, "animals")
+
+    def test_unknown_topic_falls_back_with_a_warning(self):
+        payload = {"scores": full_scores(), "topic": "котики"}
+        _, _, topic, warnings = validate_evaluation(payload, 5, AXIS_KEYS, TOPIC_KEYS)
+        self.assertEqual(topic, evaluator.PLACEHOLDER_TOPIC)
+        self.assertTrue(any("котики" in w for w in warnings))
+
+    def test_missing_topic_falls_back(self):
+        _, _, topic, warnings = validate_evaluation(
+            {"scores": full_scores()}, 5, AXIS_KEYS, TOPIC_KEYS
+        )
+        self.assertEqual(topic, evaluator.PLACEHOLDER_TOPIC)
+        self.assertTrue(warnings)
+
+    def test_no_rubrics_no_complaints(self):
+        """An older database has no rubric list, and that is not the model's fault."""
+        _, _, topic, warnings = validate_evaluation({"scores": full_scores()}, 5, AXIS_KEYS, [])
+        self.assertEqual(topic, evaluator.PLACEHOLDER_TOPIC)
+        self.assertEqual(warnings, [])
+
+    def test_the_prompt_offers_the_rubrics_it_was_given(self):
+        axes = [
+            {"key": "positivity", "title": "Позитивность", "description": "d",
+             "anchor_low": "l", "anchor_high": "h"}
+        ]
+        topics = [
+            {"key": "animals", "title": "Животные", "description": "Питомцы и дикая природа."},
+        ]
+        prompt = evaluator.build_system_prompt(axes, topics)
+        self.assertIn("animals (Животные)", prompt)
+        self.assertIn('"topic"', prompt)
+
+    def test_without_rubrics_the_prompt_does_not_ask_for_one(self):
+        axes = [
+            {"key": "positivity", "title": "Позитивность", "description": "d",
+             "anchor_low": "l", "anchor_high": "h"}
+        ]
+        self.assertNotIn('"topic"', evaluator.build_system_prompt(axes, []))
 
 
 SCHEMA_SQL = """
@@ -186,6 +242,21 @@ CREATE TABLE exchange_evaluation_scores (
     characteristic_key TEXT NOT NULL REFERENCES exchange_evaluation_characteristics (key),
     value INTEGER NOT NULL CHECK (value BETWEEN 0 AND 10),
     UNIQUE (review_event_id, characteristic_key)
+);
+CREATE TABLE exchange_topic (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    assignable INTEGER NOT NULL DEFAULT 1,
+    position INTEGER NOT NULL
+);
+CREATE TABLE exchange_news_topic (
+    news_id INTEGER PRIMARY KEY,
+    topic_key TEXT NOT NULL REFERENCES exchange_topic (key),
+    selector_name TEXT NOT NULL,
+    selector_version TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
 );
 """
 
@@ -271,6 +342,42 @@ class WriteReviewTests(unittest.TestCase):
             write_review(self.con, self.cfg, 5, scores, "", "actual-model", "positive")
         events = self.con.execute("SELECT COUNT(*) FROM exchange_review_events").fetchone()[0]
         self.assertEqual(events, 0)  # transaction rolled back entirely
+
+    def _seed_topics(self):
+        self.con.executemany(
+            "INSERT INTO exchange_topic (key, title, assignable, position) VALUES (?, ?, ?, ?)",
+            [("animals", "Животные", 1, 0), ("unknown", "Не определена", 0, 1)],
+        )
+
+    def test_topic_written_with_the_event(self):
+        self._seed_topics()
+        write_review(self.con, self.cfg, 5, full_scores(), "", "m", "positive", "default.r1", "animals")
+        row = self.con.execute("SELECT * FROM exchange_news_topic WHERE news_id = 5").fetchone()
+        self.assertEqual(row["topic_key"], "animals")
+        self.assertEqual(row["selector_name"], "test-evaluator")
+
+    def test_a_second_evaluation_corrects_the_topic(self):
+        self._seed_topics()
+        write_review(self.con, self.cfg, 5, full_scores(), "", "m", "positive", "", "unknown")
+        write_review(self.con, self.cfg, 5, full_scores(), "", "m", "positive", "", "animals")
+        rows = self.con.execute("SELECT topic_key FROM exchange_news_topic WHERE news_id = 5").fetchall()
+        self.assertEqual([row["topic_key"] for row in rows], ["animals"])
+
+    def test_a_topic_the_list_does_not_know_rolls_the_event_back(self):
+        """The rubric list is closed; a stray key must not quietly become one."""
+        self._seed_topics()
+        with self.assertRaises(sqlite3.IntegrityError):
+            write_review(self.con, self.cfg, 5, full_scores(), "", "m", "positive", "", "котики")
+        self.assertEqual(
+            self.con.execute("SELECT COUNT(*) FROM exchange_review_events").fetchone()[0], 0
+        )
+
+    def test_without_a_topic_nothing_is_written(self):
+        self._seed_topics()
+        write_review(self.con, self.cfg, 5, full_scores(), "", "m", "positive")
+        self.assertEqual(
+            self.con.execute("SELECT COUNT(*) FROM exchange_news_topic").fetchone()[0], 0
+        )
 
 
 class SelectionProfileTests(unittest.TestCase):

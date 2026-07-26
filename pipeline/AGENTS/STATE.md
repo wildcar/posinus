@@ -120,6 +120,17 @@ a publish-ready retelling, and posts them to the platforms.
   accumulated before the classic user token was installed. 15 VK posts are `ok`, so the token
   works; the item is past `PUB_MAX_ATTEMPTS` and finalizes best-effort on the next real run.
 
+- The evaluator asks the model for a rubric and writes it to `exchange_news_topic` with the verdict
+  (2026-07-26). The list is closed and lives in the crawler DB; an unusable answer lands on the
+  placeholder and shows in the run counter «без темы» rather than costing a second paid answer.
+- `retention.py` (daily, 03:30 UTC) is the only thing that deletes pipeline files: pictures of an
+  unpublished candidate after 10 days, of a published item after 30, plus media directories no row
+  knows about. Rows are never deleted. Before it the media directory grew ~40 MB a day: 113 MB in
+  three days, 129 directories, 370 files. NOT YET DEPLOYED as of this writing.
+- Known consequence of the 10-day period: the prepared queue is longer than ten days (112 items at
+  3–5 posts a day), so an item that waits its turn past the tenth day goes out without a picture.
+  Needs either a staleness threshold in the queue or a longer period.
+
 ## Next
 
 1. Prompt calibration and soft profiles («Россия» / «Международное»). The `default` profile

@@ -55,6 +55,12 @@
         {% for candidate in sources %}<option value="{{ candidate.pk }}"{% if candidate.pk == selected_source %} selected{% endif %}>{{ candidate.name }}</option>{% endfor %}
       </select>
     </label>
+    <label>Тема
+      <select name="topic" data-default="">
+        <option value="">Все темы</option>
+        {% for topic in topics %}<option value="{{ topic.key }}"{% if topic.key == selected_topic %} selected{% endif %}>{{ topic.title }}</option>{% endfor %}
+      </select>
+    </label>
     <label>Решение отборщика
       <select name="decision" data-default="">
         <option value="">Все</option>
@@ -106,7 +112,7 @@
 <p class="muted">Найдено: {{ total_count }}{% if page.paginator.num_pages > 1 %} · показаны {{ page.start_index }}–{{ page.end_index }}{% endif %}</p>
 <table>
   <tr>
-    <th>Дата</th><th>Заголовок</th><th>Источники</th><th>Стадия</th>
+    <th>Дата</th><th>Заголовок</th><th>Источники</th><th>Тема</th><th>Стадия</th>
     {% for title in score_headers %}<th class="axis-col">{{ title }}</th>{% endfor %}
   </tr>
   {% for item in items %}
@@ -114,6 +120,7 @@
     <td class="num">{{ item.display_date|date:"d.m H:i" }}</td>
     <td><a href="{% url 'news_detail' item.pk %}">{{ item.title }}</a></td>
     <td>{{ item.primary_source|default:"—" }}{% if item.source_count > 1 %} <span class="muted">и ещё {{ item.source_count|add:"-1" }}</span>{% endif %}</td>
+    <td>{% if item.topic_row %}<a href="?topic={{ item.topic_row.topic_id }}">{{ item.topic_row.topic.title }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
     <td>
       {{ item.stage.title }}
       {% if item.stage.disagreement %}<span class="pill" title="Машина отклонила, оператор отправил в публикацию">решения разошлись</span>{% endif %}
@@ -124,7 +131,7 @@
     {% endfor %}
   </tr>
   {% empty %}
-  <tr><td colspan="6">Новостей нет</td></tr>
+  <tr><td colspan="7">Новостей нет</td></tr>
   {% endfor %}
 </table>
 {% if page.paginator.num_pages > 1 %}

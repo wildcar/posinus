@@ -1,0 +1,13 @@
+[Unit]
+Description=Positive News: delete pictures past their retention period
+
+[Service]
+Type=oneshot
+User=posinus-pipeline
+Group=posinus-pipeline
+SupplementaryGroups=posinus
+UMask=0007
+EnvironmentFile=/etc/posinus/pipeline.env
+ExecStart=/usr/bin/python3 /opt/posinus/pipeline/retention.py
+NoNewPrivileges=true
+PrivateTmp=true

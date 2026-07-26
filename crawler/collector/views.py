@@ -27,6 +27,7 @@ from .models import (
     SelectionBound,
     TranslationJob,
     Source,
+    Topic,
 )
 from .services.broadcast import broadcast_state, image_path, news_pipeline_state
 from .services.calibration import (
@@ -260,7 +261,9 @@ def source_resume(request, pk):
 
 @login_required
 def news_list(request):
-    items = NewsItem.objects.prefetch_related("occurrences__source").annotate(
+    items = NewsItem.objects.prefetch_related("occurrences__source").select_related(
+        "topic_row__topic"
+    ).annotate(
         source_count=Count("occurrences__source", distinct=True),
         display_date=Coalesce("published_at", "first_seen_at"),
         primary_source=Min("occurrences__source__name"),
@@ -287,6 +290,16 @@ def news_list(request):
     selected_source = int(raw_source) if raw_source.isdigit() else None
     if selected_source is not None:
         items = items.filter(occurrences__source_id=selected_source)
+
+    # The rubric answers a question the twenty axes cannot: what the feed is made
+    # of. «Не определена» is a real answer here, not an empty filter — it is what
+    # the corpus evaluated before rubrics existed carries.
+    topics = list(Topic.objects.all())
+    selected_topic = request.GET.get("topic", "")
+    if selected_topic not in {topic.key for topic in topics}:
+        selected_topic = ""
+    if selected_topic:
+        items = items.filter(topic_row__topic_id=selected_topic)
 
     # Every characteristic renders as a dual-threshold slider; only ranges
     # narrower than 0..10 filter. A narrowed range requires a matching row in
@@ -363,6 +376,8 @@ def news_list(request):
         "sort": sort,
         "sources": Source.objects.order_by("name"),
         "selected_source": selected_source,
+        "topics": topics,
+        "selected_topic": selected_topic,
         "score_groups": list(score_groups.items()),
     }
     return render(request, "collector/news_list.html", context)
@@ -399,6 +414,7 @@ def news_detail(request, pk):
     pipeline_state, pipeline_error = news_pipeline_state(item.pk)
     context = {
         "item": item,
+        "topic": getattr(item, "topic_row", None),
         "verdict": verdict,
         "pipeline": pipeline_state,
         "pipeline_error": pipeline_error,

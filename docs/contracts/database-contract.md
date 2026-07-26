@@ -6,7 +6,7 @@
 
 Production-файл находится в `/var/lib/posinus/posinus.sqlite3` и должен иметь режим `0660` с группой `posinus`. Каждый прямой клиент должен работать на том же хосте под отдельным системным пользователем из этой группы. Каталог имеет setgid/default ACL, а процессы используют `umask 0007`, чтобы SQLite sidecar-файлы `-wal` и `-shm` оставались доступны группе.
 
-SQLite не поддерживает табличные роли: член группы с правом записи технически может изменить любую таблицу. Прикладной контракт разрешает клиентам читать `exchange_news_for_selection`, `exchange_latest_reviews`, `exchange_evaluation_characteristics`, `exchange_latest_evaluation_scores`, `exchange_active_selection_profile` и `exchange_publication_order`; добавлять строки можно только в `exchange_review_events` и `exchange_evaluation_scores`.
+SQLite не поддерживает табличные роли: член группы с правом записи технически может изменить любую таблицу. Прикладной контракт разрешает клиентам читать `exchange_news_for_selection`, `exchange_latest_reviews`, `exchange_evaluation_characteristics`, `exchange_latest_evaluation_scores`, `exchange_active_selection_profile`, `exchange_topic` и `exchange_publication_order`; добавлять строки можно только в `exchange_review_events` и `exchange_evaluation_scores`, а в `exchange_news_topic` разрешена ещё и правка своей строки (по строке на новость, см. «Тема новости»).
 
 Перед миграциями или восстановлением базы остановите все прямые клиенты. systemd units таких клиентов перечисляются в `/etc/posinus/update-services`; подробности находятся в [deployment.md](../deployment.md).
 
@@ -96,6 +96,35 @@ FROM exchange_latest_evaluation_scores
 WHERE news_id = :news_id
   AND selector_name = :selector_name;
 ```
+
+## Тема новости
+
+Двадцать осей говорят, насколько новость хороша, и ни одна не замечает, что это третья спасённая собака за неделю. Однообразие ленты видно только по составу, поэтому у новости есть рубрика из закрытого списка. Список владеют миграции краулера, таблица `exchange_topic`: столбцы `key`, `title`, `description`, `assignable`, `position`.
+
+```sql
+SELECT key, title, description
+FROM exchange_topic
+WHERE assignable = 1
+ORDER BY position;
+```
+
+`assignable = 0` только у заглушки `unknown`. Предлагать её модели нельзя: это то, что клиент ставит сам, когда ответ не подошёл, и то, что несёт корпус, оценённый до появления рубрик.
+
+Рубрику пишут в `exchange_news_topic` в той же транзакции, что и событие решения:
+
+```sql
+INSERT INTO exchange_news_topic (news_id, topic_key, selector_name, selector_version, created_at)
+VALUES (:news_id, :topic_key, :selector_name, :selector_version, :created_at)
+ON CONFLICT(news_id) DO UPDATE SET
+    topic_key = excluded.topic_key,
+    selector_name = excluded.selector_name,
+    selector_version = excluded.selector_version,
+    created_at = excluded.created_at;
+```
+
+По строке на новость, и это единственное место в контракте, где разрешён `UPDATE`. Событие решения неизменяемо потому, что по нему потом объясняют старое решение; рубрика же описывает саму новость, а не решение о ней, и исправлять в ней нечего, кроме ошибки.
+
+Два правила для клиента. Пустой список рубрик или отсутствие таблицы — не ошибка: работайте как раньше, ничего не спрашивая у модели и ничего не записывая. И `topic_key` вне списка контракт отвергнет внешним ключом, а вместе с ним откатится всё событие — сверяйте ключ до записи и ставьте `unknown`, когда ответ не подошёл.
 
 ## Чтение действующего профиля отбора
 

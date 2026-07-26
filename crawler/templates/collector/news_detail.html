@@ -41,7 +41,9 @@
 {% block content %}
 <h1>{{ item.title }}</h1>
 <div class="card">
-  <p class="muted">{{ item.language }} · {{ item.published_at|default:item.first_seen_at }} · SHA-256 {{ item.content_hash }}</p>
+  <p class="muted">{{ item.language }} · {{ item.published_at|default:item.first_seen_at }}
+    · Тема: {% if topic %}<a href="{% url 'news_list' %}?topic={{ topic.topic_id }}">{{ topic.topic.title }}</a>{% else %}не определена{% endif %}
+    · SHA-256 {{ item.content_hash }}</p>
   <div>
     <form style="display:inline" method="post" action="{% url 'news_translate' item.pk %}">{% csrf_token %}<button{% if translation_job.pending %} disabled{% endif %}>{% if translation %}Перевести заново{% else %}Перевести на русский{% endif %}</button></form>
     {% if manual_selected %}<span class="pill ok">Отправлена в публикацию</span>{% else %}<form style="display:inline" method="post" action="{% url 'news_select' item.pk %}">{% csrf_token %}<button>Отправить в публикацию</button></form>{% endif %}
@@ -123,6 +125,11 @@
     </figure>
     {% endfor %}
   </div>
+</div>
+{% elif pipeline.images_purged_at %}
+<div class="card">
+  <h3>Картинки</h3>
+  <p class="muted">Удалены {{ pipeline.images_purged_at|date:"d.m.Y" }} по сроку хранения. Копии того, что вышло, остались в Telegram и ВК.</p>
 </div>
 {% endif %}
 {% if pipeline.publications %}

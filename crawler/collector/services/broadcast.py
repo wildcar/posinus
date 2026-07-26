@@ -356,8 +356,12 @@ def held_items() -> list[dict]:
     return rows
 
 
+# `SELECT *` on purpose: the pipeline owns this schema and adds columns on its
+# own schedule (`images_purged_at` arrived with retention). Naming them here
+# would mean a card showing «нет связи с базой конвейера» for as long as the two
+# deploys are out of step.
 ITEM_SQL = """
-SELECT news_id, status, retold_title, retold_body_md, model_id, prepared_at, published_at, error
+SELECT *
 FROM prepared_item
 WHERE news_id = ?
 """
@@ -420,6 +424,7 @@ def news_pipeline_state(news_id: int) -> tuple[dict, str]:
             "published_at": _moment(row["published_at"]),
             "error": row["error"] or "",
             "images": images,
+            "images_purged_at": _moment(row["images_purged_at"]) if "images_purged_at" in row.keys() else None,
             "publications": publications,
         }, ""
     except PipelineUnavailable as exc:

@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-26 · The rubric, and the first thing that deletes files
+- What: The evaluator reads the closed rubric list from `exchange_topic`, asks the model for one, and writes it to `exchange_news_topic` in the same transaction as the verdict; an unusable answer lands on the placeholder and shows up in the run counter «без темы» rather than throwing a paid evaluation away. New `retention.py` with a daily timer deletes pictures of unpublished candidates after 10 days and of published items after 30, keeping every row. 10 tests added, 147 pass.
+- Why: nothing had ever deleted a pipeline file — the media directory grew about 40 MB a day with no end. Rows are a different matter: a thousand news items cost a quarter of a megabyte and are the whole history «Состав ленты» is built on, so retention never touches them.
+- Files: pipeline/{evaluator,preparer,retention}.py, pipeline/deploy/{install.sh,pipeline.env.example,posinus-retention.service,posinus-retention.timer}, pipeline/tests/{test_evaluator,test_retention}.py, pipeline/AGENTS/SPEC.md, docs/contracts/database-contract.md
+- Next: the publication queue is longer than ten days, so an item that waits its turn past the tenth day will go out without a picture — either a staleness threshold in the queue or a longer period.
+
 ## 2026-07-25 · Apply the operator's corrections to a prepared retelling
 - What: New stdlib-only `apply_edits.py` reads `edit-<news_id>.json` from the mailbox and applies the title, body, lead picture and dropped pictures, then removes the request; a `.path` unit runs it within a second, with no timer and no `ExecStartPre` (deleting requests before reading them would lose the edit). `prepared_item` gained `edited_at`/`edited_by`, and `prepared_ids` now excludes edited items so the preparer can never regenerate over a human fix. Edits to a published item are refused. 7 tests added, 126 pass. Crawler side (form, picture actions) in the same commit.
 - Why: step 5 of `../docs/ui-concept.md`. The correction has to reach this database somehow, and the one thing it must not be is a second writer on the file.

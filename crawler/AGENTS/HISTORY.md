@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-26 · The rubric of a news item, through the contract
+- What: `exchange_topic` (ten rubrics plus the non-assignable placeholder) and `exchange_news_topic` (one row per news item) in migration `0011`; the whole already-evaluated corpus gets the placeholder. The flow gained a «Тема» column and filter, the card names the rubric, «Состав ленты» now shows rubric shares next to source shares, and run counters read in Russian instead of `prepared 3`. 6 tests added, 127 pass.
+- Why: the twenty axes give a ninth rescued dog the same nine they gave the first — monotony is invisible until the subscriber count notices. The owner chose the honest path over a field in the preparer's prompt, so the rubric covers the whole corpus and not only what went out, and chose the placeholder over re-running the model on candidates whose text tonight's purge blanks anyway.
+- Files: crawler/collector/{models,views}.py, crawler/collector/migrations/0011_news_topic.py, crawler/collector/services/{console,pipeline_status,broadcast}.py, crawler/templates/collector/{news_list,news_detail,dashboard}.html, crawler/tests/test_topics.py, docs/contracts/database-contract.md, crawler/AGENTS/SPEC.md
+- Next: deploy and watch the first evaluator runs — how often the model's rubric misses the list («без темы» in the run counters).
+
 ## 2026-07-26 · The rejected-news purge actually runs now
 - What: `runworker`'s daily pass calls `purge_rejected_content()` before the backup. A test covers the whole maintenance list, since nothing did. 121 tests pass.
 - Why: the purge was written on 2026-07-23 and had never executed once — it was wired only into the `maintenance` command, which nothing invokes, so `retention_rejected` had no events at all and 5680 rejected items still carried their full text. Found while answering «нужно ли что-то деплоить»; the owner chose to switch it on knowing the first pass blanks those 5680.
