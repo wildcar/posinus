@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-26 · The rejected-news purge actually runs now
+- What: `runworker`'s daily pass calls `purge_rejected_content()` before the backup. A test covers the whole maintenance list, since nothing did. 121 tests pass.
+- Why: the purge was written on 2026-07-23 and had never executed once — it was wired only into the `maintenance` command, which nothing invokes, so `retention_rejected` had no events at all and 5680 rejected items still carried their full text. Found while answering «нужно ли что-то деплоить»; the owner chose to switch it on knowing the first pass blanks those 5680.
+- Files: crawler/collector/management/commands/runworker.py, crawler/tests/test_worker.py, crawler/AGENTS/SPEC.md
+- Next: step 6 of `../docs/ui-concept.md`.
+
 ## 2026-07-26 · The translation leaves the HTTP request
 - What: New `TranslationJob` model (migration `0010`) and a worker thread started only when `POSINUS_JOB_WORKER=1` (the web unit sets it, so management commands and tests never start it). The button queues a job and returns; the card says «перевод готовится» and refreshes itself; a second click while one is pending does nothing; jobs left running by a restart are closed as failed. 5 tests added, 120 pass.
 - Why: step 5 of `../docs/ui-concept.md`. The router takes minutes, so the synchronous call was cut by the proxy while the model kept working — and the operator's second click paid for a second answer that also went nowhere. Raising the Nginx timeout to 120s in step 0 only widened the window.

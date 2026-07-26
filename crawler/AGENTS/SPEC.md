@@ -48,7 +48,7 @@ External selector <- exchange views -> append-only review events-+
 - ✅ Group near duplicates of the same language within 48 hours using SimHash and title similarity; translations remain separate.
 - ✅ Retain every occurrence/source URL while exposing one logical item to the selector.
 - ✅ Purge full content and detailed metadata after 90 days while retaining the technical tombstone.
-- ✅ Purge content of rejected news (has a `not_positive` verdict and no `positive` one from any selector) after 3 days, keeping the tombstone and the append-only review events; `skipped`, never-reviewed, and selected news are kept.
+- ✅ Purge content of rejected news (has a `not_positive` verdict and no `positive` one from any selector) after 3 days, keeping the tombstone and the append-only review events; `skipped`, never-reviewed, and selected news are kept. It runs in the worker's daily pass, before the backup, so the copy of the day already reflects it.
 - ✅ Create integrity-checked SQLite backups and retain seven files.
 
 ### Feedback contract

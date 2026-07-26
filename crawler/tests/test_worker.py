@@ -23,3 +23,28 @@ def test_expired_lease_is_recovered():
     assert state.source_id == source.pk
     assert state.lease_owner == "new-worker"
     assert state.lease_until > timezone.now()
+
+
+@pytest.mark.django_db
+def test_daily_pass_purges_rejected_news_too(monkeypatch, tmp_path, settings):
+    """The purge existed since July but the worker never called it.
+
+    It lived only in the `maintenance` command, which nothing invokes, so
+    rejected news kept its text forever. Owner switched it on 2026-07-26.
+    """
+    from django.core.management import call_command
+
+    settings.POSINUS_BACKUP_DIR = tmp_path / "backups"
+    called = []
+    for name in ("evaluate_sources", "process_positive_discovery", "purge_old_content",
+                 "purge_rejected_content", "create_backup"):
+        monkeypatch.setattr(
+            f"collector.management.commands.runworker.{name}",
+            lambda *a, _name=name, **kw: called.append(_name),
+        )
+    monkeypatch.setattr("collector.management.commands.runworker.lease_next_source", lambda owner: None)
+
+    call_command("runworker", "--once")
+
+    assert "purge_rejected_content" in called
+    assert called.index("purge_rejected_content") < called.index("create_backup")

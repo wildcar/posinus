@@ -11,7 +11,13 @@ from django.utils import timezone
 from collector.models import Source, SourceRuntimeState
 from collector.models import OperatorEvent
 from collector.services.crawler import crawl_source, lease_next_source
-from collector.services.maintenance import create_backup, evaluate_sources, process_positive_discovery, purge_old_content
+from collector.services.maintenance import (
+    create_backup,
+    evaluate_sources,
+    process_positive_discovery,
+    purge_old_content,
+    purge_rejected_content,
+)
 
 
 @contextmanager
@@ -64,6 +70,12 @@ class Command(BaseCommand):
                     evaluate_sources()
                     process_positive_discovery()
                     purge_old_content()
+                    # Rejected news loses its text after three days. It was
+                    # written in July and never ran: the daily pass simply did
+                    # not call it, so it only existed in the `maintenance`
+                    # command that nobody invokes. Owner's decision on
+                    # 2026-07-26 to switch it on.
+                    purge_rejected_content()
                     create_backup()
                     last_maintenance = today
                 if options["once"]:
