@@ -31,6 +31,9 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 - The translation is a background job since 2026-07-26 (`TranslationJob` + a worker thread in the
   web process, on only with `POSINUS_JOB_WORKER=1`). No HTTP request waits for the model any more.
+  LIVE on prod at commit `471574a`, migration `0010` applied, «Translation worker started» in the
+  log, and verified end to end on news 7108: queued → running → done in 45 seconds with the
+  Russian title saved. That is the request that used to die on the proxy timeout.
 - The card can fix a retelling and pick the pictures since 2026-07-25 (requests through the
   mailbox, never a write to the pipeline DB), LIVE at commit `ad2eaac`. Pictures are served by
   Nginx now: `www-data` is in group `posinus`, `POSINUS_MEDIA_ACCEL_PREFIX=/_pipeline_media` is in
