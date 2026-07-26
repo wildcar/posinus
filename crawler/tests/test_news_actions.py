@@ -1,3 +1,5 @@
+from unittest import mock
+
 import pytest
 from django.urls import reverse
 
@@ -12,6 +14,9 @@ def source(db):
 
 @pytest.mark.django_db
 def test_translate_action_persists_and_renders_translation(monkeypatch, operator, source, make_news):
+    """End to end through the queue: the button asks, the worker translates."""
+    from collector.services import jobs
+
     item = make_news("Original title", source, day=10, seed="action-translation")
 
     def fake_translate(news):
@@ -23,8 +28,12 @@ def test_translate_action_persists_and_renders_translation(monkeypatch, operator
             model_id="deepseek-chat",
         )
 
-    monkeypatch.setattr("collector.views.translate_news", fake_translate)
-    response = operator.post(reverse("news_translate", args=[item.pk]), follow=True)
+    monkeypatch.setattr("collector.services.translation.translate_news", fake_translate)
+    queued = operator.post(reverse("news_translate", args=[item.pk]), follow=True)
+    assert "Перевод готовится" in queued.content.decode()
+
+    jobs.run_job(jobs.claim_next_job())
+    response = operator.get(reverse("news_detail", args=[item.pk]))
 
     assert response.status_code == 200
     assert NewsTranslation.objects.filter(news_item=item).exists()
@@ -129,4 +138,86 @@ def test_action_endpoints_ignore_get(operator, source, make_news):
 
     assert translate_response.status_code == select_response.status_code == 405
     assert not NewsTranslation.objects.filter(news_item=item).exists()
+    assert not item.translation_jobs.exists()
     assert not ReviewEvent.objects.filter(selector_name="operator:operator").exists()
+
+
+@pytest.mark.django_db
+def test_translation_is_queued_not_run_inside_the_request(operator, source, make_news):
+    """The model can think for minutes; the request must not wait for it."""
+    from collector.models import TranslationJob
+
+    item = make_news("To translate", source, day=10, seed="job-1")
+
+    with mock.patch("collector.services.translation.translate_news") as translate:
+        response = operator.post(reverse("news_translate", args=[item.pk]), follow=True)
+
+    translate.assert_not_called()
+    job = TranslationJob.objects.get(news_item=item)
+    assert job.status == TranslationJob.Status.QUEUED
+    assert job.requested_by == "operator"
+    assert "поставлен в очередь" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_a_second_click_does_not_queue_a_second_job(operator, source, make_news):
+    from collector.models import TranslationJob
+
+    item = make_news("Twice", source, day=10, seed="job-2")
+
+    operator.post(reverse("news_translate", args=[item.pk]))
+    response = operator.post(reverse("news_translate", args=[item.pk]), follow=True)
+
+    assert TranslationJob.objects.filter(news_item=item).count() == 1
+    assert "уже готовится" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_the_worker_runs_a_job_and_records_the_outcome(source, make_news):
+    from collector.models import TranslationJob
+    from collector.services import jobs
+
+    item = make_news("Worker", source, day=10, seed="job-3")
+    TranslationJob.objects.create(news_item=item)
+
+    with mock.patch("collector.services.translation.translate_news") as translate:
+        job = jobs.claim_next_job()
+        assert job.status == TranslationJob.Status.RUNNING
+        jobs.run_job(job)
+
+    translate.assert_called_once()
+    job.refresh_from_db()
+    assert job.status == TranslationJob.Status.DONE
+    assert job.finished_at is not None
+    assert jobs.claim_next_job() is None
+
+
+@pytest.mark.django_db
+def test_a_failing_job_closes_with_its_error(source, make_news):
+    from collector.models import TranslationJob
+    from collector.services import jobs
+
+    item = make_news("Broken", source, day=10, seed="job-4")
+    TranslationJob.objects.create(news_item=item)
+
+    with mock.patch("collector.services.translation.translate_news", side_effect=RuntimeError("роутер молчит")):
+        jobs.run_job(jobs.claim_next_job())
+
+    job = TranslationJob.objects.get(news_item=item)
+    assert job.status == TranslationJob.Status.FAILED
+    assert "роутер молчит" in job.error
+
+
+@pytest.mark.django_db
+def test_a_restart_does_not_leave_a_job_promising_a_translation(source, make_news):
+    """Nobody is going to finish a job the previous process was running."""
+    from collector.models import TranslationJob
+    from collector.services import jobs
+
+    item = make_news("Interrupted", source, day=10, seed="job-5")
+    TranslationJob.objects.create(news_item=item, status=TranslationJob.Status.RUNNING)
+
+    assert jobs.reset_interrupted_jobs() == 1
+    job = TranslationJob.objects.get(news_item=item)
+    assert job.status == TranslationJob.Status.FAILED
+    assert "перезапуске" in job.error

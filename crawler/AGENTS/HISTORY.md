@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-26 · The translation leaves the HTTP request
+- What: New `TranslationJob` model (migration `0010`) and a worker thread started only when `POSINUS_JOB_WORKER=1` (the web unit sets it, so management commands and tests never start it). The button queues a job and returns; the card says «перевод готовится» and refreshes itself; a second click while one is pending does nothing; jobs left running by a restart are closed as failed. 5 tests added, 120 pass.
+- Why: step 5 of `../docs/ui-concept.md`. The router takes minutes, so the synchronous call was cut by the proxy while the model kept working — and the operator's second click paid for a second answer that also went nowhere. Raising the Nginx timeout to 120s in step 0 only widened the window.
+- Files: crawler/collector/{models,views,apps}.py, crawler/collector/services/jobs.py, crawler/collector/migrations/0010_translation_job.py, crawler/templates/collector/news_detail.html, crawler/deploy/systemd/posinus-web.service, crawler/tests/test_news_actions.py, crawler/AGENTS/SPEC.md
+- Next: step 6 — removing a published post (needs message ids stored first), VK response counts, «похоже на уже опубликованное», bulk actions.
+
 ## 2026-07-25 · The operator can fix a retelling, through a file
 - What: The card gained an edit form (title, body) and per-picture actions («сделать ведущей», «не использовать»); both write an `edit-<news_id>.json` request into the shared mailbox, logged as an operator event. A published item offers neither. 4 tests added, 115 pass. Pipeline side (`apply_edits.py`, path unit, `edited_at`) in the same commit.
 - Why: step 5 of `../docs/ui-concept.md`. «Спас троих» where the article says four left two options: open `sqlite3` or do not publish. The web still must not write the pipeline's database, so the correction travels as a file.

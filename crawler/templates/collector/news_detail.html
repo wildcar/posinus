@@ -43,9 +43,15 @@
 <div class="card">
   <p class="muted">{{ item.language }} · {{ item.published_at|default:item.first_seen_at }} · SHA-256 {{ item.content_hash }}</p>
   <div>
-    <form style="display:inline" method="post" action="{% url 'news_translate' item.pk %}">{% csrf_token %}<button>{% if translation %}Перевести заново{% else %}Перевести на русский{% endif %}</button></form>
+    <form style="display:inline" method="post" action="{% url 'news_translate' item.pk %}">{% csrf_token %}<button{% if translation_job.pending %} disabled{% endif %}>{% if translation %}Перевести заново{% else %}Перевести на русский{% endif %}</button></form>
     {% if manual_selected %}<span class="pill ok">Отправлена в публикацию</span>{% else %}<form style="display:inline" method="post" action="{% url 'news_select' item.pk %}">{% csrf_token %}<button>Отправить в публикацию</button></form>{% endif %}
   </div>
+  {% if translation_job.pending %}
+  <p class="muted" id="translation-state" data-poll="1">Перевод готовится. Модель думает минуту-другую;
+  страницу можно закрыть, перевод появится сам.</p>
+  {% elif translation_job.status == "failed" %}
+  <p class="bad">Перевод не получился: {{ translation_job.error }}</p>
+  {% endif %}
   {% if manual_selected %}
   <p class="muted">Новость стоит в очереди на выход. Отменить нельзя: снять пост можно будет только вручную на каждой площадке.</p>
   {% else %}
@@ -187,4 +193,13 @@
 {% empty %}
 <p class="muted">Оценок по характеристикам пока нет.</p>
 {% endfor %}
+<script>
+(function () {
+  // While a translation is being made, reload the card on a slow tick. Same
+  // guards as the dashboard: never two requests at once, nothing in a hidden tab.
+  var state = document.getElementById("translation-state");
+  if (!state || !state.dataset.poll) { return; }
+  setInterval(function () { if (!document.hidden) { window.location.reload(); } }, 20000);
+})();
+</script>
 {% endblock %}

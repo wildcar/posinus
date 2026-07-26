@@ -13,6 +13,9 @@ WorkingDirectory=/opt/posinus/crawler
 EnvironmentFile=/etc/posinus/crawler.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 UMask=0007
+# Long jobs (the operator's translation requests) run in a thread of this
+# process. Only here: management commands and migrations must not start it.
+Environment=POSINUS_JOB_WORKER=1
 ExecStartPre=/usr/bin/chmod 0660 /var/lib/posinus/posinus.sqlite3
 ExecStart=/opt/posinus/crawler/.venv/bin/python -m waitress --listen=127.0.0.1:8000 --trusted-proxy=127.0.0.1 --trusted-proxy-headers=x-forwarded-proto posinus_crawler.wsgi:application
 Restart=always

@@ -141,6 +141,38 @@ class NewsTranslation(models.Model):
         db_table = "news_translations"
 
 
+class TranslationJob(models.Model):
+    """A translation asked for by the operator, done outside the HTTP request.
+
+    The model router can think for minutes; doing that inside a request meant a
+    504 from Nginx while the model kept working, and a second click that paid for
+    a second answer. The button now leaves a row here and returns immediately.
+    """
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "В очереди"
+        RUNNING = "running", "Выполняется"
+        DONE = "done", "Готов"
+        FAILED = "failed", "Ошибка"
+
+    news_item = models.ForeignKey(NewsItem, on_delete=models.CASCADE, related_name="translation_jobs")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED, db_index=True)
+    requested_by = models.CharField(max_length=200, blank=True)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "translation_jobs"
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["status", "created_at"], name="idx_translation_queue")]
+
+    @property
+    def pending(self) -> bool:
+        return self.status in {self.Status.QUEUED, self.Status.RUNNING}
+
+
 class OutboundLink(models.Model):
     occurrence = models.ForeignKey(NewsOccurrence, on_delete=models.CASCADE, related_name="outbound_links")
     url = models.URLField(max_length=3000)

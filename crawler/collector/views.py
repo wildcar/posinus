@@ -25,6 +25,7 @@ from .models import (
     PublicationPlan,
     ReviewEvent,
     SelectionBound,
+    TranslationJob,
     Source,
 )
 from .services.broadcast import broadcast_state, image_path, news_pipeline_state
@@ -403,6 +404,7 @@ def news_detail(request, pk):
         "pipeline_error": pipeline_error,
         "evaluations": sorted(evaluations.values(), key=lambda entry: entry["selector_name"]),
         "translation": getattr(item, "russian_translation", None),
+        "translation_job": item.translation_jobs.first(),
         "manual_selected": item.review_events.filter(
             selector_name=f"operator:{request.user.get_username()}"[:200],
             idempotency_key=f"selected:{item.pk}",
@@ -480,17 +482,26 @@ def news_image(request, pk, filename):
 @login_required
 @require_POST
 def news_translate(request, pk):
+    """Queue a translation and come straight back.
+
+    The model can think for minutes. Doing that inside the request meant the
+    proxy cut the answer while the model kept working, and the second click
+    paid for a second answer nobody ever saw.
+    """
     item = get_object_or_404(NewsItem, pk=pk)
     if not item.body_text.strip():
         messages.error(request, "Текст новости уже удалён, перевести его нельзя.")
-    else:
-        try:
-            translate_news(item)
-        except (ModelRouterError, TranslationError):
-            logger.exception("Translation failed for news %s", item.pk)
-            messages.error(request, "Не удалось получить перевод от модели. Подробности записаны в журнал сервера.")
-        else:
-            messages.success(request, "Перевод и краткий пересказ готовы.")
+        return redirect("news_detail", pk=pk)
+
+    pending = TranslationJob.objects.filter(
+        news_item=item, status__in=[TranslationJob.Status.QUEUED, TranslationJob.Status.RUNNING]
+    ).exists()
+    if pending:
+        messages.success(request, "Перевод уже готовится, повторное нажатие ничего не меняет.")
+        return redirect("news_detail", pk=pk)
+
+    TranslationJob.objects.create(news_item=item, requested_by=request.user.get_username())
+    messages.success(request, "Перевод поставлен в очередь: он появится в карточке через минуту-другую.")
     return redirect("news_detail", pk=pk)
 
 
