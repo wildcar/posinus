@@ -136,9 +136,10 @@ sudo -u posinus-pipeline env ROUTER_AUTH_TOKEN="$TOKEN" \
   prompt plus validation.
 - Stop every direct SQLite client before migrations or a database restore. Their units are
   listed in `/etc/posinus/update-services`.
-- `deb.nodesource.com` answers 403 on both IPv4 and IPv6 since 2026-07-27, which fails
-  `apt-get update`, which fails the Playwright dependency step of `update-ubuntu.sh`, which
-  rolls the whole update back. Until the repo file (`/etc/apt/sources.list.d/nodesource*`)
-  is fixed or dropped by the owner, a pipeline-only change can be shipped with
+- The dead NodeSource apt repo (`deb.nodesource.com` answered 403 since 2026-07-27, failing
+  `apt-get update` and therefore the Playwright dependency step of `update-ubuntu.sh`) was
+  removed from the host on 2026-07-27: nothing was installed from it since apt nodejs was
+  purged on 2026-04-23 — node exists only via keeper's nvm. `update-ubuntu.sh` was verified
+  working end-to-end the same day. Pipeline-only changes can still be shipped with
   `sudo git -C /opt/posinus pull --ff-only` while the pipeline services are inactive
   (they are oneshots and run in place; no venv, no migrations).
