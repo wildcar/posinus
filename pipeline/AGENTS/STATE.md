@@ -180,7 +180,11 @@ a publish-ready retelling, and posts them to the platforms.
   donates its caption) plus byte-identical downloads are dropped, and the original
   English captions ride in the retelling call as a «Подписи к иллюстрациям» block,
   coming back translated in `captions` — lenient like the rubric, an unusable array
-  keeps the originals at no extra model call. 11 tests added, 191 pass.
+  keeps the originals at no extra model call. 11 tests added, 191 pass. LIVE on prod at
+  `73a2db8` (2026-07-27 22:51 UTC, via `git pull` in /opt/posinus: `update-ubuntu.sh` is
+  blocked by the dead nodesource apt repo, see AGENTS/ENV.md), verified by a dry run of
+  news 5616 — telegram is a photo upload again, 817 chars against limit 1024. To check
+  after the next preparer run: `illustration.caption` comes out Russian.
 
 ## Next
 
