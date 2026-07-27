@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-27 · Telegram bows to the Дзен mirror; captions arrive in Russian, once
+- What: Telegram goes back to sendPhoto + caption, capped by `TG_TEXT_LIMIT` (1500 visible chars; Telegram's own 1024 for photo captions on top) with a «Полный текст на wildcar.org» link when paragraphs are dropped. The preparer folds duplicate illustration candidates (URL-without-query; a duplicate donates its caption) and byte-identical downloads, and sends the original captions along in the retelling call, taking them back translated in a lenient `captions` array. 11 tests added, 191 pass.
+- Why: owner's calls, all three. dzen.ru mirrors the channel through its телеграм autopublisher, which drops posts over ~1500 chars — the site RSS route opens only past 10 subscribers, so the full-text telegram lasted a day. og:image repeating the lead figure gave posts two identical photographs, and English figcaptions under a Russian retelling looked wrong; translating them rides the same paid call.
+- Files: pipeline/{publisher,preparer}.py, pipeline/tests/{test_publisher,test_preparer}.py, pipeline/deploy/pipeline.env.example, pipeline/{AGENTS/SPEC.md,docs/services.md,README.md}
+- Next: once the Дзен channel passes 10 subscribers and the RSS transmission is on, reconsider the телеграм mirror and the 1500 cap.
+
 ## 2026-07-27 · The whole retelling in telegram, and two new places to read it
 - What: New `wildcar_org` platform: news pages with ALL pictures on the static wildcar.org site (content dir → rebuild marker → `posinus-wildcar-org-build` units run MkDocs as keeper → the publisher waits for the page URL), plus a regenerated section index and a Дзен-compliant RSS feed — dzen.ru switches from the телеграм autopublisher to polling `news/rss.xml`. Telegram now sends the full text (sendMessage, ≤4096 visible chars) with the picture as a link preview from wildcar.org. 16 tests added, 180 pass.
 - Why: the owner's report «новость в телеграм публикуется не целиком» — a 1024-char photo caption cannot hold a 4-paragraph retelling, and counting the raw HTML against the limit was also throwing away a paragraph that actually fit (news 7169: 2 of 4 paragraphs fit, 1 was posted).

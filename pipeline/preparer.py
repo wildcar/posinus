@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
 import html
 import logging
 import os
@@ -214,9 +215,22 @@ class _ArticleImageParser(HTMLParser):
             self._caption_parts.append(data)
 
 
+def _image_key(url: str) -> str:
+    """De-duplication key: the URL without query and fragment. og:image is
+    usually the lead figure again, served with different sizing parameters
+    (`?w=1200` vs `?w=800`), which used to make the first two saved pictures
+    the same photograph."""
+    parts = urllib.parse.urlsplit(url)
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
 def extract_illustrations(html_body: bytes, base_url: str, limit: int) -> list[dict[str, str]]:
     """Ordered, de-duplicated illustration candidates: og:image, then figures
-    (with captions), then loose images (caption from alt)."""
+    (with captions), then loose images (caption from alt).
+
+    Duplicates are folded by `_image_key`; when the kept copy has no caption
+    and a duplicate does (og:image first, the captioned figure later), the
+    caption is adopted so de-duplication never loses it."""
     parser = _ArticleImageParser()
     parser.feed(html_body.decode("utf-8", errors="replace"))
     candidates: list[dict[str, str]] = []
@@ -227,15 +241,21 @@ def extract_illustrations(html_body: bytes, base_url: str, limit: int) -> list[d
     for loose in parser.loose:
         candidates.append({"src": loose["src"], "caption": loose["alt"]})
     result: list[dict[str, str]] = []
-    seen: set[str] = set()
+    kept: dict[str, dict[str, str]] = {}
     for candidate in candidates:
         absolute = urllib.parse.urljoin(base_url, candidate["src"])
-        if absolute in seen or not absolute.startswith(("http://", "https://")):
+        if not absolute.startswith(("http://", "https://")):
             continue
-        seen.add(absolute)
-        result.append({"url": absolute, "caption": candidate["caption"]})
+        key = _image_key(absolute)
+        if key in kept:
+            if candidate["caption"] and not kept[key]["caption"]:
+                kept[key]["caption"] = candidate["caption"]
+            continue
         if len(result) >= limit:
-            break
+            continue  # keep scanning: a duplicate may still donate its caption
+        entry = {"url": absolute, "caption": candidate["caption"]}
+        kept[key] = entry
+        result.append(entry)
     return result
 
 
@@ -246,6 +266,7 @@ def download_illustrations(
     target_dir = Path(cfg.media_dir) / str(news_id)
     target_dir.mkdir(parents=True, exist_ok=True)
     saved: list[dict[str, str]] = []
+    seen_digests: set[str] = set()
     for candidate in candidates:
         url = candidate["url"]
         try:
@@ -260,6 +281,13 @@ def download_illustrations(
         media_type = content_type.split(";")[0].strip().lower()
         if not media_type.startswith("image/") or not (MIN_IMAGE_BYTES <= len(body) <= MAX_IMAGE_BYTES):
             continue
+        # Distinct URLs can still serve byte-identical files (CDN aliases);
+        # a second copy of the same picture is never worth publishing.
+        digest = hashlib.sha256(body).hexdigest()
+        if digest in seen_digests:
+            log.info("news %s: image %s duplicates an already saved one, skipped", news_id, url)
+            continue
+        seen_digests.add(digest)
         position = len(saved) + 1
         filename = f"{position}{CONTENT_TYPE_EXT.get(media_type, '.img')}"
         path = target_dir / filename
@@ -281,17 +309,25 @@ RETELL_SYSTEM = (
     "- Не используй обороты «не только... но и», «не просто... а». Не используй длинное тире, "
     "ставь обычный дефис. Не используй знаки сравнения и математические знаки в тексте.\n"
     "- Заголовок короткий и цепляющий, без кликбейта. Тело от двух до четырёх абзацев.\n"
+    "- Если в сообщении есть блок «Подписи к иллюстрациям», переведи каждую подпись на русский "
+    "в том же порядке: коротко, без точки в конце, без выдумок.\n"
     "Формат ответа. Верни один JSON-объект и больше ничего: "
-    '{"title": "<заголовок>", "body": ["<абзац>", "<абзац>", ...]}'
+    '{"title": "<заголовок>", "body": ["<абзац>", "<абзац>", ...]}. '
+    'Если были подписи, добавь поле "captions": ["<подпись>", ...] - ровно столько же, '
+    "сколько было в блоке, в том же порядке."
 )
 
 
-def build_retell_user_message(title: str, body: str, language: str) -> str:
+def build_retell_user_message(title: str, body: str, language: str, captions: list[str] | None = None) -> str:
     source = (body or "").strip()
     if len(source) > MAX_SOURCE_CHARS:
         source = source[:MAX_SOURCE_CHARS] + "\n(текст обрезан)"
     lang = f"Язык оригинала: {language}.\n" if language else ""
-    return f"{lang}Заголовок оригинала: {(title or '').strip()}\nТекст оригинала:\n{source}"
+    message = f"{lang}Заголовок оригинала: {(title or '').strip()}\nТекст оригинала:\n{source}"
+    if captions:
+        listed = "\n".join(f"{i + 1}. {caption}" for i, caption in enumerate(captions))
+        message += f"\n\nПодписи к иллюстрациям:\n{listed}"
+    return message
 
 
 def normalize_ru(text: str) -> str:
@@ -320,25 +356,51 @@ def parse_retelling(payload: dict[str, Any]) -> tuple[str, list[str]]:
     return normalize_ru(" ".join(title.split())), [normalize_ru(p) for p in paragraphs]
 
 
-def retell(router_cfg: "evaluator.Config", news: sqlite3.Row) -> tuple[str, list[str], str]:
-    """Ask the model for a Russian retelling; one retry on invalid JSON."""
+def parse_captions(payload: dict[str, Any], expected: int) -> list[str] | None:
+    """The translated captions, or None when the reply is unusable.
+
+    Lenient on purpose, like the rubric: a bad captions array must not fail a
+    retelling that is otherwise fine, let alone cost a second paid call — the
+    original captions are simply kept."""
+    if expected <= 0:
+        return None
+    captions = payload.get("captions")
+    if not isinstance(captions, list) or len(captions) != expected \
+            or not all(isinstance(c, str) for c in captions):
+        return None
+    return [normalize_ru(" ".join(c.split())) for c in captions]
+
+
+def retell(
+    router_cfg: "evaluator.Config", news: sqlite3.Row, captions: list[str] | None = None
+) -> tuple[str, list[str], list[str] | None, str]:
+    """Ask the model for a Russian retelling; one retry on invalid JSON.
+
+    `captions` are the original (usually English) illustration captions; they
+    ride along in the same call and come back translated as the third element,
+    or None when the model did not cooperate."""
     messages = [
         {"role": "system", "content": RETELL_SYSTEM},
-        {"role": "user", "content": build_retell_user_message(news["title"], news["body_text"], news["language"])},
+        {"role": "user", "content": build_retell_user_message(
+            news["title"], news["body_text"], news["language"], captions)},
     ]
     last_error = "модель не отвечала"
     for attempt in range(1, MAX_RETELL_ATTEMPTS + 1):
         reply = evaluator.chat(router_cfg, messages)
         text = reply["text"]
         try:
-            title, paragraphs = parse_retelling(evaluator.extract_json_object(text))
+            payload = evaluator.extract_json_object(text)
+            title, paragraphs = parse_retelling(payload)
         except evaluator.EvaluationInvalid as exc:
             last_error = str(exc)
             log.warning("news %s: retelling attempt %d/%d rejected: %s", news["news_id"], attempt, MAX_RETELL_ATTEMPTS, last_error)
             messages.append({"role": "assistant", "content": text})
             messages.append({"role": "user", "content": f"Ответ не прошёл проверку: {last_error}. Пришли исправленный JSON той же схемы."})
             continue
-        return title, paragraphs, reply.get("model_id") or router_cfg.model_id
+        captions_ru = parse_captions(payload, len(captions or []))
+        if captions and captions_ru is None:
+            log.warning("news %s: captions missing or mismatched in the reply, keeping the originals", news["news_id"])
+        return title, paragraphs, captions_ru, reply.get("model_id") or router_cfg.model_id
     raise evaluator.EvaluationInvalid(last_error)
 
 
@@ -501,20 +563,32 @@ def record_error(con: sqlite3.Connection, news_id: int, message: str) -> None:
 
 
 def prepare_one(cfg: PreparerConfig, router_cfg: "evaluator.Config", news: sqlite3.Row, dry_run: bool) -> dict[str, Any]:
-    title, paragraphs, model_id = retell(router_cfg, news)
-    images: list[dict[str, str]] = []
+    # The article is fetched BEFORE the model call: the illustration captions
+    # go into the same retelling request and come back translated, so the
+    # pictures are not signed in English under a Russian text — and it costs
+    # no second call.
+    candidates: list[dict[str, str]] = []
     if news["primary_url"]:
         try:
             if allowed_by_robots(news["primary_url"], cfg.user_agent):
                 time.sleep(cfg.fetch_delay)
                 final_url, _, body = fetch(news["primary_url"], cfg.user_agent)
                 candidates = extract_illustrations(body, final_url, cfg.max_images)
-                if not dry_run:
-                    images = download_illustrations(cfg, news["news_id"], candidates)
-                else:
-                    images = [{"path": f"(dry-run) {c['url']}", "caption": c["caption"], "source_url": c["url"]} for c in candidates]
         except (urllib.error.URLError, OSError, ValueError) as exc:
             log.warning("news %s: article fetch failed: %s", news["news_id"], exc)
+
+    captions_in = [c["caption"] for c in candidates if c["caption"].strip()]
+    title, paragraphs, captions_ru, model_id = retell(router_cfg, news, captions_in)
+    if captions_ru is not None:
+        translated = iter(captions_ru)
+        for candidate in candidates:
+            if candidate["caption"].strip():
+                candidate["caption"] = next(translated)
+
+    if not dry_run:
+        images = download_illustrations(cfg, news["news_id"], candidates)
+    else:
+        images = [{"path": f"(dry-run) {c['url']}", "caption": c["caption"], "source_url": c["url"]} for c in candidates]
     source_url = news["primary_url"] or ""
     body_md = build_markdown(title, paragraphs, source_url, source_name_from_url(source_url) if source_url else "")
     return {"title": title, "paragraphs": paragraphs, "model_id": model_id, "images": images, "body_md": body_md}

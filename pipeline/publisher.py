@@ -19,12 +19,13 @@ Platforms (each turns on only when its secrets are present in the config):
 - wildcar_org: the news section of the static wildcar.org site (MkDocs). The
   publisher writes the page and its pictures into a content directory, touches
   a rebuild marker for the site-build unit and waits until the page is live.
-  It also regenerates the section index and the Dzen RSS feed (`rss.xml`),
-  which is what publishes the news on dzen.ru — Дзен polls the feed itself.
-- telegram: sendMessage with the FULL retelling (up to 4096 chars of visible
-  text) to the channel (@posinus); the picture rides along as a link preview
-  pointing at its wildcar.org copy. Without wildcar.org the old sendPhoto with
-  a 1024-char caption is the fallback.
+  It also regenerates the section index and the Dzen RSS feed (`rss.xml`) —
+  the long game for dzen.ru, which polls the feed itself once connected.
+- telegram: sendPhoto + HTML caption to the channel (@posinus). The caption is
+  capped by TG_TEXT_LIMIT (default 1500, and by Telegram's own 1024 for photo
+  captions): dzen.ru currently mirrors the channel through its телеграм
+  autopublisher, which drops longer posts. A truncated post carries a link to
+  the full text on wildcar.org.
 - site: wildcar.ru on the Эгея engine (login, new-note form, image upload,
   note-process, note-publish) with Neasden markup.
 - vk: a community wall post (photo upload + wall.post from the group).
@@ -143,6 +144,9 @@ class PublisherConfig:
     tg_token: str = ""
     tg_chat: str = DEFAULT_TG_CHAT
     tg_channel_username: str = "posinus"
+    # Longest post (visible chars) the Дзен телеграм autopublisher carries over.
+    # Telegram's own caption cap (1024) still applies on top for photo posts.
+    tg_text_limit: int = 1500
     # Site (Эгея, wildcar.ru)
     site_base: str = "https://wildcar.ru"
     site_login: str = "wildcar"
@@ -184,6 +188,7 @@ class PublisherConfig:
         cfg.tg_token = env.get("TELEGRAM_BOT_TOKEN", cfg.tg_token)
         cfg.tg_chat = env.get("TELEGRAM_CHAT_ID", cfg.tg_chat)
         cfg.tg_channel_username = env.get("TELEGRAM_CHANNEL_USERNAME", cfg.tg_channel_username)
+        cfg.tg_text_limit = int(env.get("TG_TEXT_LIMIT", cfg.tg_text_limit))
         cfg.site_base = env.get("EGEYA_BASE_URL", cfg.site_base).rstrip("/")
         cfg.site_login = env.get("EGEYA_LOGIN", cfg.site_login)
         cfg.site_password = env.get("EGEYA_PASSWORD", cfg.site_password)
@@ -208,8 +213,8 @@ class PublisherConfig:
     def enabled_platforms(self) -> list[str]:
         """A platform turns on only when its required secrets are set.
 
-        wildcar_org goes first: telegram links its picture from the wildcar.org
-        copy, so within one run the page must already be written and live."""
+        wildcar_org goes first: a truncated telegram caption links to the full
+        text there, so within one run the page should already be live."""
         platforms: list[str] = []
         if self.wildcar_base:
             platforms.append("wildcar_org")
@@ -381,9 +386,12 @@ def _tg_len(text: str) -> int:
 
 
 def build_tg_message(
-    title: str, paragraphs: list[str], source_url: str, source_name: str, limit: int
+    title: str, paragraphs: list[str], source_url: str, source_name: str, limit: int,
+    more_url: str = "",
 ) -> str:
     """HTML message: bold title, as many leading paragraphs as fit, source link.
+    When paragraphs had to be dropped, a link to the full text (`more_url`,
+    the wildcar.org page) goes in before the source line.
 
     The limit applies to the VISIBLE text — Telegram counts what the reader
     sees after parsing the entities, not the raw HTML with its tags and the
@@ -396,6 +404,13 @@ def build_tg_message(
         if text:
             visible += "\n\n" + text
             message += "\n\n" + html.escape(text)
+        if more_url and n < len(paragraphs):
+            label = "Полный текст на wildcar.org"
+            visible += "\n\n" + label
+            message += (
+                '\n\n<a href="' + html.escape(more_url, quote=True) + '">'
+                + html.escape(label) + "</a>"
+            )
         if source_url:
             label = "Источник: " + (source_name or source_name_from_url(source_url))
             visible += "\n\n" + label
@@ -598,25 +613,22 @@ def _abs_url(base: str, loc: str) -> str:
 
 
 def publish_telegram(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
-    """Full retelling as one message; the picture rides along as a link preview.
+    """Photo with an HTML caption, short enough for the Дзен autopublisher.
 
-    A photo caption is capped at 1024 characters, which cut most retellings to
-    a paragraph. So with wildcar.org on, the picture is not uploaded at all:
-    sendMessage carries the whole text (4096) and link_preview_options points
-    at the picture's wildcar.org copy. The copy must be live first — until the
-    site build catches up this raises and the item is retried, which is why
-    wildcar_org runs before telegram in the platform order. Without wildcar.org
-    the old sendPhoto path remains."""
+    dzen.ru currently mirrors the channel with its телеграм autopublisher,
+    which drops posts longer than ~1500 visible characters — so no full
+    retellings here: the caption is capped by TG_TEXT_LIMIT (and by Telegram's
+    own 1024 for photo captions), counted on the visible text. When paragraphs
+    had to be dropped, the caption links to the full text on wildcar.org."""
+    more_url = wildcar_page_url(cfg, item.news_id) if cfg.wildcar_base else ""
     api = f"https://api.telegram.org/bot{cfg.tg_token}"
-    preview_url = ""
-    if item.lead_image and cfg.wildcar_base:
-        preview_url = wildcar_image_url(cfg, item.news_id, Path(item.lead_image).name)
-
-    if item.lead_image and not preview_url:  # wildcar.org off: photo + caption
+    if item.lead_image:
+        limit = min(TG_CAPTION_LIMIT, cfg.tg_text_limit)
         caption = build_tg_message(
-            item.title, item.paragraphs, item.source_url, item.source_name, TG_CAPTION_LIMIT)
+            item.title, item.paragraphs, item.source_url, item.source_name, limit, more_url)
         if dry_run:
-            log.info("news %s telegram [dry-run]: photo upload, %d chars", item.news_id, len(caption))
+            log.info("news %s telegram [dry-run]: photo upload, %d chars (limit %d)",
+                     item.news_id, len(caption), limit)
             return "(dry-run)"
         image = Path(item.lead_image).read_bytes()
         content_type, body = encode_multipart(
@@ -625,22 +637,17 @@ def publish_telegram(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) ->
         )
         payload = _post_json_result(api + "/sendPhoto", body, content_type, HTTP_TIMEOUT)
     else:
+        limit = min(TG_MESSAGE_LIMIT, cfg.tg_text_limit)
         text = build_tg_message(
-            item.title, item.paragraphs, item.source_url, item.source_name, TG_MESSAGE_LIMIT)
+            item.title, item.paragraphs, item.source_url, item.source_name, limit, more_url)
         if dry_run:
-            log.info("news %s telegram [dry-run]: preview=%s, %d chars",
-                     item.news_id, preview_url or "off", len(text))
+            log.info("news %s telegram [dry-run]: text message, %d chars (limit %d)",
+                     item.news_id, len(text), limit)
             return "(dry-run)"
-        if preview_url:
-            status, _ = http_send(preview_url, method="GET", timeout=30)
-            if status != 200:
-                raise PublishError(
-                    f"telegram: preview image {preview_url} is not live yet (status {status})")
-            preview = {"url": preview_url, "prefer_large_media": True, "show_above_text": True}
-        else:
-            preview = {"is_disabled": True}
+        # The preview is off so the source (or full-text) link does not unfurl
+        # into a second picture under the post.
         fields = {"chat_id": cfg.tg_chat, "text": text, "parse_mode": "HTML",
-                  "link_preview_options": json.dumps(preview)}
+                  "link_preview_options": json.dumps({"is_disabled": True})}
         payload = _post_json_result(
             api + "/sendMessage", urllib.parse.urlencode(fields).encode("utf-8"),
             "application/x-www-form-urlencoded", HTTP_TIMEOUT,

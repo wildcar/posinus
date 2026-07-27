@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -56,6 +57,33 @@ class ExtractIllustrationsTests(unittest.TestCase):
         self.assertEqual(len(items), 2)
         html = b'<img src="/a.jpg"><img src="/a.jpg">'
         self.assertEqual(len(extract_illustrations(html, "https://site.test/", 10)), 1)
+
+    def test_og_image_resized_duplicate_is_folded_and_donates_its_caption(self):
+        # og:image is the lead figure again with different sizing parameters —
+        # the pair used to publish as two identical photographs
+        html = (
+            b'<html><head><meta property="og:image" '
+            b'content="https://site.test/img/one.jpg?w=1200&h=630"></head><body>'
+            b'<figure><img src="/img/one.jpg?w=800"><figcaption>Signed</figcaption></figure>'
+            b'<figure><img src="/img/two.jpg"></figure></body></html>'
+        )
+        items = extract_illustrations(html, "https://site.test/", limit=10)
+        self.assertEqual([i["url"] for i in items],
+                         ["https://site.test/img/one.jpg?w=1200&h=630",
+                          "https://site.test/img/two.jpg"])
+        # the kept og:image copy adopted the figure's caption
+        self.assertEqual(items[0]["caption"], "Signed")
+
+    def test_caption_donated_even_past_the_limit(self):
+        html = (
+            b'<html><head><meta property="og:image" '
+            b'content="https://site.test/img/one.jpg?w=1200"></head><body>'
+            b'<figure><img src="/img/one.jpg"><figcaption>Late caption</figcaption></figure>'
+            b"</body></html>"
+        )
+        items = extract_illustrations(html, "https://site.test/", limit=1)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["caption"], "Late caption")
 
 
 class ParseRetellingTests(unittest.TestCase):
@@ -173,6 +201,101 @@ class OwnDbTests(unittest.TestCase):
         self.assertEqual((row["status"], row["error"]), ("error", "boom"))
         save_prepared(self.con, 7, "t", "md", "m", [])
         self.assertEqual(prepared_ids(self.con), {7})
+
+
+class DownloadDedupTests(unittest.TestCase):
+    def test_byte_identical_files_are_saved_once(self):
+        # distinct URLs, same bytes: CDN aliases of one photograph
+        bodies = {
+            "https://a.test/1.jpg": b"X" * 4000,
+            "https://b.test/same.jpg": b"X" * 4000,
+            "https://a.test/2.jpg": b"Y" * 4000,
+        }
+
+        def fake_fetch(url, user_agent, timeout=0):
+            return url, "image/jpeg", bodies[url]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = preparer.PreparerConfig(media_dir=tmp, fetch_delay=0)
+            candidates = [{"url": url, "caption": ""} for url in bodies]
+            with mock.patch.object(preparer, "allowed_by_robots", return_value=True), \
+                 mock.patch.object(preparer, "fetch", fake_fetch):
+                saved = preparer.download_illustrations(cfg, 9, candidates)
+        self.assertEqual(len(saved), 2)
+        self.assertEqual([s["source_url"] for s in saved],
+                         ["https://a.test/1.jpg", "https://a.test/2.jpg"])
+
+
+class ParseCaptionsTests(unittest.TestCase):
+    def test_valid_captions_normalized(self):
+        payload = {"captions": ["Кот — герой", "  два   слова "]}
+        self.assertEqual(preparer.parse_captions(payload, 2), ["Кот - герой", "два слова"])
+
+    def test_unusable_reply_returns_none(self):
+        self.assertIsNone(preparer.parse_captions({}, 2))
+        self.assertIsNone(preparer.parse_captions({"captions": ["одна"]}, 2))
+        self.assertIsNone(preparer.parse_captions({"captions": "строкой"}, 1))
+        self.assertIsNone(preparer.parse_captions({"captions": [1, 2]}, 2))
+
+    def test_nothing_expected_returns_none(self):
+        self.assertIsNone(preparer.parse_captions({"captions": ["лишняя"]}, 0))
+
+
+class RetellCaptionsTests(unittest.TestCase):
+    NEWS = {"news_id": 1, "title": "T", "body_text": "Body.", "language": "en"}
+
+    def test_captions_ride_in_the_same_call_and_come_back(self):
+        def fake_chat(cfg, messages):
+            self.assertIn("Подписи к иллюстрациям:", messages[1]["content"])
+            self.assertIn("1. First cap", messages[1]["content"])
+            return {"text": '{"title": "Т", "body": ["А."], "captions": ["Первая"]}',
+                    "model_id": "m"}
+
+        with mock.patch.object(evaluator, "chat", fake_chat):
+            title, paras, captions, model_id = preparer.retell(mock.Mock(), self.NEWS, ["First cap"])
+        self.assertEqual(captions, ["Первая"])
+        self.assertEqual((title, paras, model_id), ("Т", ["А."], "m"))
+
+    def test_bad_captions_do_not_fail_the_retelling(self):
+        def fake_chat(cfg, messages):
+            return {"text": '{"title": "Т", "body": ["А."]}', "model_id": "m"}
+
+        with mock.patch.object(evaluator, "chat", fake_chat):
+            title, paras, captions, _ = preparer.retell(mock.Mock(), self.NEWS, ["First cap"])
+        self.assertIsNone(captions)  # the originals are kept downstream
+        self.assertEqual(title, "Т")
+
+    def test_no_captions_no_block_in_the_prompt(self):
+        def fake_chat(cfg, messages):
+            self.assertNotIn("Подписи к иллюстрациям", messages[1]["content"])
+            return {"text": '{"title": "Т", "body": ["А."]}', "model_id": "m"}
+
+        with mock.patch.object(evaluator, "chat", fake_chat):
+            preparer.retell(mock.Mock(), self.NEWS, [])
+
+
+class PrepareOneCaptionTests(unittest.TestCase):
+    def test_translations_land_on_the_captioned_candidates_only(self):
+        news = {"news_id": 1, "primary_url": "https://s.test/a",
+                "title": "T", "body_text": "B.", "language": "en"}
+        candidates = [
+            {"url": "https://s.test/1.jpg", "caption": ""},
+            {"url": "https://s.test/2.jpg", "caption": "First"},
+            {"url": "https://s.test/3.jpg", "caption": "Second"},
+        ]
+
+        def fake_chat(cfg, messages):
+            return {"text": '{"title": "Т", "body": ["А."], "captions": ["Первая", "Вторая"]}',
+                    "model_id": "m"}
+
+        cfg = preparer.PreparerConfig(fetch_delay=0)
+        with mock.patch.object(preparer, "allowed_by_robots", return_value=True), \
+             mock.patch.object(preparer, "fetch", return_value=("https://s.test/a", "text/html", b"")), \
+             mock.patch.object(preparer, "extract_illustrations", return_value=candidates), \
+             mock.patch.object(evaluator, "chat", fake_chat):
+            result = preparer.prepare_one(cfg, mock.Mock(), news, dry_run=True)
+        self.assertEqual([img["caption"] for img in result["images"]],
+                         ["", "Первая", "Вторая"])
 
 
 class RouterIdentityTests(unittest.TestCase):

@@ -169,6 +169,19 @@ a publish-ready retelling, and posts them to the platforms.
   `/etc/posinus/pipeline.env`, connects the feed in the Дзен studio and turns the телеграм
   autopublisher off there.
 
+- Since 2026-07-27 (second pass, owner's feedback) telegram is back to sendPhoto with a
+  caption: the Дзен телеграм autopublisher — the way dzen.ru mirrors the channel until it
+  reaches 10 subscribers and can take the site RSS — drops posts longer than ~1500 visible
+  chars, so full retellings had to go. The cap is `TG_TEXT_LIMIT` (1500; Telegram's own
+  1024 for photo captions applies on top), counted on visible text, and a truncated
+  caption links «Полный текст на wildcar.org» to the news page. The preparer got two
+  fixes in the same pass: illustration candidates are de-duplicated by URL-without-query
+  (og:image almost always repeats the lead figure with other sizing params; the duplicate
+  donates its caption) plus byte-identical downloads are dropped, and the original
+  English captions ride in the retelling call as a «Подписи к иллюстрациям» block,
+  coming back translated in `captions` — lenient like the rubric, an unusable array
+  keeps the originals at no extra model call. 11 tests added, 191 pass.
+
 ## Next
 
 1. Prompt calibration and soft profiles («Россия» / «Международное»). The `default` profile

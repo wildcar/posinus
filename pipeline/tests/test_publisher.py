@@ -114,6 +114,20 @@ class TelegramMessageTests(unittest.TestCase):
         self.assertEqual(_tg_len("абв"), 3)
         self.assertEqual(_tg_len("🎬"), 2)  # non-BMP emoji is two UTF-16 units
 
+    def test_truncated_message_links_the_full_text(self):
+        paras = ["x" * 600, "y" * 600]
+        msg = build_tg_message("T", paras, "https://s.test/a", "s.test", 1024,
+                               more_url="https://wildcar.org/news/5/")
+        self.assertIn("x" * 600, msg)
+        self.assertNotIn("y" * 600, msg)
+        self.assertIn('<a href="https://wildcar.org/news/5/">Полный текст на wildcar.org</a>', msg)
+        self.assertIn("Источник", msg)
+
+    def test_untruncated_message_has_no_full_text_link(self):
+        msg = build_tg_message("T", ["a"], "https://s.test/a", "s.test", 1024,
+                               more_url="https://wildcar.org/news/5/")
+        self.assertNotIn("Полный текст", msg)
+
 
 class VkAndSiteTextTests(unittest.TestCase):
     def test_vk_message_has_title_body_source(self):
@@ -323,35 +337,9 @@ class TelegramSendTests(unittest.TestCase):
             source_url="https://s.test/a", source_name="s.test", images=images,
         )
 
-    def test_full_text_message_with_wildcar_preview(self):
+    def test_image_goes_as_photo_upload_with_caption(self):
         cfg = PublisherConfig(tg_token="tok", tg_channel_username="posinus",
                               wildcar_base="https://wildcar.org")
-        sent = {}
-
-        def fake_post(url, data, content_type, timeout):
-            sent["url"], sent["data"] = url, data
-            return {"ok": True, "result": {"message_id": 5}}
-
-        with mock.patch.object(publisher, "http_send", return_value=(200, b"")), \
-             mock.patch.object(publisher, "_post_json_result", fake_post):
-            out = publisher.publish_telegram(cfg, self.make_item("/media/1.jpg"), dry_run=False)
-        self.assertEqual(out, "https://t.me/posinus/5")
-        self.assertIn("/sendMessage", sent["url"])
-        fields = urllib.parse.parse_qs(sent["data"].decode("utf-8"))
-        preview = json.loads(fields["link_preview_options"][0])
-        self.assertEqual(preview["url"], "https://wildcar.org/news/7169/1.jpg")
-        self.assertTrue(preview["prefer_large_media"])
-        self.assertTrue(preview["show_above_text"])
-        self.assertIn("<b>Т</b>", fields["text"][0])
-
-    def test_preview_image_not_live_raises(self):
-        cfg = PublisherConfig(tg_token="tok", wildcar_base="https://wildcar.org")
-        with mock.patch.object(publisher, "http_send", return_value=(404, b"")):
-            with self.assertRaises(PublishError):
-                publisher.publish_telegram(cfg, self.make_item("/media/1.jpg"), dry_run=False)
-
-    def test_without_wildcar_falls_back_to_photo_upload(self):
-        cfg = PublisherConfig(tg_token="tok", tg_channel_username="posinus")
         with tempfile.NamedTemporaryFile(suffix=".jpg") as f:
             f.write(b"\xff\xd8img")
             f.flush()
@@ -365,8 +353,10 @@ class TelegramSendTests(unittest.TestCase):
                 out = publisher.publish_telegram(cfg, self.make_item(f.name), dry_run=False)
         self.assertEqual(out, "https://t.me/posinus/6")
         self.assertIn("/sendPhoto", sent["url"])
+        self.assertIn("caption".encode(), sent["data"])
+        self.assertIn(b"\xff\xd8img", sent["data"])
 
-    def test_no_image_disables_the_preview(self):
+    def test_no_image_sends_text_with_the_preview_off(self):
         cfg = PublisherConfig(tg_token="tok", wildcar_base="https://wildcar.org")
         sent = {}
 
@@ -376,9 +366,31 @@ class TelegramSendTests(unittest.TestCase):
 
         with mock.patch.object(publisher, "_post_json_result", fake_post):
             publisher.publish_telegram(cfg, self.make_item(None), dry_run=False)
+        self.assertIn("/sendMessage", sent["url"])
         fields = urllib.parse.parse_qs(sent["data"].decode("utf-8"))
         preview = json.loads(fields["link_preview_options"][0])
         self.assertTrue(preview["is_disabled"])
+        self.assertIn("<b>Т</b>", fields["text"][0])
+
+    def test_long_text_without_image_respects_tg_text_limit(self):
+        # 1500 is what the Дзен autopublisher carries over, so a text post is
+        # cut there even though Telegram itself would allow 4096
+        cfg = PublisherConfig(tg_token="tok", wildcar_base="https://wildcar.org")
+        item = PreparedNews(
+            news_id=7169, title="Т", paragraphs=["п" * 700] * 4, lead_image=None,
+            source_url="https://s.test/a", source_name="s.test", images=[],
+        )
+        sent = {}
+
+        def fake_post(url, data, content_type, timeout):
+            sent["data"] = data
+            return {"ok": True, "result": {"message_id": 8}}
+
+        with mock.patch.object(publisher, "_post_json_result", fake_post):
+            publisher.publish_telegram(cfg, item, dry_run=False)
+        text = urllib.parse.parse_qs(sent["data"].decode("utf-8"))["text"][0]
+        self.assertEqual(text.count("п" * 700), 2)  # 2 of 4 paragraphs fit in 1500
+        self.assertIn('href="https://wildcar.org/news/7169/"', text)
 
 
 class LockedForFirstWrites:

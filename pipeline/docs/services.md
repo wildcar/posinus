@@ -61,6 +61,14 @@ the model for a fresh lively Russian retelling (JSON `{title, body[]}`), stores 
 document plus the downloaded images, and marks it «Подготовлено». On a per-item failure it
 writes `status='error'` with the message; the item re-enters the queue on the next run.
 
+Two illustration quirks are handled here. Duplicates: og:image is usually the lead figure
+again with different sizing parameters in the URL, so candidates are de-duplicated by
+URL-without-query (a duplicate donates its caption to the kept copy) and byte-identical
+downloads are dropped. Captions: the original (English) captions ride along in the same
+retelling call as a «Подписи к иллюстрациям» block and come back translated in a
+`captions` array; an unusable array keeps the originals and never fails the retelling —
+same leniency as the rubric, one paid call either way.
+
 Config (in `/etc/posinus/pipeline.env`):
 
 - `PREP_BATCH` (default 5) — selected news prepared per run.
@@ -84,14 +92,17 @@ timer runs harmlessly until at least one is configured):
 | Platform | How | Required config |
 |----------|-----|-----------------|
 | `wildcar_org` | writes the page + pictures into the content dir, regenerates the section index and the Dzen RSS feed, touches the rebuild marker, waits until the page is live (see below) | `WILDCAR_ORG_BASE_URL`; `WILDCAR_ORG_CONTENT_DIR`, `WILDCAR_ORG_SECTION`, `WILDCAR_ORG_WAIT_SECONDS` |
-| `telegram` | `sendMessage` with the FULL retelling (≤4096 visible chars) to @posinus; the picture is a link preview pointing at its wildcar.org copy. Without `wildcar_org`: `sendPhoto` + caption (≤1024) | `TELEGRAM_BOT_TOKEN`; `TELEGRAM_CHAT_ID` (default `-1003795927410`), `TELEGRAM_CHANNEL_USERNAME` |
+| `telegram` | `sendPhoto` + HTML caption to @posinus, capped at `TG_TEXT_LIMIT` (1500 — the Дзен autopublisher drops longer posts) and Telegram's own 1024 for photo captions, both counted on the VISIBLE text; a truncated caption links to the full text on wildcar.org | `TELEGRAM_BOT_TOKEN`; `TELEGRAM_CHAT_ID` (default `-1003795927410`), `TELEGRAM_CHANNEL_USERNAME`, `TG_TEXT_LIMIT` |
 | `site` | wildcar.ru on Эгея: login → image upload → `note-process` → `note-publish` → verify | `EGEYA_PASSWORD` (login `EGEYA_LOGIN`, default `wildcar`); `EGEYA_BASE_URL`, `EGEYA_TAGS` |
 | `vk` | community wall: photo upload + `wall.post` from the group | `VK_ACCESS_TOKEN` **and** `VK_GROUP_ID`; `VK_API_VERSION` |
 
-`wildcar_org` runs first in the platform order on purpose: telegram links its picture
-from the wildcar.org copy, so within one run the page must already be live. While it is
-not (the build has not caught up, or the platform is broken), telegram records an error
-and is retried on the next run.
+`wildcar_org` runs first in the platform order on purpose: a truncated telegram caption
+links to the full text there, so within one run the page should already be live.
+
+Дзен today: the channel is mirrored from telegram by Дзен's own autopublisher, hence the
+1500-char cap on telegram posts. The RSS route below is the long game — Дзен lets a
+channel transmit its site RSS only past 10 subscribers; once that is on, the telegram
+mirror (and with it the cap) can be reconsidered.
 
 ### wildcar.org and Дзен
 
@@ -115,12 +126,13 @@ half-finished run heals itself. Unlike the other platforms nothing is "sent": de
 page means deleting its directory from the content dir and touching the marker.
 
 **Дзен has no posting API** — it polls `https://wildcar.org/news/rss.xml` (every 2–5
-minutes) once the feed is connected in the channel settings. The feed carries the last
-30 items with the full text in `content:encoded`, absolute picture URLs, and the fields
-Дзен requires (title without a trailing period, link, guid, RFC-822 pubDate, category).
-So dzen.ru gets the news by publishing to `wildcar_org`; there is no `dzen` platform in
-the `publication` table. Дзен ignores items older than 7 days and treats a changed
-`guid` as a new post — the guid is the page URL, which never changes.
+minutes) once the feed is connected in the channel settings, which Дзен allows past 10
+subscribers; until then the channel mirrors telegram via Дзен's autopublisher. The feed
+carries the last 30 items with the full text in `content:encoded`, absolute picture
+URLs, and the fields Дзен requires (title without a trailing period, link, guid,
+RFC-822 pubDate, category). There is no `dzen` platform in the `publication` table
+either way. Дзен ignores items older than 7 days and treats a changed `guid` as a new
+post — the guid is the page URL, which never changes.
 
 Pacing and robustness (config):
 
