@@ -160,9 +160,14 @@ a publish-ready retelling, and posts them to the platforms.
   link preview from wildcar.org; the length limit is now counted on the visible text — the
   old raw-HTML count alone was costing a paragraph (news 7169 fit 2 of 4, posted 1).
   Дзен needs no adapter: it polls the RSS itself once the owner connects the feed.
-  16 tests added, 180 pass. NOT YET LIVE: owner actions are `install.sh` (new unit + content
-  dir), WILDCAR_ORG_BASE_URL in `/etc/posinus/pipeline.env`, connecting the feed in the Дзен
-  studio and turning the телеграм autopublisher off there.
+  16 tests added, 180 pass. Code is on prod (commit `c23faf8`, `update-ubuntu.sh`,
+  2026-07-27 12:22 UTC, backup `pre-update-20260727T122224Z.sqlite3`) and verified by a
+  dry run of news 5745 through all four platforms: wildcar_org built the page with 4
+  images, telegram rendered 1416 chars of full text with the preview
+  `https://wildcar.org/news/5745/1.png`. NOT YET LIVE — the platform is off until the
+  owner runs `install.sh` (new build unit + content dir), sets WILDCAR_ORG_BASE_URL in
+  `/etc/posinus/pipeline.env`, connects the feed in the Дзен studio and turns the телеграм
+  autopublisher off there.
 
 ## Next
 
