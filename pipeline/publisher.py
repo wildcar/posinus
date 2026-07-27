@@ -16,7 +16,15 @@ succeeded, so a broken platform (e.g. a bad VK token) never blocks the queue.
 
 Platforms (each turns on only when its secrets are present in the config):
 
-- telegram: sendPhoto + HTML caption to the channel (@posinus).
+- wildcar_org: the news section of the static wildcar.org site (MkDocs). The
+  publisher writes the page and its pictures into a content directory, touches
+  a rebuild marker for the site-build unit and waits until the page is live.
+  It also regenerates the section index and the Dzen RSS feed (`rss.xml`),
+  which is what publishes the news on dzen.ru — Дзен polls the feed itself.
+- telegram: sendMessage with the FULL retelling (up to 4096 chars of visible
+  text) to the channel (@posinus); the picture rides along as a link preview
+  pointing at its wildcar.org copy. Without wildcar.org the old sendPhoto with
+  a 1024-char caption is the fallback.
 - site: wildcar.ru on the Эгея engine (login, new-note form, image upload,
   note-process, note-publish) with Neasden markup.
 - vk: a community wall post (photo upload + wall.post from the group).
@@ -40,6 +48,7 @@ Behavior: AGENTS/SPEC.md, section «Публикация (метка "Опубл
 from __future__ import annotations
 
 import argparse
+import email.utils
 import gzip
 import html
 import http.cookiejar
@@ -48,6 +57,7 @@ import logging
 import mimetypes
 import os
 import re
+import shutil
 import sqlite3
 import sys
 import time
@@ -138,6 +148,13 @@ class PublisherConfig:
     site_login: str = "wildcar"
     site_password: str = ""
     site_tags: str = "добрые новости"
+    # wildcar.org (static MkDocs site) — news pages, section index and the Dzen
+    # RSS feed. The base URL doubles as the on/off switch: empty = platform off.
+    wildcar_base: str = ""
+    wildcar_content_dir: str = "/var/lib/posinus/wildcar-org"
+    wildcar_section: str = "news"
+    # How long one run waits for the site-build unit to make the page live.
+    wildcar_wait_seconds: int = 90
     # VK community wall
     vk_token: str = ""
     vk_group_id: str = ""
@@ -171,6 +188,10 @@ class PublisherConfig:
         cfg.site_login = env.get("EGEYA_LOGIN", cfg.site_login)
         cfg.site_password = env.get("EGEYA_PASSWORD", cfg.site_password)
         cfg.site_tags = env.get("EGEYA_TAGS", cfg.site_tags)
+        cfg.wildcar_base = env.get("WILDCAR_ORG_BASE_URL", cfg.wildcar_base).rstrip("/")
+        cfg.wildcar_content_dir = env.get("WILDCAR_ORG_CONTENT_DIR", cfg.wildcar_content_dir)
+        cfg.wildcar_section = env.get("WILDCAR_ORG_SECTION", cfg.wildcar_section).strip("/")
+        cfg.wildcar_wait_seconds = int(env.get("WILDCAR_ORG_WAIT_SECONDS", cfg.wildcar_wait_seconds))
         cfg.vk_token = env.get("VK_ACCESS_TOKEN", cfg.vk_token)
         cfg.vk_group_id = env.get("VK_GROUP_ID", cfg.vk_group_id)
         cfg.vk_api_version = env.get("VK_API_VERSION", cfg.vk_api_version)
@@ -185,8 +206,13 @@ class PublisherConfig:
         return cfg
 
     def enabled_platforms(self) -> list[str]:
-        """A platform turns on only when its required secrets are set."""
+        """A platform turns on only when its required secrets are set.
+
+        wildcar_org goes first: telegram links its picture from the wildcar.org
+        copy, so within one run the page must already be written and live."""
         platforms: list[str] = []
+        if self.wildcar_base:
+            platforms.append("wildcar_org")
         if self.tg_token:
             platforms.append("telegram")
         if self.site_password:
@@ -303,6 +329,10 @@ class PreparedNews:
     lead_image: str | None
     source_url: str
     source_name: str
+    # Every illustration with an existing file, as (path, caption) in position
+    # order. Telegram/VK/Эгея still take only the lead; wildcar.org (and hence
+    # the Dzen feed) carries them all.
+    images: list[tuple[str, str]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------- content builders
@@ -345,30 +375,42 @@ def parse_markdown(md: str) -> tuple[str, list[str], str, str]:
     return title, paragraphs, source_url, source_name
 
 
-def build_tg_caption(
+def _tg_len(text: str) -> int:
+    """Text length the way Telegram counts it: UTF-16 code units."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def build_tg_message(
     title: str, paragraphs: list[str], source_url: str, source_name: str, limit: int
 ) -> str:
-    """HTML caption: bold title, as many leading paragraphs as fit, source link."""
+    """HTML message: bold title, as many leading paragraphs as fit, source link.
 
-    def render(n: int) -> str:
-        caption = f"<b>{html.escape(title)}</b>"
+    The limit applies to the VISIBLE text — Telegram counts what the reader
+    sees after parsing the entities, not the raw HTML with its tags and the
+    href URL. Counting the raw string here used to cost a whole paragraph."""
+
+    def render(n: int) -> tuple[str, str]:
+        visible = title
+        message = f"<b>{html.escape(title)}</b>"
         text = "\n\n".join(paragraphs[:n])
         if text:
-            caption += "\n\n" + html.escape(text)
+            visible += "\n\n" + text
+            message += "\n\n" + html.escape(text)
         if source_url:
-            caption += (
+            label = "Источник: " + (source_name or source_name_from_url(source_url))
+            visible += "\n\n" + label
+            message += (
                 '\n\n<a href="' + html.escape(source_url, quote=True) + '">'
-                + "Источник: " + html.escape(source_name or source_name_from_url(source_url))
-                + "</a>"
+                + html.escape(label) + "</a>"
             )
-        return caption
+        return visible, message
 
-    n = min(len(paragraphs), 3)
-    caption = render(n)
-    while len(caption) > limit and n > 0:
+    n = len(paragraphs)
+    visible, message = render(n)
+    while _tg_len(visible) > limit and n > 0:
         n -= 1
-        caption = render(n)
-    return caption[:limit]
+        visible, message = render(n)
+    return message
 
 
 def build_vk_message(title: str, paragraphs: list[str], source_url: str, source_name: str) -> str:
@@ -556,23 +598,49 @@ def _abs_url(base: str, loc: str) -> str:
 
 
 def publish_telegram(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
-    has_image = bool(item.lead_image)
-    limit = TG_CAPTION_LIMIT if has_image else TG_MESSAGE_LIMIT
-    caption = build_tg_caption(item.title, item.paragraphs, item.source_url, item.source_name, limit)
-    if dry_run:
-        log.info("news %s telegram [dry-run]: image=%s, %d chars", item.news_id, has_image, len(caption))
-        return "(dry-run)"
+    """Full retelling as one message; the picture rides along as a link preview.
 
+    A photo caption is capped at 1024 characters, which cut most retellings to
+    a paragraph. So with wildcar.org on, the picture is not uploaded at all:
+    sendMessage carries the whole text (4096) and link_preview_options points
+    at the picture's wildcar.org copy. The copy must be live first — until the
+    site build catches up this raises and the item is retried, which is why
+    wildcar_org runs before telegram in the platform order. Without wildcar.org
+    the old sendPhoto path remains."""
     api = f"https://api.telegram.org/bot{cfg.tg_token}"
-    if has_image:
-        image = Path(item.lead_image).read_bytes()  # type: ignore[arg-type]
+    preview_url = ""
+    if item.lead_image and cfg.wildcar_base:
+        preview_url = wildcar_image_url(cfg, item.news_id, Path(item.lead_image).name)
+
+    if item.lead_image and not preview_url:  # wildcar.org off: photo + caption
+        caption = build_tg_message(
+            item.title, item.paragraphs, item.source_url, item.source_name, TG_CAPTION_LIMIT)
+        if dry_run:
+            log.info("news %s telegram [dry-run]: photo upload, %d chars", item.news_id, len(caption))
+            return "(dry-run)"
+        image = Path(item.lead_image).read_bytes()
         content_type, body = encode_multipart(
             {"chat_id": cfg.tg_chat, "caption": caption, "parse_mode": "HTML"},
-            {"photo": (Path(item.lead_image).name, image, guess_mime(item.lead_image))},  # type: ignore[arg-type]
+            {"photo": (Path(item.lead_image).name, image, guess_mime(item.lead_image))},
         )
         payload = _post_json_result(api + "/sendPhoto", body, content_type, HTTP_TIMEOUT)
     else:
-        fields = {"chat_id": cfg.tg_chat, "text": caption, "parse_mode": "HTML"}
+        text = build_tg_message(
+            item.title, item.paragraphs, item.source_url, item.source_name, TG_MESSAGE_LIMIT)
+        if dry_run:
+            log.info("news %s telegram [dry-run]: preview=%s, %d chars",
+                     item.news_id, preview_url or "off", len(text))
+            return "(dry-run)"
+        if preview_url:
+            status, _ = http_send(preview_url, method="GET", timeout=30)
+            if status != 200:
+                raise PublishError(
+                    f"telegram: preview image {preview_url} is not live yet (status {status})")
+            preview = {"url": preview_url, "prefer_large_media": True, "show_above_text": True}
+        else:
+            preview = {"is_disabled": True}
+        fields = {"chat_id": cfg.tg_chat, "text": text, "parse_mode": "HTML",
+                  "link_preview_options": json.dumps(preview)}
         payload = _post_json_result(
             api + "/sendMessage", urllib.parse.urlencode(fields).encode("utf-8"),
             "application/x-www-form-urlencoded", HTTP_TIMEOUT,
@@ -583,6 +651,265 @@ def publish_telegram(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) ->
     if cfg.tg_channel_username and message_id:
         return f"https://t.me/{cfg.tg_channel_username}/{message_id}"
     return f"tg:{cfg.tg_chat}:{message_id}"
+
+
+# ------------------------------------------ platform: wildcar.org + Dzen RSS
+
+WILDCAR_REBUILD_MARKER = "rebuild-wildcar-org"   # in the request mailbox
+WILDCAR_FEED_ITEMS = 30      # Дзен reads the last 7 days; 30 items cover that
+RU_MONTHS = ("января", "февраля", "марта", "апреля", "мая", "июня",
+             "июля", "августа", "сентября", "октября", "ноября", "декабря")
+
+# awesome-nav config for the news section. Only the index page goes into the
+# site menu: hundreds of news items would drown it. The pages themselves are
+# still built and reachable from the index and the feed.
+WILDCAR_NAV_YML = """\
+# Generated by the posinus publisher (publisher.py) — do not edit here.
+title: Позитивные новости
+nav:
+  - index.md
+"""
+
+
+@dataclass
+class WildcarEntry:
+    """One news item as the wildcar.org section sees it: text plus the
+    filenames of its pictures inside the page directory."""
+    news_id: int
+    title: str
+    paragraphs: list[str]
+    source_url: str
+    source_name: str
+    images: list[tuple[str, str]]      # (filename, caption)
+    published_at: datetime
+
+
+def wildcar_section_dir(cfg: PublisherConfig) -> Path:
+    return Path(cfg.wildcar_content_dir) / cfg.wildcar_section
+
+
+def wildcar_page_dir(cfg: PublisherConfig, news_id: int) -> Path:
+    return wildcar_section_dir(cfg) / str(news_id)
+
+
+def wildcar_section_url(cfg: PublisherConfig) -> str:
+    return f"{cfg.wildcar_base}/{cfg.wildcar_section}/"
+
+
+def wildcar_page_url(cfg: PublisherConfig, news_id: int) -> str:
+    return f"{wildcar_section_url(cfg)}{news_id}/"
+
+
+def wildcar_image_url(cfg: PublisherConfig, news_id: int, filename: str) -> str:
+    return wildcar_page_url(cfg, news_id) + urllib.parse.quote(filename)
+
+
+def _format_date_ru(moment: datetime) -> str:
+    return f"{moment.day} {RU_MONTHS[moment.month - 1]} {moment.year}"
+
+
+def _image_block(filename: str, caption: str) -> str:
+    """Markdown for one picture: the image line, an italic caption under it.
+    The alt stays empty on purpose — a caption with brackets would break it."""
+    block = f"![]({urllib.parse.quote(filename)})"
+    if caption:
+        block += f"\n\n*{caption}*"
+    return block
+
+
+def build_wildcar_page(entry: WildcarEntry, zone: ZoneInfo) -> str:
+    """The news page: title, lead picture, full text, the rest of the pictures,
+    a date-and-source line. MkDocs takes the H1 as the page title."""
+    parts = [f"# {entry.title}"]
+    if entry.images:
+        parts.append(_image_block(*entry.images[0]))
+    parts.extend(entry.paragraphs)
+    for filename, caption in entry.images[1:]:
+        parts.append(_image_block(filename, caption))
+    tail = _format_date_ru(entry.published_at.astimezone(zone))
+    if entry.source_url:
+        name = entry.source_name or source_name_from_url(entry.source_url)
+        tail += f" · Источник: [{name}]({entry.source_url})"
+    parts.append(f"*{tail}*")
+    return "\n\n".join(parts) + "\n"
+
+
+def build_wildcar_index(entries: list[WildcarEntry], zone: ZoneInfo) -> str:
+    """The section index: one dated link per published item, newest first."""
+    lines = [
+        "# Позитивные новости",
+        "",
+        "Хорошие новости, которые отобрала и пересказала машина "
+        "[posinus](https://github.com/wildcar/posinus). "
+        "Лента для автоматического импорта: [RSS](rss.xml).",
+        "",
+    ]
+    for entry in entries:
+        day = entry.published_at.astimezone(zone)
+        lines.append(f"- {day.day:02d}.{day.month:02d}.{day.year} — "
+                     f"[{entry.title}]({entry.news_id}/index.md)")
+    return "\n".join(lines) + "\n"
+
+
+def _cdata(text: str) -> str:
+    return "<![CDATA[" + text.replace("]]>", "]]]]><![CDATA[>") + "]]>"
+
+
+def _feed_title(title: str) -> str:
+    """Дзен forbids a trailing period in the item title."""
+    title = " ".join(title.split())
+    return title[:-1] if title.endswith(".") and not title.endswith("...") else title
+
+
+def _feed_item_html(entry: WildcarEntry, page_url: str) -> str:
+    """content:encoded body: figures with absolute URLs, paragraphs, source."""
+
+    def figure(filename: str, caption: str) -> str:
+        src = html.escape(page_url + urllib.parse.quote(filename), quote=True)
+        caption_html = f"<figcaption>{html.escape(caption)}</figcaption>" if caption else ""
+        return f'<figure><img src="{src}">{caption_html}</figure>'
+
+    parts = []
+    if entry.images:
+        parts.append(figure(*entry.images[0]))
+    parts.extend(f"<p>{html.escape(p)}</p>" for p in entry.paragraphs)
+    for filename, caption in entry.images[1:]:
+        parts.append(figure(filename, caption))
+    if entry.source_url:
+        name = entry.source_name or source_name_from_url(entry.source_url)
+        parts.append(f'<p>Источник: <a href="{html.escape(entry.source_url, quote=True)}">'
+                     f"{html.escape(name)}</a></p>")
+    return "".join(parts)
+
+
+def build_wildcar_feed(cfg: PublisherConfig, entries: list[WildcarEntry]) -> str:
+    """RSS 2.0 the way Дзен wants it (dzen.ru/help/ru/export-content/export.html):
+    title / link / guid / pubDate (RFC-822) / category are required per item,
+    the full text goes in content:encoded, the lead picture in enclosure."""
+    section_url = wildcar_section_url(cfg)
+    out = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">',
+        "<channel>",
+        "<title>Позитивные новости</title>",
+        f"<link>{html.escape(section_url)}</link>",
+        "<description>Хорошие новости, отобранные и пересказанные проектом posinus.</description>",
+        "<language>ru</language>",
+    ]
+    for entry in entries:
+        page_url = f"{section_url}{entry.news_id}/"
+        out.append("<item>")
+        out.append(f"<title>{html.escape(_feed_title(entry.title))}</title>")
+        out.append(f"<link>{html.escape(page_url)}</link>")
+        out.append(f"<guid>{html.escape(page_url)}</guid>")
+        out.append(f"<pubDate>{email.utils.format_datetime(entry.published_at)}</pubDate>")
+        out.append("<category>Позитивные новости</category>")
+        if entry.images:
+            lead = entry.images[0][0]
+            src = html.escape(page_url + urllib.parse.quote(lead), quote=True)
+            out.append(f'<enclosure url="{src}" type="{guess_mime(lead)}"/>')
+        out.append("<content:encoded>" + _cdata(_feed_item_html(entry, page_url)) + "</content:encoded>")
+        out.append("</item>")
+    out.extend(["</channel>", "</rss>"])
+    return "\n".join(out) + "\n"
+
+
+def _wildcar_published_entries(cfg: PublisherConfig, exclude_id: int) -> list[WildcarEntry]:
+    """Items already on wildcar.org, newest first, rebuilt from the own DB.
+
+    The index and the feed are regenerated whole on every publish, so this is
+    their memory. Read-only and best-effort: on any problem the feed simply
+    shrinks to the current item rather than blocking the post."""
+    try:
+        con = sqlite3.connect(f"file:{cfg.own_db}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error as exc:
+        log.warning("cannot open the own DB for the wildcar.org feed: %s", exc)
+        return []
+    try:
+        con.row_factory = sqlite3.Row
+        rows = con.execute(
+            "SELECT p.news_id, p.updated_at, i.retold_body_md FROM publication p "
+            "JOIN prepared_item i ON i.news_id = p.news_id "
+            "WHERE p.platform = 'wildcar_org' AND p.status = 'ok' AND p.news_id <> ? "
+            "ORDER BY p.updated_at DESC", (exclude_id,)).fetchall()
+        entries = []
+        for row in rows:
+            title, paragraphs, source_url, source_name = parse_markdown(row["retold_body_md"] or "")
+            captions = {Path(c["file_path"]).name: (c["caption"] or "").strip()
+                        for c in con.execute(
+                            "SELECT file_path, caption FROM illustration WHERE news_id = ?",
+                            (row["news_id"],))}
+            page_dir = wildcar_page_dir(cfg, row["news_id"])
+            images = ([(p.name, captions.get(p.name, ""))
+                       for p in sorted(page_dir.iterdir())
+                       if p.is_file() and not p.name.startswith(".") and p.suffix.lower() != ".md"]
+                      if page_dir.is_dir() else [])
+            entries.append(WildcarEntry(
+                news_id=row["news_id"], title=title, paragraphs=paragraphs,
+                source_url=source_url, source_name=source_name, images=images,
+                published_at=_parse_moment(row["updated_at"] or "") or datetime.now(timezone.utc),
+            ))
+        return entries
+    except sqlite3.Error as exc:
+        log.warning("cannot read published wildcar.org items: %s", exc)
+        return []
+    finally:
+        con.close()
+
+
+def publish_wildcar_org(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
+    """Write the news into the content directory, ask for a site rebuild and
+    wait until the page is live.
+
+    The publisher cannot run MkDocs itself (different user, different venv), so
+    it only writes files and touches the rebuild marker; the site-build unit
+    picks the marker up within a second and rebuilds. Everything written here
+    is regenerated on a retry, so a half-finished run heals itself."""
+    page_url = wildcar_page_url(cfg, item.news_id)
+    if dry_run:
+        page = build_wildcar_page(
+            WildcarEntry(item.news_id, item.title, item.paragraphs, item.source_url,
+                         item.source_name, [(Path(p).name, c) for p, c in item.images],
+                         datetime.now(timezone.utc)),
+            _window_zone(cfg.window_tz))
+        log.info("news %s wildcar_org [dry-run]: %s, %d images, %d chars",
+                 item.news_id, page_url, len(item.images), len(page))
+        return "(dry-run)"
+
+    zone = _window_zone(cfg.window_tz)
+    entry = WildcarEntry(
+        news_id=item.news_id, title=item.title, paragraphs=item.paragraphs,
+        source_url=item.source_url, source_name=item.source_name,
+        images=[(Path(path).name, caption) for path, caption in item.images],
+        published_at=datetime.now(timezone.utc),
+    )
+    page_dir = wildcar_page_dir(cfg, item.news_id)
+    page_dir.mkdir(parents=True, exist_ok=True)
+    for path, _ in item.images:
+        shutil.copyfile(path, page_dir / Path(path).name)
+    (page_dir / "index.md").write_text(build_wildcar_page(entry, zone), encoding="utf-8")
+
+    section = wildcar_section_dir(cfg)
+    entries = [entry] + _wildcar_published_entries(cfg, exclude_id=item.news_id)
+    (section / ".nav.yml").write_text(WILDCAR_NAV_YML, encoding="utf-8")
+    (section / "index.md").write_text(build_wildcar_index(entries, zone), encoding="utf-8")
+    (section / "rss.xml").write_text(
+        build_wildcar_feed(cfg, entries[:WILDCAR_FEED_ITEMS]), encoding="utf-8")
+
+    Path(cfg.requests_dir, WILDCAR_REBUILD_MARKER).touch()
+    deadline = time.monotonic() + max(cfg.wildcar_wait_seconds, 0)
+    while True:
+        try:
+            status, _ = http_send(page_url, method="GET", timeout=30)
+        except OSError:
+            status = 0
+        if status == 200:
+            return page_url
+        if time.monotonic() >= deadline:
+            raise PublishError(
+                f"wildcar_org: {page_url} is not live after {cfg.wildcar_wait_seconds}s "
+                f"(status {status}); is posinus-wildcar-org-build.path running?")
+        time.sleep(3)
 
 
 # ----------------------------------------------------------------- platform: vk
@@ -721,6 +1048,7 @@ def publish_site(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str
 
 
 ADAPTERS: dict[str, Callable[[PublisherConfig, PreparedNews, bool], str]] = {
+    "wildcar_org": publish_wildcar_org,
     "telegram": publish_telegram,
     "site": publish_site,
     "vk": publish_vk,
@@ -827,31 +1155,43 @@ def last_success_at(con: sqlite3.Connection) -> str | None:
     return row["t"] if row and row["t"] else None
 
 
-def lead_image_path(con: sqlite3.Connection, news_id: int, media_dir: str | None = None) -> str | None:
-    """Path of the leading illustration, or None when there is no usable file.
+def illustration_files(
+    con: sqlite3.Connection, news_id: int, media_dir: str | None = None
+) -> list[tuple[str, str]]:
+    """(path, caption) of every illustration with a usable file, position order.
 
     `illustration.file_path` is absolute, so it goes stale whenever the media
     directory moves - the posinus rename left 336 rows pointing at
     `/var/lib/news-evaluator/media/...`, and every one of those items published
     without a picture. When the stored path is gone, the same file is looked up
-    under the configured media directory before giving up.
+    under the configured media directory before the row is skipped.
     """
-    row = con.execute(
-        "SELECT file_path FROM illustration WHERE news_id = ? ORDER BY position ASC LIMIT 1",
+    files: list[tuple[str, str]] = []
+    for row in con.execute(
+        "SELECT file_path, caption FROM illustration WHERE news_id = ? ORDER BY position ASC",
         (news_id,),
-    ).fetchone()
-    if not row or not row["file_path"]:
-        return None
-    stored = Path(row["file_path"])
-    if stored.exists():
-        return str(stored)
-    if media_dir:
-        moved = Path(media_dir) / str(news_id) / stored.name
-        if moved.exists():
-            log.info("news %s: illustration moved, %s is now %s", news_id, stored, moved)
-            return str(moved)
-    log.warning("news %s: illustration %s is missing, posting without a picture", news_id, stored)
-    return None
+    ):
+        if not row["file_path"]:
+            continue
+        stored = Path(row["file_path"])
+        caption = (row["caption"] or "").strip()
+        if stored.exists():
+            files.append((str(stored), caption))
+            continue
+        if media_dir:
+            moved = Path(media_dir) / str(news_id) / stored.name
+            if moved.exists():
+                log.info("news %s: illustration moved, %s is now %s", news_id, stored, moved)
+                files.append((str(moved), caption))
+                continue
+        log.warning("news %s: illustration %s is missing, skipping it", news_id, stored)
+    return files
+
+
+def lead_image_path(con: sqlite3.Connection, news_id: int, media_dir: str | None = None) -> str | None:
+    """Path of the leading illustration, or None when no file is usable."""
+    files = illustration_files(con, news_id, media_dir)
+    return files[0][0] if files else None
 
 
 def _unrecorded_marker(news_id: int, platform: str, status: str, url: str | None) -> None:
@@ -972,13 +1312,15 @@ def expire_stale(
 
 def build_item(own: sqlite3.Connection, row: sqlite3.Row, media_dir: str | None = None) -> PreparedNews:
     title, paragraphs, source_url, source_name = parse_markdown(row["retold_body_md"] or "")
+    images = illustration_files(own, row["news_id"], media_dir)
     return PreparedNews(
         news_id=row["news_id"],
         title=title or (row["retold_title"] or ""),
         paragraphs=paragraphs,
-        lead_image=lead_image_path(own, row["news_id"], media_dir),
+        lead_image=images[0][0] if images else None,
         source_url=source_url,
         source_name=source_name,
+        images=images,
     )
 
 
@@ -1002,8 +1344,8 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None,
     platforms = cfg.enabled_platforms()
     if not platforms:
         log.warning(
-            "no platform configured; set TELEGRAM_BOT_TOKEN / EGEYA_PASSWORD / "
-            "VK_ACCESS_TOKEN+VK_GROUP_ID to enable one. Nothing to do."
+            "no platform configured; set WILDCAR_ORG_BASE_URL / TELEGRAM_BOT_TOKEN / "
+            "EGEYA_PASSWORD / VK_ACCESS_TOKEN+VK_GROUP_ID to enable one. Nothing to do."
         )
         return 0
 

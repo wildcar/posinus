@@ -39,9 +39,9 @@ a publish-ready retelling, and posts them to the platforms.
   there: `preparer.py --dry-run --news-id 3683` retold through the router as `news-preparer`
   and wrote nothing. `/etc/posinus/pipeline.env` has neither key, so both run on the code
   defaults - the file only needs an edit to override them.
-- Open, not decided: only the first illustration is ever published, on all three platforms
-  (`lead_image_path`, `ORDER BY position LIMIT 1`), while the preparer downloads up to
-  `MAX_IMAGES` = 4. On prod 94 of 128 prepared items hold 2–4 pictures that never go out.
+- Partially resolved 2026-07-27: the wildcar.org pages and the Дзен feed now carry ALL
+  downloaded illustrations with captions (`illustration_files`). Telegram, VK and Эгея
+  still publish only the lead picture — that part stays open.
 - `publisher.py` posts prepared news, fully automatically by timer, to Telegram @posinus,
   wildcar.ru (Эгея) and the VK community wall @positivenus; each platform enables only when
   its secret is set. Renders each format from the stored markdown; idempotent per
@@ -147,6 +147,22 @@ a publish-ready retelling, and posts them to the platforms.
   the 24 hours before the fix, and ten posts with their publication date rewritten to today. Fixed
   on 2026-07-26 together with `mark_published`, which now keeps the first date. Nothing was posted
   twice: every `publication` row already said `ok`.
+
+- Since 2026-07-27 the publisher has a fourth platform, `wildcar_org`, and telegram posts
+  the WHOLE retelling. wildcar.org (static MkDocs site on this host) gets a news section:
+  the publisher writes `news/<id>/index.md` + all pictures into
+  `/var/lib/posinus/wildcar-org`, regenerates the section index and the Дзен RSS feed
+  (`news/rss.xml`, marked up per dzen.ru/help requirements), touches the
+  `rebuild-wildcar-org` marker for the new `posinus-wildcar-org-build` units (user keeper +
+  group posinus, rsync into `~/repo/wildcar-site/docs/news` + `mkdocs build`) and waits for
+  the page URL to go live. Telegram switched from sendPhoto (1024-char caption, which cut
+  most retellings to one paragraph) to sendMessage with the full text and the picture as a
+  link preview from wildcar.org; the length limit is now counted on the visible text — the
+  old raw-HTML count alone was costing a paragraph (news 7169 fit 2 of 4, posted 1).
+  Дзен needs no adapter: it polls the RSS itself once the owner connects the feed.
+  16 tests added, 180 pass. NOT YET LIVE: owner actions are `install.sh` (new unit + content
+  dir), WILDCAR_ORG_BASE_URL in `/etc/posinus/pipeline.env`, connecting the feed in the Дзен
+  studio and turning the телеграм autopublisher off there.
 
 ## Next
 

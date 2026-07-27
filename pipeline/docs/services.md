@@ -83,9 +83,44 @@ timer runs harmlessly until at least one is configured):
 
 | Platform | How | Required config |
 |----------|-----|-----------------|
-| `telegram` | `sendPhoto` + HTML caption (≤1024 chars) to @posinus | `TELEGRAM_BOT_TOKEN`; `TELEGRAM_CHAT_ID` (default `-1003795927410`), `TELEGRAM_CHANNEL_USERNAME` |
+| `wildcar_org` | writes the page + pictures into the content dir, regenerates the section index and the Dzen RSS feed, touches the rebuild marker, waits until the page is live (see below) | `WILDCAR_ORG_BASE_URL`; `WILDCAR_ORG_CONTENT_DIR`, `WILDCAR_ORG_SECTION`, `WILDCAR_ORG_WAIT_SECONDS` |
+| `telegram` | `sendMessage` with the FULL retelling (≤4096 visible chars) to @posinus; the picture is a link preview pointing at its wildcar.org copy. Without `wildcar_org`: `sendPhoto` + caption (≤1024) | `TELEGRAM_BOT_TOKEN`; `TELEGRAM_CHAT_ID` (default `-1003795927410`), `TELEGRAM_CHANNEL_USERNAME` |
 | `site` | wildcar.ru on Эгея: login → image upload → `note-process` → `note-publish` → verify | `EGEYA_PASSWORD` (login `EGEYA_LOGIN`, default `wildcar`); `EGEYA_BASE_URL`, `EGEYA_TAGS` |
 | `vk` | community wall: photo upload + `wall.post` from the group | `VK_ACCESS_TOKEN` **and** `VK_GROUP_ID`; `VK_API_VERSION` |
+
+`wildcar_org` runs first in the platform order on purpose: telegram links its picture
+from the wildcar.org copy, so within one run the page must already be live. While it is
+not (the build has not caught up, or the platform is broken), telegram records an error
+and is retried on the next run.
+
+### wildcar.org and Дзен
+
+wildcar.org is a static MkDocs site built from `~keeper/repo/wildcar-site` into
+`/var/www/wildcar.org` **on this host**. The publisher cannot run MkDocs (different user,
+different venv), so the handshake goes through files:
+
+1. `publish_wildcar_org` writes `news/<news_id>/index.md` plus the pictures into
+   `WILDCAR_ORG_CONTENT_DIR` (default `/var/lib/posinus/wildcar-org`), regenerates
+   `news/index.md` (the section index), `news/.nav.yml` and `news/rss.xml` from the own
+   DB, and touches `rebuild-wildcar-org` in the request mailbox.
+2. `posinus-wildcar-org-build.path` sees the marker and starts
+   `posinus-wildcar-org-build.service` (user `keeper`, `SupplementaryGroups=posinus`),
+   which runs `deploy/wildcar-org-build.sh`: rsync the content into the site checkout
+   (`docs/news/`, gitignored there) and `mkdocs build` into `/var/www/wildcar.org`.
+3. The publisher polls `https://wildcar.org/news/<news_id>/` for up to
+   `WILDCAR_ORG_WAIT_SECONDS` (90) and only then reports the platform `ok`.
+
+Everything under `news/` in the content dir is regenerated on retries, so a
+half-finished run heals itself. Unlike the other platforms nothing is "sent": deleting a
+page means deleting its directory from the content dir and touching the marker.
+
+**Дзен has no posting API** — it polls `https://wildcar.org/news/rss.xml` (every 2–5
+minutes) once the feed is connected in the channel settings. The feed carries the last
+30 items with the full text in `content:encoded`, absolute picture URLs, and the fields
+Дзен requires (title without a trailing period, link, guid, RFC-822 pubDate, category).
+So dzen.ru gets the news by publishing to `wildcar_org`; there is no `dzen` platform in
+the `publication` table. Дзен ignores items older than 7 days and treats a changed
+`guid` as a new post — the guid is the page URL, which never changes.
 
 Pacing and robustness (config):
 

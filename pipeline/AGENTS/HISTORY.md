@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-27 · The whole retelling in telegram, and two new places to read it
+- What: New `wildcar_org` platform: news pages with ALL pictures on the static wildcar.org site (content dir → rebuild marker → `posinus-wildcar-org-build` units run MkDocs as keeper → the publisher waits for the page URL), plus a regenerated section index and a Дзен-compliant RSS feed — dzen.ru switches from the телеграм autopublisher to polling `news/rss.xml`. Telegram now sends the full text (sendMessage, ≤4096 visible chars) with the picture as a link preview from wildcar.org. 16 tests added, 180 pass.
+- Why: the owner's report «новость в телеграм публикуется не целиком» — a 1024-char photo caption cannot hold a 4-paragraph retelling, and counting the raw HTML against the limit was also throwing away a paragraph that actually fit (news 7169: 2 of 4 paragraphs fit, 1 was posted).
+- Files: pipeline/publisher.py, pipeline/tests/test_publisher.py, pipeline/deploy/{install.sh,pipeline.env.example,wildcar-org-build.sh,posinus-wildcar-org-build.service,posinus-wildcar-org-build.path}, pipeline/{AGENTS/SPEC.md,docs/services.md,README.md}, docs/deployment.md, AGENTS/ENV.md; wildcar-site: .gitignore, README.md
+- Next: owner runs install.sh, sets WILDCAR_ORG_BASE_URL in the env, connects the RSS in the Дзен studio and turns its телеграм autoposting off.
+
 ## 2026-07-26 · The preparer stops spending the evaluator's name at the router
 - What: `evaluator.Config` gained `router_user` (env `ROUTER_USER_ID`, empty falls back to `selector_name`), `build_chat_arguments` sends it as `external_user_id`, and `preparer.main` sets it to `news-preparer` (env `PREPARER_ROUTER_USER_ID`). 5 tests added, 164 pass.
 - Why: both scoring and retelling arrived at model-router-mcp as `news-evaluator`, so the router's per-user usage could not tell them apart and every retelling token was billed to the evaluator. `selector_name` itself cannot change - it is the frozen contract string on ~6200 review events - so the router identity had to become its own field.

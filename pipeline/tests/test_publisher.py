@@ -4,23 +4,32 @@ No network: platform sends are exercised through monkeypatched adapters."""
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 import tempfile
 import unittest
+import urllib.parse
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import publisher
 from publisher import (
+    PreparedNews,
     PublishError,
     PublisherConfig,
+    WildcarEntry,
     build_site_text,
-    build_tg_caption,
+    build_tg_message,
     build_vk_message,
+    build_wildcar_feed,
+    build_wildcar_index,
+    build_wildcar_page,
     encode_multipart,
     input_val,
     open_own_db,
@@ -28,6 +37,7 @@ from publisher import (
     publication_status,
     source_name_from_url,
     _abs_url,
+    _tg_len,
 )
 
 MARKDOWN_DOC = (
@@ -66,24 +76,43 @@ class SourceNameTests(unittest.TestCase):
         self.assertEqual(source_name_from_url("https://ria.ru/z"), "ria.ru")
 
 
-class TelegramCaptionTests(unittest.TestCase):
+class TelegramMessageTests(unittest.TestCase):
     def test_structure_and_escaping(self):
-        cap = build_tg_caption("A & B", ["one", "two"], "https://site.test/a", "site.test", 1024)
-        self.assertIn("<b>A &amp; B</b>", cap)
-        self.assertIn("one\n\ntwo", cap)
-        self.assertIn('<a href="https://site.test/a">Источник: site.test</a>', cap)
+        msg = build_tg_message("A & B", ["one", "two"], "https://site.test/a", "site.test", 4096)
+        self.assertIn("<b>A &amp; B</b>", msg)
+        self.assertIn("one\n\ntwo", msg)
+        self.assertIn('<a href="https://site.test/a">Источник: site.test</a>', msg)
+
+    def test_full_text_fits_without_truncation(self):
+        paras = ["п" * 400] * 4  # ~1600 visible chars: a typical whole retelling
+        msg = build_tg_message("T", paras, "https://s.test/a", "s.test", 4096)
+        self.assertEqual(msg.count("п" * 400), 4)
+
+    def test_limit_counts_visible_text_not_raw_html(self):
+        # 977 visible chars but >1024 with tags and the href URL: both
+        # paragraphs must survive, the old raw-HTML count dropped one.
+        long_url = "https://example.test/" + "u" * 120
+        paras = ["x" * 430, "y" * 430]
+        msg = build_tg_message("T" * 66, paras, long_url, "example.test", 1024)
+        self.assertIn("x" * 430, msg)
+        self.assertIn("y" * 430, msg)
 
     def test_truncates_paragraphs_to_fit(self):
         paras = ["x" * 500, "y" * 500, "z" * 500]
-        cap = build_tg_caption("T", paras, "https://s.test/a", "s.test", 1024)
-        self.assertLessEqual(len(cap), 1024)
+        msg = build_tg_message("T", paras, "https://s.test/a", "s.test", 1024)
+        self.assertIn("x" * 500, msg)
+        self.assertNotIn("z" * 500, msg)
         # the link (source) is kept even when paragraphs are dropped
-        self.assertIn("Источник", cap)
+        self.assertIn("Источник", msg)
 
     def test_title_only_when_nothing_fits(self):
-        cap = build_tg_caption("Title", ["x" * 5000], "", "", 1024)
-        self.assertLessEqual(len(cap), 1024)
-        self.assertIn("Title", cap)
+        msg = build_tg_message("Title", ["x" * 5000], "", "", 1024)
+        self.assertNotIn("x" * 5000, msg)
+        self.assertIn("Title", msg)
+
+    def test_tg_len_counts_utf16_units(self):
+        self.assertEqual(_tg_len("абв"), 3)
+        self.assertEqual(_tg_len("🎬"), 2)  # non-BMP emoji is two UTF-16 units
 
 
 class VkAndSiteTextTests(unittest.TestCase):
@@ -137,6 +166,219 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg.enabled_platforms(), ["telegram", "site", "vk"])
         # VK needs both token and group id
         self.assertEqual(PublisherConfig(vk_token="v").enabled_platforms(), [])
+
+    def test_wildcar_org_goes_first(self):
+        # telegram takes its picture link from wildcar.org, so the page must
+        # be written and live before telegram's turn inside one run
+        cfg = PublisherConfig(tg_token="t", wildcar_base="https://wildcar.org")
+        self.assertEqual(cfg.enabled_platforms(), ["wildcar_org", "telegram"])
+
+
+class WildcarOrgTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.cfg = PublisherConfig(
+            wildcar_base="https://wildcar.org",
+            wildcar_content_dir=str(root / "content"),
+            own_db=str(root / "own.sqlite3"),
+            requests_dir=str(root / "requests"),
+            wildcar_wait_seconds=0,
+        )
+        Path(self.cfg.requests_dir).mkdir()
+        open_own_db(self.cfg.own_db).close()
+        image = root / "1.jpg"
+        image.write_bytes(b"\xff\xd8img")
+        self.item = PreparedNews(
+            news_id=7169, title="Заголовок дня.", paragraphs=["Абзац один.", "Абзац два."],
+            lead_image=str(image), source_url="https://src.test/a", source_name="src.test",
+            images=[(str(image), "Подпись к фото")],
+        )
+
+    def publish(self, status=200):
+        with mock.patch.object(publisher, "http_send", return_value=(status, b"")):
+            return publisher.publish_wildcar_org(self.cfg, self.item, dry_run=False)
+
+    def test_writes_page_image_index_feed_and_marker(self):
+        url = self.publish()
+        self.assertEqual(url, "https://wildcar.org/news/7169/")
+        section = Path(self.cfg.wildcar_content_dir) / "news"
+        page = (section / "7169" / "index.md").read_text(encoding="utf-8")
+        self.assertTrue(page.startswith("# Заголовок дня."))
+        self.assertIn("![](1.jpg)", page)
+        self.assertIn("*Подпись к фото*", page)
+        self.assertIn("Абзац два.", page)
+        self.assertIn("[src.test](https://src.test/a)", page)
+        self.assertEqual((section / "7169" / "1.jpg").read_bytes(), b"\xff\xd8img")
+        index = (section / "index.md").read_text(encoding="utf-8")
+        self.assertIn("[Заголовок дня.](7169/index.md)", index)
+        self.assertIn("(rss.xml)", index)
+        self.assertIn("Позитивные новости", (section / ".nav.yml").read_text(encoding="utf-8"))
+        self.assertTrue((Path(self.cfg.requests_dir) / "rebuild-wildcar-org").exists())
+
+    def test_page_not_live_raises_and_files_stay_for_the_retry(self):
+        with self.assertRaises(PublishError):
+            self.publish(status=404)
+        section = Path(self.cfg.wildcar_content_dir) / "news"
+        self.assertTrue((section / "7169" / "index.md").exists())
+
+    def test_dry_run_writes_nothing(self):
+        out = publisher.publish_wildcar_org(self.cfg, self.item, dry_run=True)
+        self.assertEqual(out, "(dry-run)")
+        self.assertFalse(Path(self.cfg.wildcar_content_dir).exists())
+        self.assertFalse((Path(self.cfg.requests_dir) / "rebuild-wildcar-org").exists())
+
+    def test_feed_is_dzen_compliant_xml(self):
+        self.publish()
+        feed_path = Path(self.cfg.wildcar_content_dir) / "news" / "rss.xml"
+        root = ET.fromstring(feed_path.read_text(encoding="utf-8"))
+        self.assertEqual(root.tag, "rss")
+        self.assertEqual(root.get("version"), "2.0")
+        channel = root.find("channel")
+        for tag in ("title", "link", "description", "language"):
+            self.assertIsNotNone(channel.find(tag), tag)
+        item = channel.find("item")
+        self.assertEqual(item.findtext("title"), "Заголовок дня")  # no trailing period
+        self.assertEqual(item.findtext("link"), "https://wildcar.org/news/7169/")
+        self.assertEqual(item.findtext("guid"), "https://wildcar.org/news/7169/")
+        self.assertEqual(item.findtext("category"), "Позитивные новости")
+        self.assertRegex(item.findtext("pubDate"), r"^\w{3}, \d{2} \w{3} \d{4}")
+        enclosure = item.find("enclosure")
+        self.assertEqual(enclosure.get("url"), "https://wildcar.org/news/7169/1.jpg")
+        self.assertEqual(enclosure.get("type"), "image/jpeg")
+        body = item.findtext("{http://purl.org/rss/1.0/modules/content/}encoded")
+        self.assertIn('<img src="https://wildcar.org/news/7169/1.jpg">', body)
+        self.assertIn("<figcaption>Подпись к фото</figcaption>", body)
+        self.assertIn("<p>Абзац один.</p>", body)
+        self.assertIn('<a href="https://src.test/a">src.test</a>', body)
+
+    def test_feed_and_index_remember_previous_items(self):
+        # an earlier item, already recorded as published on wildcar_org
+        earlier = PreparedNews(
+            news_id=100, title="Старая новость", paragraphs=["Текст."],
+            lead_image=None, source_url="https://old.test/x", source_name="old.test",
+            images=[],
+        )
+        self.item, self.item2 = earlier, self.item
+        self.publish()
+        con = open_own_db(self.cfg.own_db)
+        con.execute(
+            "INSERT INTO prepared_item (news_id, status, retold_title, retold_body_md) "
+            "VALUES (100, 'published', 'Старая новость', ?)",
+            ("# Старая новость\n\nТекст.\n\nИсточник: [old.test](https://old.test/x)\n",))
+        con.commit()
+        publisher.record_publication(
+            con, 100, "wildcar_org", "ok", "https://wildcar.org/news/100/", None)
+        con.close()
+        self.item = self.item2
+        self.publish()
+        section = Path(self.cfg.wildcar_content_dir) / "news"
+        index = (section / "index.md").read_text(encoding="utf-8")
+        self.assertIn("[Заголовок дня.](7169/index.md)", index)
+        self.assertIn("[Старая новость](100/index.md)", index)
+        feed = (section / "rss.xml").read_text(encoding="utf-8")
+        self.assertEqual(feed.count("<item>"), 2)
+        # newest first: the fresh item precedes the old one
+        self.assertLess(feed.find("7169"), feed.find(">Старая новость<"))
+
+
+class WildcarBuildersTests(unittest.TestCase):
+    ENTRY = WildcarEntry(
+        news_id=5, title="Т", paragraphs=["А.", "Б."], source_url="https://s.test/a",
+        source_name="s.test", images=[("1.jpg", ""), ("2.png", "Вторая")],
+        published_at=datetime(2026, 7, 27, 9, 0, tzinfo=timezone.utc),
+    )
+
+    def test_page_places_lead_first_and_the_rest_after_text(self):
+        page = build_wildcar_page(self.ENTRY, ZoneInfo("Europe/Moscow"))
+        self.assertLess(page.find("![](1.jpg)"), page.find("А."))
+        self.assertLess(page.find("Б."), page.find("![](2.png)"))
+        self.assertIn("*Вторая*", page)
+        self.assertIn("*27 июля 2026 · Источник: [s.test](https://s.test/a)*", page)
+
+    def test_index_dates_in_the_window_zone(self):
+        # 23:30 UTC on the 26th is already the 27th in Moscow
+        entry = WildcarEntry(5, "Т", [], "", "", [],
+                             datetime(2026, 7, 26, 23, 30, tzinfo=timezone.utc))
+        index = build_wildcar_index([entry], ZoneInfo("Europe/Moscow"))
+        self.assertIn("- 27.07.2026 — [Т](5/index.md)", index)
+
+    def test_cdata_terminator_in_text_survives_the_feed(self):
+        # "]]>" in a paragraph is html-escaped before the CDATA wrapper, so the
+        # XML stays parsable and the HTML renders the original text back.
+        entry = WildcarEntry(5, "Т", ["в тексте есть ]]> внутри"], "", "", [],
+                             datetime(2026, 7, 27, tzinfo=timezone.utc))
+        cfg = PublisherConfig(wildcar_base="https://wildcar.org")
+        body = ET.fromstring(build_wildcar_feed(cfg, [entry])).find(
+            "channel/item/{http://purl.org/rss/1.0/modules/content/}encoded")
+        self.assertIn("]]&gt; внутри", body.text)
+
+
+class TelegramSendTests(unittest.TestCase):
+    def make_item(self, image_path: str | None):
+        images = [(image_path, "")] if image_path else []
+        return PreparedNews(
+            news_id=7169, title="Т", paragraphs=["Абзац."], lead_image=image_path,
+            source_url="https://s.test/a", source_name="s.test", images=images,
+        )
+
+    def test_full_text_message_with_wildcar_preview(self):
+        cfg = PublisherConfig(tg_token="tok", tg_channel_username="posinus",
+                              wildcar_base="https://wildcar.org")
+        sent = {}
+
+        def fake_post(url, data, content_type, timeout):
+            sent["url"], sent["data"] = url, data
+            return {"ok": True, "result": {"message_id": 5}}
+
+        with mock.patch.object(publisher, "http_send", return_value=(200, b"")), \
+             mock.patch.object(publisher, "_post_json_result", fake_post):
+            out = publisher.publish_telegram(cfg, self.make_item("/media/1.jpg"), dry_run=False)
+        self.assertEqual(out, "https://t.me/posinus/5")
+        self.assertIn("/sendMessage", sent["url"])
+        fields = urllib.parse.parse_qs(sent["data"].decode("utf-8"))
+        preview = json.loads(fields["link_preview_options"][0])
+        self.assertEqual(preview["url"], "https://wildcar.org/news/7169/1.jpg")
+        self.assertTrue(preview["prefer_large_media"])
+        self.assertTrue(preview["show_above_text"])
+        self.assertIn("<b>Т</b>", fields["text"][0])
+
+    def test_preview_image_not_live_raises(self):
+        cfg = PublisherConfig(tg_token="tok", wildcar_base="https://wildcar.org")
+        with mock.patch.object(publisher, "http_send", return_value=(404, b"")):
+            with self.assertRaises(PublishError):
+                publisher.publish_telegram(cfg, self.make_item("/media/1.jpg"), dry_run=False)
+
+    def test_without_wildcar_falls_back_to_photo_upload(self):
+        cfg = PublisherConfig(tg_token="tok", tg_channel_username="posinus")
+        with tempfile.NamedTemporaryFile(suffix=".jpg") as f:
+            f.write(b"\xff\xd8img")
+            f.flush()
+            sent = {}
+
+            def fake_post(url, data, content_type, timeout):
+                sent["url"], sent["data"] = url, data
+                return {"ok": True, "result": {"message_id": 6}}
+
+            with mock.patch.object(publisher, "_post_json_result", fake_post):
+                out = publisher.publish_telegram(cfg, self.make_item(f.name), dry_run=False)
+        self.assertEqual(out, "https://t.me/posinus/6")
+        self.assertIn("/sendPhoto", sent["url"])
+
+    def test_no_image_disables_the_preview(self):
+        cfg = PublisherConfig(tg_token="tok", wildcar_base="https://wildcar.org")
+        sent = {}
+
+        def fake_post(url, data, content_type, timeout):
+            sent["url"], sent["data"] = url, data
+            return {"ok": True, "result": {"message_id": 7}}
+
+        with mock.patch.object(publisher, "_post_json_result", fake_post):
+            publisher.publish_telegram(cfg, self.make_item(None), dry_run=False)
+        fields = urllib.parse.parse_qs(sent["data"].decode("utf-8"))
+        preview = json.loads(fields["link_preview_options"][0])
+        self.assertTrue(preview["is_disabled"])
 
 
 class LockedForFirstWrites:

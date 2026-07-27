@@ -78,6 +78,12 @@ fi
 # pipeline user and vice versa.
 install -d -o posinus-pipeline -g posinus -m 2770 /var/lib/posinus/pipeline/requests
 
+# wildcar.org news content: the publisher writes pages and pictures here, the
+# site-build unit (user keeper, SupplementaryGroups=posinus) reads them — hence
+# group posinus with setgid and group read. The publisher's umask 0007 keeps
+# everything it creates inside group-readable.
+install -d -o posinus-pipeline -g posinus -m 2750 /var/lib/posinus/wildcar-org
+
 install -d -m 0755 /etc/posinus
 ENV_FILE=/etc/posinus/pipeline.env
 if [ ! -f "$ENV_FILE" ]; then
@@ -123,8 +129,11 @@ install -m 0644 "$REPO_DIR/deploy/posinus-retention.service" /etc/systemd/system
 install -m 0644 "$REPO_DIR/deploy/posinus-retention.timer" /etc/systemd/system/posinus-retention.timer
 # Operator edits: no timer, it runs when the web drops an edit-*.json request.
 install -m 0644 "$REPO_DIR/deploy/posinus-apply-edits.service" /etc/systemd/system/posinus-apply-edits.service
+# wildcar.org rebuild: no timer either, the publisher touches the marker file.
+install -m 0644 "$REPO_DIR/deploy/posinus-wildcar-org-build.service" /etc/systemd/system/posinus-wildcar-org-build.service
 for unit in posinus-evaluator-run.path posinus-preparer-run.path posinus-publisher-run.path \
-            posinus-evaluator-backfill-run.path posinus-apply-edits-run.path; do
+            posinus-evaluator-backfill-run.path posinus-apply-edits-run.path \
+            posinus-wildcar-org-build.path; do
     install -m 0644 "$REPO_DIR/deploy/$unit" "/etc/systemd/system/$unit"
 done
 systemctl daemon-reload
@@ -139,6 +148,7 @@ systemctl enable --now posinus-notify.timer
 systemctl enable --now posinus-notify-digest.timer
 systemctl enable --now posinus-apply-edits-run.path
 systemctl enable --now posinus-retention.timer
+systemctl enable --now posinus-wildcar-org-build.path
 
 # The crawler's update script stops every service listed here before touching
 # the DB schema (both open the crawler DB).

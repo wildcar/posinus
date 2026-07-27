@@ -1,0 +1,17 @@
+[Unit]
+Description=Rebuild wildcar.org after the publisher wrote news content
+# Not a pipeline script: MkDocs and the site checkout belong to keeper, so the
+# build runs as keeper, reading the pipeline-written content via group posinus.
+
+[Service]
+Type=oneshot
+User=keeper
+Group=keeper
+SupplementaryGroups=posinus
+# Files under /var/www/wildcar.org must stay world-readable for nginx.
+UMask=0022
+# Drop the marker first: the .path unit retriggers while the file exists, and
+# a rebuild that started already covers a second touch.
+ExecStartPre=-/bin/rm -f /var/lib/posinus/pipeline/requests/rebuild-wildcar-org
+ExecStart=/bin/bash /opt/posinus/pipeline/deploy/wildcar-org-build.sh
+NoNewPrivileges=true

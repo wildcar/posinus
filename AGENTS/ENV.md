@@ -35,6 +35,12 @@ The `posinus` group is what grants access to the crawler database. Clients run w
 - model-router-mcp: MCP server for model access, unit `model-router-mcp.service`, Streamable
   HTTP endpoint `http://127.0.0.1:8088/mcp`, deployed at `/opt/model-router-mcp`, sources at
   `~/repo/model-router-mcp`. Registered deepseek models: `deepseek-v4-pro`, `deepseek-v4-flash`. DeepSeek retired `deepseek-chat` and `deepseek-reasoner` around 2026-07-25 and its API now rejects both names; `bootstrap.py` in model-router-mcp still seeds the retired pair, so the working entry is a manual registry row.
+- wildcar.org: static MkDocs (Material) site served by nginx from `/var/www/wildcar.org` on
+  THIS host (vhost `web.wildcar.org`; hel-vps terminates TLS for `wildcar.org` and proxies
+  here). Sources at `~/repo/wildcar-site`, venv `~/.venvs/mkdocs`, built by keeper. The
+  pipeline's `wildcar_org` platform writes news into `/var/lib/posinus/wildcar-org` and
+  `posinus-wildcar-org-build.service` (user keeper + group posinus) rsyncs and rebuilds; the
+  news RSS at `https://wildcar.org/news/rss.xml` feeds Дзен.
 
 ## Credentials & secrets
 

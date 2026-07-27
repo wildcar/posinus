@@ -15,10 +15,13 @@ Three stdlib-only scripts (Python 3.12):
 - `preparer.py` — for each selected news, extracts illustrations with captions from the
   article, asks the model for a fresh lively Russian retelling, and stores it as a
   markdown document in the pipeline's own SQLite plus a media dir.
-- `publisher.py` — posts each prepared news to Telegram (@posinus), the wildcar.ru site
-  (Эгея), and a VK community wall, fully automatically by timer. Each platform turns on
-  only when its secret is set in the env file; idempotent per platform, marks
-  «Опубликовано» when all enabled platforms succeed.
+- `publisher.py` — posts each prepared news to the wildcar.org news section (a static
+  MkDocs site on the same host, rebuilt by a systemd unit; its RSS feed is what Дзен
+  polls, so dzen.ru is covered too), Telegram (@posinus, the full retelling with the
+  picture as a wildcar.org link preview), the wildcar.ru site (Эгея), and a VK community
+  wall, fully automatically by timer. Each platform turns on only when its secret is set
+  in the env file; idempotent per platform, marks «Опубликовано» when all enabled
+  platforms succeed.
 
 The model is configured in `/etc/posinus/pipeline.env` (never hard-coded;
 each event records the model that actually answered).

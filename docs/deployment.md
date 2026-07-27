@@ -384,11 +384,11 @@ sudo bash /opt/posinus/pipeline/deploy/install.sh
 
 1. проверяет, что `/var/lib/posinus` существует и код лежит в `/opt/posinus/pipeline`;
 2. создаёт пользователя `posinus-pipeline` в группе `posinus`;
-3. создаёт `/var/lib/posinus/pipeline`, `/var/lib/posinus/pipeline/media` и почтовый ящик `/var/lib/posinus/pipeline/requests`;
+3. создаёт `/var/lib/posinus/pipeline`, `/var/lib/posinus/pipeline/media`, почтовый ящик `/var/lib/posinus/pipeline/requests` и контентный каталог `/var/lib/posinus/wildcar-org` для новостного раздела wildcar.org;
 4. раскладывает групповой доступ для веба (раздел 16);
 5. кладёт `/etc/posinus/pipeline.env` из шаблона и подставляет туда токен роутера из `/opt/model-router-mcp/.env`;
-6. ставит и включает units: `posinus-evaluator`, `posinus-preparer`, `posinus-publisher` (service и timer на каждый), `posinus-evaluator-backfill.service` без таймера и четыре `.path` unit почтового ящика;
-7. регистрирует все четыре service в `/etc/posinus/update-services`, чтобы обновление краулера останавливало их перед миграциями.
+6. ставит и включает units: `posinus-evaluator`, `posinus-preparer`, `posinus-publisher` (service и timer на каждый), `posinus-evaluator-backfill.service` без таймера, `.path` units почтового ящика и `posinus-wildcar-org-build` (service + path — пересборка wildcar.org по маркеру от публикатора);
+7. регистрирует сервисы конвейера в `/etc/posinus/update-services`, чтобы обновление краулера останавливало их перед миграциями.
 
 Дальше заполните секреты платформ в `/etc/posinus/pipeline.env`. Платформа включается только когда её секрет задан, так что таймер публикации до этого работает впустую и ничего не отправляет. Параметры и повадки каждого сервиса описаны в [../pipeline/docs/services.md](../pipeline/docs/services.md).
 

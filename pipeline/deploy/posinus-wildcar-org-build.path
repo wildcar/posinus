@@ -1,0 +1,12 @@
+[Unit]
+Description=Rebuild wildcar.org as soon as the publisher asks for it
+
+[Path]
+# The publisher touches this file after writing news content; systemd starts
+# the build within a second. The service removes the file before it works, so
+# a touch during a build simply queues one more rebuild.
+PathExists=/var/lib/posinus/pipeline/requests/rebuild-wildcar-org
+Unit=posinus-wildcar-org-build.service
+
+[Install]
+WantedBy=multi-user.target
