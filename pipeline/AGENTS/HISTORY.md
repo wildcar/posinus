@@ -8,7 +8,7 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 - What: an image blacklist in the pipeline DB — `ignored_image`, keyed by URL without query. A listed candidate is dropped in `extract_illustrations` before download: no slot in the four-image limit, no caption in the translation call. `preparer.py --ignore-image URL [--note "…"]` adds an entry and purges the picture (row + file) from prepared-but-unpublished items; published and operator-edited ones stay untouched. 6 tests added, 197 pass.
 - Why: owner's call on wildcar.org/news/7113 — The Optimist Daily's logo went out as the lead picture, captioned «Optimist daily». Site logos land as illustrations en masse: four queued items carried this same logo at position 1, and GNN, ScienceDaily, nsknews, sunnyskyz show the same pattern.
 - Files: pipeline/preparer.py, pipeline/tests/test_preparer.py, pipeline/{AGENTS/SPEC.md,docs/services.md,README.md}
-- Prod: pending — deploy, then run `--ignore-image` for the Optimist Daily logo and verify the queue lost its copies.
+- Prod: LIVE at `42e0383` (2026-07-28 08:01 UTC, `update-ubuntu.sh`, backup `pre-update-20260728T080112Z.sqlite3`). `--ignore-image` run for the Optimist Daily logo: 8 queued copies purged (651, 2510, 3059, 4424, 7118, 7120, 7123, 7124 — the last four had it as the LEAD picture), published 7113/7126/6223 untouched, run recorded as `ignore-image` in `service_run`.
 - Next: the queue still holds other sources' logos (goodnewsnetwork ×2, sciencedaily, nsknews, sunnyskyz, reasonstobecheerful); one `--ignore-image` per URL once the owner confirms the list.
 
 ## 2026-07-27 · Telegram bows to the Дзен mirror; captions arrive in Russian, once

@@ -191,7 +191,11 @@ a publish-ready retelling, and posts them to the platforms.
   `preparer.py --ignore-image URL [--note "…"]` adds an entry and purges the picture from
   prepared-but-unpublished items (published and operator-edited ones stay). First entry:
   the Optimist Daily logo, which published as the lead picture of news 7113. 6 tests
-  added, 197 pass.
+  added, 197 pass. LIVE at `42e0383` (2026-07-28 08:01 UTC, `update-ubuntu.sh`): the
+  logo is blacklisted and its 8 queued copies are purged — four of them were lead
+  pictures. Other sources' logos (GNN ×2, ScienceDaily, nsknews, sunnyskyz,
+  reasonstobecheerful) still sit in the queue; one `--ignore-image` per URL once the
+  owner confirms.
 
 ## Next
 
