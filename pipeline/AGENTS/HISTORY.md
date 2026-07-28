@@ -8,7 +8,7 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 - What: retellings keep long dashes. The «не используй длинное тире» line is out of the prompt, `normalize_ru` is deleted, and titles, paragraphs and captions go out with «—» exactly as the model writes it (whitespace is still collapsed). Two tests flipped to assert the opposite, 197 pass.
 - Why: owner's call, reversing their own humanizer-ru hard rule; the rule left `.claude/skills/humanizer-ru/SKILL.md` the same morning (that edit rode into `f2ed0d6`).
 - Files: pipeline/preparer.py, pipeline/tests/test_preparer.py, pipeline/AGENTS/SPEC.md
-- Prod: pending — ships with the next `update-ubuntu.sh`; already-prepared retellings keep their hyphens, nothing is rewritten retroactively.
+- Prod: LIVE at `78483f3` (2026-07-28 08:19 UTC, `update-ubuntu.sh`, backup `pre-update-20260728T081935Z.sqlite3`), verified in place: the deployed module has no `normalize_ru` and the prompt no dash line. Already-prepared retellings keep their hyphens, nothing is rewritten retroactively.
 - Next: —
 
 ## 2026-07-28 · The source's logo is not an illustration
