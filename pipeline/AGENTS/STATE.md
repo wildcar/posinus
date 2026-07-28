@@ -193,9 +193,9 @@ a publish-ready retelling, and posts them to the platforms.
   the Optimist Daily logo, which published as the lead picture of news 7113. 6 tests
   added, 197 pass. LIVE at `42e0383` (2026-07-28 08:01 UTC, `update-ubuntu.sh`): the
   logo is blacklisted and its 8 queued copies are purged — four of them were lead
-  pictures. Other sources' logos (GNN ×2, ScienceDaily, nsknews, sunnyskyz,
-  reasonstobecheerful) still sit in the queue; one `--ignore-image` per URL once the
-  owner confirms.
+  pictures. With the owner's go-ahead the other sources' logos followed the same day:
+  GNN ×2, ScienceDaily, nsknews, sunnyskyz, RTBC — 7 blacklist entries, 28 queued
+  copies purged in total, none left on a prepared item.
 
 ## Next
 
