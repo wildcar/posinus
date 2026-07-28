@@ -4,6 +4,13 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-28 · The source's logo is not an illustration
+- What: an image blacklist in the pipeline DB — `ignored_image`, keyed by URL without query. A listed candidate is dropped in `extract_illustrations` before download: no slot in the four-image limit, no caption in the translation call. `preparer.py --ignore-image URL [--note "…"]` adds an entry and purges the picture (row + file) from prepared-but-unpublished items; published and operator-edited ones stay untouched. 6 tests added, 197 pass.
+- Why: owner's call on wildcar.org/news/7113 — The Optimist Daily's logo went out as the lead picture, captioned «Optimist daily». Site logos land as illustrations en masse: four queued items carried this same logo at position 1, and GNN, ScienceDaily, nsknews, sunnyskyz show the same pattern.
+- Files: pipeline/preparer.py, pipeline/tests/test_preparer.py, pipeline/{AGENTS/SPEC.md,docs/services.md,README.md}
+- Prod: pending — deploy, then run `--ignore-image` for the Optimist Daily logo and verify the queue lost its copies.
+- Next: the queue still holds other sources' logos (goodnewsnetwork ×2, sciencedaily, nsknews, sunnyskyz, reasonstobecheerful); one `--ignore-image` per URL once the owner confirms the list.
+
 ## 2026-07-27 · Telegram bows to the Дзен mirror; captions arrive in Russian, once
 - What: Telegram goes back to sendPhoto + caption, capped by `TG_TEXT_LIMIT` (1500 visible chars; Telegram's own 1024 for photo captions on top) with a «Полный текст на wildcar.org» link when paragraphs are dropped. The preparer folds duplicate illustration candidates (URL-without-query; a duplicate donates its caption) and byte-identical downloads, and sends the original captions along in the retelling call, taking them back translated in a lenient `captions` array. 11 tests added, 191 pass.
 - Why: owner's calls, all three. dzen.ru mirrors the channel through its телеграм autopublisher, which drops posts over ~1500 chars — the site RSS route opens only past 10 subscribers, so the full-text telegram lasted a day. og:image repeating the lead figure gave posts two identical photographs, and English figcaptions under a Russian retelling looked wrong; translating them rides the same paid call.

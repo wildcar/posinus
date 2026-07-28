@@ -69,6 +69,18 @@ retelling call as a «Подписи к иллюстрациям» block and com
 `captions` array; an unusable array keeps the originals and never fails the retelling —
 same leniency as the rubric, one paid call either way.
 
+There is also an image blacklist, `ignored_image` in the pipeline's own DB, matched by
+URL-without-query. The typical entry is a source site's logo, which the parser mistakes
+for an illustration. A blacklisted candidate is dropped before download, takes no slot in
+the four-image limit and its caption never reaches the translation call. Add an entry
+(this also purges the image, row and file, from prepared-but-unpublished items; published
+and operator-edited ones are left alone):
+
+```bash
+sudo -u posinus-pipeline bash -c 'set -a; . /etc/posinus/pipeline.env; set +a; \
+  python3 /opt/posinus/pipeline/preparer.py --ignore-image URL --note "why"'
+```
+
 Config (in `/etc/posinus/pipeline.env`):
 
 - `PREP_BATCH` (default 5) — selected news prepared per run.

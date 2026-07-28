@@ -74,6 +74,22 @@ class ExtractIllustrationsTests(unittest.TestCase):
         # the kept og:image copy adopted the figure's caption
         self.assertEqual(items[0]["caption"], "Signed")
 
+    def test_ignored_image_takes_no_slot_and_leaks_no_caption(self):
+        # the source site's logo parsed as an illustration — the reason the list exists
+        html = (
+            b'<html><head><meta property="og:image" '
+            b'content="https://site.test/theme/logo.png?v=3"></head><body>'
+            b'<img src="/theme/logo.png" alt="Optimist daily">'
+            b'<figure><img src="/img/one.jpg"><figcaption>Real caption</figcaption></figure>'
+            b'<figure><img src="/img/two.jpg"></figure></body></html>'
+        )
+        ignored = frozenset({"https://site.test/theme/logo.png"})
+        items = extract_illustrations(html, "https://site.test/", limit=2, ignored=ignored)
+        # both real figures fit: the ignored logo (og:image AND loose img) took no slot
+        self.assertEqual([i["url"] for i in items],
+                         ["https://site.test/img/one.jpg", "https://site.test/img/two.jpg"])
+        self.assertNotIn("Optimist daily", [i["caption"] for i in items])
+
     def test_caption_donated_even_past_the_limit(self):
         html = (
             b'<html><head><meta property="og:image" '
@@ -201,6 +217,97 @@ class OwnDbTests(unittest.TestCase):
         self.assertEqual((row["status"], row["error"]), ("error", "boom"))
         save_prepared(self.con, 7, "t", "md", "m", [])
         self.assertEqual(prepared_ids(self.con), {7})
+
+
+class IgnoredImageTests(unittest.TestCase):
+    LOGO = "https://site.test/theme/logo.png"
+
+    def _saved_image(self, media_dir: str, news_id: int, name: str, source_url: str) -> dict[str, str]:
+        path = Path(media_dir) / str(news_id) / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"img")
+        return {"path": str(path), "caption": "", "source_url": source_url}
+
+    def test_add_purges_the_queue_but_not_public_or_edited_items(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = preparer.PreparerConfig(own_db=str(Path(tmp) / "own.sqlite3"), media_dir=tmp)
+            con = open_own_db(cfg.own_db)
+            for news_id, status, edited in ((1, "prepared", None), (2, "published", None),
+                                            (3, "prepared", "2026-07-28T00:00:00+00:00")):
+                save_prepared(con, news_id, "t", "md", "m", [
+                    self._saved_image(tmp, news_id, "1.png", self.LOGO + "?v=3"),
+                    self._saved_image(tmp, news_id, "2.jpg", f"https://site.test/photo{news_id}.jpg"),
+                ])
+                con.execute("UPDATE prepared_item SET status = ?, edited_at = ? WHERE news_id = ?",
+                            (status, edited, news_id))
+            con.commit()
+            con.close()
+
+            self.assertEqual(preparer.add_ignored_image(cfg, self.LOGO + "?v=9", "логотип"), 0)
+
+            con = open_own_db(cfg.own_db)
+            urls = {row["news_id"]: row["source_url"] for row in
+                    con.execute("SELECT news_id, source_url FROM illustration ORDER BY id")
+                    if "logo" in row["source_url"]}
+            self.assertEqual(set(urls), {2, 3})  # queued copy of news 1 is gone, the rest stay
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM illustration WHERE news_id = 1").fetchone()[0], 1)
+            self.assertEqual(con.execute("SELECT url_key, note FROM ignored_image").fetchone()[:],
+                             (self.LOGO, "логотип"))
+            con.close()
+            self.assertFalse((Path(tmp) / "1" / "1.png").exists())   # queue copy: file deleted
+            self.assertTrue((Path(tmp) / "1" / "2.jpg").exists())
+            self.assertTrue((Path(tmp) / "2" / "1.png").exists())    # published: untouched
+            self.assertTrue((Path(tmp) / "3" / "1.png").exists())    # edited: untouched
+
+    def test_deletes_via_media_dir_when_the_stored_path_is_stale(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = preparer.PreparerConfig(own_db=str(Path(tmp) / "own.sqlite3"), media_dir=tmp)
+            real = Path(tmp) / "4" / "1.png"
+            real.parent.mkdir(parents=True)
+            real.write_bytes(b"img")
+            con = open_own_db(cfg.own_db)
+            save_prepared(con, 4, "t", "md", "m",
+                          [{"path": "/var/lib/old-tree/4/1.png", "caption": "", "source_url": self.LOGO}])
+            con.close()
+
+            preparer.add_ignored_image(cfg, self.LOGO, "")
+
+            self.assertFalse(real.exists())
+
+    def test_main_ignore_image_needs_no_router_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"EVALUATOR_DB_PATH": str(Path(tmp) / "own.sqlite3"), "MEDIA_DIR": tmp}
+            with mock.patch.dict(os.environ, env, clear=False):
+                os.environ.pop("ROUTER_AUTH_TOKEN", None)
+                self.assertEqual(preparer.main(["--ignore-image", self.LOGO, "--note", "лого"]), 0)
+            con = open_own_db(env["EVALUATOR_DB_PATH"])
+            self.assertEqual(con.execute("SELECT url_key FROM ignored_image").fetchone()[0], self.LOGO)
+            con.close()
+
+    def test_run_feeds_the_ignore_list_into_preparation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = preparer.PreparerConfig(own_db=str(Path(tmp) / "own.sqlite3"), media_dir=tmp)
+            con = open_own_db(cfg.own_db)
+            con.execute("INSERT INTO ignored_image VALUES (?, '', '')", (self.LOGO,))
+            con.commit()
+            con.close()
+            fake_news_con = mock.Mock()
+            fake_news_con.execute.return_value.fetchall.return_value = [{"news_id": 8}]
+            seen: dict[str, frozenset] = {}
+
+            def fake_prepare_one(cfg_, router_cfg, news, dry_run, ignored=frozenset()):
+                seen["ignored"] = ignored
+                return {"title": "t", "paragraphs": [], "model_id": "m", "images": [], "body_md": "md"}
+
+            with mock.patch.object(evaluator, "open_db", return_value=fake_news_con), \
+                 mock.patch.object(preparer, "prepare_one", fake_prepare_one):
+                preparer.run(cfg, mock.Mock(), limit=5, dry_run=False, only=None)
+            self.assertEqual(seen["ignored"], {self.LOGO})
+
+    def test_rejects_a_non_http_url(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = preparer.PreparerConfig(own_db=str(Path(tmp) / "own.sqlite3"), media_dir=tmp)
+            self.assertEqual(preparer.add_ignored_image(cfg, "logo.png", ""), 2)
 
 
 class DownloadDedupTests(unittest.TestCase):

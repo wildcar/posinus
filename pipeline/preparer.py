@@ -88,6 +88,11 @@ CREATE TABLE IF NOT EXISTS illustration (
     downloaded_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_illustration_news ON illustration(news_id);
+CREATE TABLE IF NOT EXISTS ignored_image (
+    url_key TEXT PRIMARY KEY,  -- URL without query/fragment, as _image_key builds it
+    note TEXT,
+    added_at TEXT
+);
 """
 
 CONTENT_TYPE_EXT = {
@@ -224,13 +229,26 @@ def _image_key(url: str) -> str:
     return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 
-def extract_illustrations(html_body: bytes, base_url: str, limit: int) -> list[dict[str, str]]:
+def ignored_image_keys(con: sqlite3.Connection) -> frozenset[str]:
+    """URL keys of images that must never be published, from `ignored_image`.
+
+    Fed by `--ignore-image`; the typical entry is a source site's own logo,
+    which the article parser keeps mistaking for an illustration."""
+    return frozenset(row[0] for row in con.execute("SELECT url_key FROM ignored_image"))
+
+
+def extract_illustrations(
+    html_body: bytes, base_url: str, limit: int, ignored: frozenset[str] = frozenset()
+) -> list[dict[str, str]]:
     """Ordered, de-duplicated illustration candidates: og:image, then figures
     (with captions), then loose images (caption from alt).
 
     Duplicates are folded by `_image_key`; when the kept copy has no caption
     and a duplicate does (og:image first, the captioned figure later), the
-    caption is adopted so de-duplication never loses it."""
+    caption is adopted so de-duplication never loses it.
+
+    `ignored` (same keys) drops a candidate before anything else: it takes no
+    slot in the limit and its caption never reaches the translation call."""
     parser = _ArticleImageParser()
     parser.feed(html_body.decode("utf-8", errors="replace"))
     candidates: list[dict[str, str]] = []
@@ -247,6 +265,8 @@ def extract_illustrations(html_body: bytes, base_url: str, limit: int) -> list[d
         if not absolute.startswith(("http://", "https://")):
             continue
         key = _image_key(absolute)
+        if key in ignored:
+            continue
         if key in kept:
             if candidate["caption"] and not kept[key]["caption"]:
                 kept[key]["caption"] = candidate["caption"]
@@ -562,7 +582,8 @@ def record_error(con: sqlite3.Connection, news_id: int, message: str) -> None:
 # ---------------------------------------------------------------- pipeline
 
 
-def prepare_one(cfg: PreparerConfig, router_cfg: "evaluator.Config", news: sqlite3.Row, dry_run: bool) -> dict[str, Any]:
+def prepare_one(cfg: PreparerConfig, router_cfg: "evaluator.Config", news: sqlite3.Row, dry_run: bool,
+                ignored: frozenset[str] = frozenset()) -> dict[str, Any]:
     # The article is fetched BEFORE the model call: the illustration captions
     # go into the same retelling request and come back translated, so the
     # pictures are not signed in English under a Russian text — and it costs
@@ -573,7 +594,7 @@ def prepare_one(cfg: PreparerConfig, router_cfg: "evaluator.Config", news: sqlit
             if allowed_by_robots(news["primary_url"], cfg.user_agent):
                 time.sleep(cfg.fetch_delay)
                 final_url, _, body = fetch(news["primary_url"], cfg.user_agent)
-                candidates = extract_illustrations(body, final_url, cfg.max_images)
+                candidates = extract_illustrations(body, final_url, cfg.max_images, ignored)
         except (urllib.error.URLError, OSError, ValueError) as exc:
             log.warning("news %s: article fetch failed: %s", news["news_id"], exc)
 
@@ -594,6 +615,58 @@ def prepare_one(cfg: PreparerConfig, router_cfg: "evaluator.Config", news: sqlit
     return {"title": title, "paragraphs": paragraphs, "model_id": model_id, "images": images, "body_md": body_md}
 
 
+def add_ignored_image(cfg: PreparerConfig, url: str, note: str, counters: dict | None = None) -> int:
+    """Register an image as never-to-be-published and pull it out of the queue.
+
+    The entry matches by URL-without-query, the same key the candidate
+    de-duplication uses. Illustration rows of not-yet-published items are
+    deleted together with their files; published items keep theirs (what went
+    out went out), and operator-edited items are only reported — a human
+    already decided what those pictures should be.
+    """
+    if not url.startswith(("http://", "https://")):
+        log.error("--ignore-image needs an http(s) URL, got %r", url)
+        return 2
+    key = _image_key(url)
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    con = open_own_db(cfg.own_db)
+    purged = 0
+    try:
+        with con:
+            con.execute(
+                "INSERT INTO ignored_image (url_key, note, added_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(url_key) DO UPDATE SET note = excluded.note",
+                (key, note, now),
+            )
+            rows = con.execute(
+                "SELECT i.id, i.news_id, i.file_path, i.source_url, p.status, p.edited_at "
+                "FROM illustration i JOIN prepared_item p ON p.news_id = i.news_id"
+            ).fetchall()
+            for row in rows:
+                if _image_key(row["source_url"] or "") != key:
+                    continue
+                if row["status"] != "prepared" or row["edited_at"]:
+                    log.info("news %s (%s%s): keeping the already-public/edited copy",
+                             row["news_id"], row["status"], ", edited" if row["edited_at"] else "")
+                    continue
+                con.execute("DELETE FROM illustration WHERE id = ?", (row["id"],))
+                path = Path(row["file_path"])
+                if not path.exists():  # the media tree may have moved; same fallback as the publisher
+                    path = Path(cfg.media_dir) / str(row["news_id"]) / path.name
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError as exc:
+                    log.warning("news %s: cannot delete %s: %s", row["news_id"], path, exc)
+                purged += 1
+                log.info("news %s: illustration %s removed from the queue copy", row["news_id"], row["source_url"])
+    finally:
+        con.close()
+    log.info("ignored %s (%d queued cop%s purged)", key, purged, "y" if purged == 1 else "ies")
+    if counters is not None:
+        counters.update(purged=purged)
+    return 0
+
+
 def run(cfg: PreparerConfig, router_cfg: "evaluator.Config", limit: int, dry_run: bool, only: int | None,
         counters: dict | None = None) -> int:
     news_con = evaluator.open_db(cfg.news_db)
@@ -601,6 +674,7 @@ def run(cfg: PreparerConfig, router_cfg: "evaluator.Config", limit: int, dry_run
     try:
         selected = news_con.execute(SELECTED_SQL).fetchall()
         done = prepared_ids(own_con)
+        ignored = ignored_image_keys(own_con)
         if only is not None:
             queue = [n for n in selected if n["news_id"] == only]
         else:
@@ -610,7 +684,7 @@ def run(cfg: PreparerConfig, router_cfg: "evaluator.Config", limit: int, dry_run
         prepared, failed = 0, 0
         for news in queue:
             try:
-                result = prepare_one(cfg, router_cfg, news, dry_run)
+                result = prepare_one(cfg, router_cfg, news, dry_run, ignored)
             except (evaluator.EvaluationInvalid, evaluator.McpError, urllib.error.URLError) as exc:
                 failed += 1
                 log.error("news %s: preparation failed: %s", news["news_id"], exc)
@@ -641,6 +715,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=5, help="batch size (default 5)")
     parser.add_argument("--news-id", type=int, default=None, help="prepare only this news id")
     parser.add_argument("--dry-run", action="store_true", help="fetch, retell and render, but write nothing")
+    parser.add_argument("--ignore-image", metavar="URL", default=None,
+                        help="blacklist this image (by URL without query), purge it from "
+                             "unpublished prepared items, and exit")
+    parser.add_argument("--note", default="", help="short reason stored with --ignore-image")
     parser.add_argument("--verbose", action="store_true", help="debug logging")
     args = parser.parse_args(argv)
 
@@ -650,6 +728,9 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stderr,
     )
     cfg = PreparerConfig.from_env()
+    if args.ignore_image:  # an operator action: no router, no batch
+        with runlog.record("ignore-image", cfg.own_db, {"url": args.ignore_image}) as counters:
+            return add_ignored_image(cfg, args.ignore_image, args.note, counters)
     router_cfg = evaluator.Config.from_env()
     # A higher temperature than scoring: the retelling should read as prose. The token
     # budget has to cover the model's reasoning as well as the answer — see the note on
