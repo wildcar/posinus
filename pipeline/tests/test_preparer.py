@@ -120,11 +120,12 @@ class ParseRetellingTests(unittest.TestCase):
         with self.assertRaises(evaluator.EvaluationInvalid):
             parse_retelling({"title": "T", "body": []})
 
-    def test_long_dashes_normalized(self):
+    def test_long_dashes_are_kept(self):
+        # the dash ban was the owner's rule and the owner lifted it (2026-07-28):
+        # «Длинные тире — прекрасны»
         title, paras = parse_retelling({"title": "Мышь — рекордсмен", "body": ["Она живёт долго — и активно."]})
-        self.assertEqual(title, "Мышь - рекордсмен")
-        self.assertEqual(paras, ["Она живёт долго - и активно."])
-        self.assertNotIn("—", title + paras[0])
+        self.assertEqual(title, "Мышь — рекордсмен")
+        self.assertEqual(paras, ["Она живёт долго — и активно."])
 
 
 class BuildMarkdownTests(unittest.TestCase):
@@ -334,9 +335,9 @@ class DownloadDedupTests(unittest.TestCase):
 
 
 class ParseCaptionsTests(unittest.TestCase):
-    def test_valid_captions_normalized(self):
+    def test_valid_captions_whitespace_collapsed_dashes_kept(self):
         payload = {"captions": ["Кот — герой", "  два   слова "]}
-        self.assertEqual(preparer.parse_captions(payload, 2), ["Кот - герой", "два слова"])
+        self.assertEqual(preparer.parse_captions(payload, 2), ["Кот — герой", "два слова"])
 
     def test_unusable_reply_returns_none(self):
         self.assertIsNone(preparer.parse_captions({}, 2))

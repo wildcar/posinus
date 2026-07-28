@@ -185,6 +185,9 @@ a publish-ready retelling, and posts them to the platforms.
   blocked by the dead nodesource apt repo, see AGENTS/ENV.md), verified by a dry run of
   news 5616 — telegram is a photo upload again, 817 chars against limit 1024. To check
   after the next preparer run: `illustration.caption` comes out Russian.
+- Since 2026-07-28 retellings keep long dashes: the owner lifted the humanizer-ru dash
+  ban («длинные тире — прекрасны»), so the prompt line and `normalize_ru` are gone.
+  Already-prepared items keep their hyphens; nothing is rewritten retroactively.
 - Since 2026-07-28 the preparer keeps an image blacklist: `ignored_image` in its own DB,
   matched by URL without query. A listed candidate is dropped before download, takes no
   slot in the four-image limit and its caption skips the translation call.

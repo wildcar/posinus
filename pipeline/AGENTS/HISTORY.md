@@ -4,6 +4,13 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-28 · «Длинные тире — прекрасны»: the dash ban is lifted
+- What: retellings keep long dashes. The «не используй длинное тире» line is out of the prompt, `normalize_ru` is deleted, and titles, paragraphs and captions go out with «—» exactly as the model writes it (whitespace is still collapsed). Two tests flipped to assert the opposite, 197 pass.
+- Why: owner's call, reversing their own humanizer-ru hard rule; the rule left `.claude/skills/humanizer-ru/SKILL.md` the same morning (that edit rode into `f2ed0d6`).
+- Files: pipeline/preparer.py, pipeline/tests/test_preparer.py, pipeline/AGENTS/SPEC.md
+- Prod: pending — ships with the next `update-ubuntu.sh`; already-prepared retellings keep their hyphens, nothing is rewritten retroactively.
+- Next: —
+
 ## 2026-07-28 · The source's logo is not an illustration
 - What: an image blacklist in the pipeline DB — `ignored_image`, keyed by URL without query. A listed candidate is dropped in `extract_illustrations` before download: no slot in the four-image limit, no caption in the translation call. `preparer.py --ignore-image URL [--note "…"]` adds an entry and purges the picture (row + file) from prepared-but-unpublished items; published and operator-edited ones stay untouched. 6 tests added, 197 pass.
 - Why: owner's call on wildcar.org/news/7113 — The Optimist Daily's logo went out as the lead picture, captioned «Optimist daily». Site logos land as illustrations en masse: four queued items carried this same logo at position 1, and GNN, ScienceDaily, nsknews, sunnyskyz show the same pattern.

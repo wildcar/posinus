@@ -326,8 +326,8 @@ RETELL_SYSTEM = (
     "- Пересказывай факты из текста, ничего не выдумывай. Если новость на другом языке, "
     "перескажи её по-русски.\n"
     "- Убирай канцелярит, штампы и сухость. Пиши короткими и длинными предложениями вперемешку.\n"
-    "- Не используй обороты «не только... но и», «не просто... а». Не используй длинное тире, "
-    "ставь обычный дефис. Не используй знаки сравнения и математические знаки в тексте.\n"
+    "- Не используй обороты «не только... но и», «не просто... а». "
+    "Не используй знаки сравнения и математические знаки в тексте.\n"
     "- Заголовок короткий и цепляющий, без кликбейта. Тело от двух до четырёх абзацев.\n"
     "- Если в сообщении есть блок «Подписи к иллюстрациям», переведи каждую подпись на русский "
     "в том же порядке: коротко, без точки в конце, без выдумок.\n"
@@ -350,15 +350,6 @@ def build_retell_user_message(title: str, body: str, language: str, captions: li
     return message
 
 
-def normalize_ru(text: str) -> str:
-    """Enforce the humanizer-ru hard rule the model keeps ignoring: no long dashes.
-
-    Replaces em/en/figure dashes with a plain hyphen. Deterministic, so the output
-    complies regardless of the model. Left narrow: quotes and names stay untouched.
-    """
-    return text.replace("—", "-").replace("–", "-").replace("‒", "-")
-
-
 def parse_retelling(payload: dict[str, Any]) -> tuple[str, list[str]]:
     title = payload.get("title")
     if not isinstance(title, str) or not title.strip():
@@ -373,7 +364,7 @@ def parse_retelling(payload: dict[str, Any]) -> tuple[str, list[str]]:
         raise evaluator.EvaluationInvalid("нет тела body")
     if not paragraphs:
         raise evaluator.EvaluationInvalid("пустое тело body")
-    return normalize_ru(" ".join(title.split())), [normalize_ru(p) for p in paragraphs]
+    return " ".join(title.split()), paragraphs
 
 
 def parse_captions(payload: dict[str, Any], expected: int) -> list[str] | None:
@@ -388,7 +379,7 @@ def parse_captions(payload: dict[str, Any], expected: int) -> list[str] | None:
     if not isinstance(captions, list) or len(captions) != expected \
             or not all(isinstance(c, str) for c in captions):
         return None
-    return [normalize_ru(" ".join(c.split())) for c in captions]
+    return [" ".join(c.split()) for c in captions]
 
 
 def retell(
