@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-29 · AP's boilerplate joins the image blacklist
+- What: three more `--ignore-image` entries on prod, no code change: the AP share-image placeholder («Associated Press / apnews.com»), the AP promo banner (`promo-2x.png` behind its stable `dims4/…/94c503b` resizer URL, seen verbatim on 5 items) and the Google Play badge from AP's footer. 10 blacklist entries total; 1 queued copy purged (news 3567), no AP boilerplate left on any prepared item.
+- Why: owner's call on wildcar.org/news/1624 — the published page carries all three instead of a real photo. AP articles without a photo ship the placeholder as og:image, and every AP page appends the app promo and store badges.
+- Files: none (data only, `ignored_image` on prod).
+- Next: dims.apnews.com keys carry the crop signature in the path, so a DIFFERENT crop of the same placeholder would slip through; if one does, consider matching the `?url=` asset for dims URLs.
+
 ## 2026-07-28 · «Длинные тире — прекрасны»: the dash ban is lifted
 - What: retellings keep long dashes. The «не используй длинное тире» line is out of the prompt, `normalize_ru` is deleted, and titles, paragraphs and captions go out with «—» exactly as the model writes it (whitespace is still collapsed). Two tests flipped to assert the opposite, 197 pass.
 - Why: owner's call, reversing their own humanizer-ru hard rule; the rule left `.claude/skills/humanizer-ru/SKILL.md` the same morning (that edit rode into `f2ed0d6`).

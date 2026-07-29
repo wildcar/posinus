@@ -197,8 +197,11 @@ a publish-ready retelling, and posts them to the platforms.
   added, 197 pass. LIVE at `42e0383` (2026-07-28 08:01 UTC, `update-ubuntu.sh`): the
   logo is blacklisted and its 8 queued copies are purged — four of them were lead
   pictures. With the owner's go-ahead the other sources' logos followed the same day:
-  GNN ×2, ScienceDaily, nsknews, sunnyskyz, RTBC — 7 blacklist entries, 28 queued
-  copies purged in total, none left on a prepared item.
+  GNN ×2, ScienceDaily, nsknews, sunnyskyz, RTBC — then on 2026-07-29 AP's boilerplate
+  (share-image placeholder, promo banner, Google Play badge; wildcar.org/news/1624).
+  10 blacklist entries, 29 queued copies purged in total, none left on a prepared item.
+  Caveat: dims.apnews.com keys embed the crop signature, so a different crop of the same
+  AP placeholder would slip through — matching the `?url=` asset is the fix if it does.
 
 ## Next
 
