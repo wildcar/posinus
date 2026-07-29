@@ -189,11 +189,12 @@ a publish-ready retelling, and posts them to the platforms.
   the retelling: router `generate_image`, provider `IMAGE_PROVIDER` (default
   `codex-oauth` → `gpt-image-2`), stored as a normal illustration with
   `source_url = generated://<model_id>`. Failure is non-fatal; dry runs never spend an
-  image call. 8 tests added, 205 pass. LIVE at `64d5e7e` but DORMANT: the router's
-  codex-oauth credential is dead (401 on token refresh; its auth.json is from 07-14,
-  the single-use refresh token rotated elsewhere on 07-21, and openai-auth-sync has
-  been down since 06-16 and never watched the router's path). Owner action: revive the
-  codex login for the modelrouter user — nothing in the pipeline needs to change.
+  image call. 8 tests added, 205 pass. LIVE at `64d5e7e` and verified end-to-end
+  2026-07-29 ~15:00 UTC after the owner refreshed the router's codex auth.json: a
+  sandbox `generate_illustration` call returned a 2.9 MB photorealistic PNG from
+  `gpt-image-2`, no text or logos on it, saved as `1.png` with
+  `source_url = generated://gpt-image-2`. The rotation risk remains documented in
+  `../AGENTS/ENV.md`: openai-auth-sync is down and does not watch the router's path.
 - Since 2026-07-28 retellings keep long dashes: the owner lifted the humanizer-ru dash
   ban («длинные тире — прекрасны»), so the prompt line and `normalize_ru` are gone.
   Already-prepared items keep their hyphens; nothing is rewritten retroactively.
