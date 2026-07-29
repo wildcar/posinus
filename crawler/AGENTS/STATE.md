@@ -111,7 +111,8 @@ Operate a single-host multilingual news crawler whose source list improves from 
   contract object), can add an evening slot by key, sees the gallery of past issues from
   the pipeline DB and can request a run through the mailbox (`run-daypic`). The seeded
   `day` slot is switched off, so nothing generates until the operator enables it.
-  NOT YET DEPLOYED as of this writing.
+  LIVE on prod at `a7352b5` (2026-07-29 21:42 UTC, `update-ubuntu.sh`): migration `0012`
+  applied, web and worker active, `/daypic/` answers behind the login.
 
 ## Next
 

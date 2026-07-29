@@ -226,10 +226,15 @@ a publish-ready retelling, and posts them to the platforms.
   Files: `/var/lib/posinus/pipeline/daypic/<date>-<slot>.<ext>` — stable names for the
   owner's bot to pick up. Own tables `daypic_item`/`daypic_publication`; retention
   deletes files after `DAYPIC_KEEP_DAYS` (90), rows stay. 26 daypic tests, 231 pass
-  total; crawler side 138 pass. NOT YET DEPLOYED as of this writing: needs
-  `update-ubuntu.sh` (code + migration) and the owner's `install.sh` run (new units
-  posinus-daypic.{service,timer} + posinus-daypic-run.path + daypic dir); harmless
-  until the operator enables the slot.
+  total; crawler side 138 pass. Code is LIVE at `a7352b5` (2026-07-29 21:42 UTC,
+  `update-ubuntu.sh`, backup `pre-update-20260729T214158Z.sqlite3`); migration `0012`
+  applied, the `day` slot sits on prod switched off, and `daypic.py --dry-run` ran in
+  place as `posinus-pipeline` (0 slots enabled — correct). A dev dry run through the
+  live router produced a proper prompt: next-day Moscow date, style 30 of 31 by day of
+  month, real July-30 holidays from the model's own calendar. NOT YET ACTIVE: the owner
+  runs `sudo bash /opt/posinus/pipeline/deploy/install.sh` (units
+  posinus-daypic.{service,timer}, posinus-daypic-run.path, the daypic dir), then the
+  operator fills in and enables the `day` slot on the new page.
 
 ## Next
 
