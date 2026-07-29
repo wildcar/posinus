@@ -229,15 +229,16 @@ a publish-ready retelling, and posts them to the platforms.
   VK. Files: `/var/lib/posinus/pipeline/daypic/<date>-<slot>[-wide].<ext>` — stable
   names for the owner's bot. Own tables `daypic_item`/`daypic_publication`; retention
   deletes both files after `DAYPIC_KEEP_DAYS` (90), rows stay. 34 daypic tests, 239 pass
-  total; crawler side 138 pass. Code is LIVE at `a7352b5` (2026-07-29 21:42 UTC,
-  `update-ubuntu.sh`, backup `pre-update-20260729T214158Z.sqlite3`); migration `0012`
-  applied, the `day` slot sits on prod switched off, and `daypic.py --dry-run` ran in
-  place as `posinus-pipeline` (0 slots enabled — correct). A dev dry run through the
-  live router produced a proper prompt: next-day Moscow date, style 30 of 31 by day of
-  month, real July-30 holidays from the model's own calendar. NOT YET ACTIVE: the owner
-  runs `sudo bash /opt/posinus/pipeline/deploy/install.sh` (units
-  posinus-daypic.{service,timer}, posinus-daypic-run.path, the daypic dir), then the
-  operator fills in and enables the `day` slot on the new page.
+  total; crawler side 138 pass. LIVE AND ARMED at `46be072` (2026-07-29 22:09 UTC,
+  `update-ubuntu.sh`, backup `pre-update-20260729T220929Z.sqlite3`): migrations
+  `0012`+`0013` applied (the unedited seed texts were refreshed by 0013), the owner ran
+  install.sh and ENABLED the `day` slot, the timer fires every 15 min, and a triggered
+  run on prod logged «1 slot(s) enabled, platforms [wildcar_org, telegram, site, vk]» —
+  correctly not due before 08:00 MSK. `/etc/posinus/pipeline.env` has no DAYPIC_* keys,
+  so everything runs on code defaults. The FIRST REAL ISSUE generates on the first run
+  after 08:00 Moscow on 2026-07-30 — check it end to end on all four platforms. A dev
+  dry run through the live router already returned a valid JSON pair (prompt +
+  description, random style, real July-30 holidays).
 
 ## Next
 
