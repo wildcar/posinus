@@ -235,10 +235,12 @@ a publish-ready retelling, and posts them to the platforms.
   install.sh and ENABLED the `day` slot, the timer fires every 15 min, and a triggered
   run on prod logged «1 slot(s) enabled, platforms [wildcar_org, telegram, site, vk]» —
   correctly not due before 08:00 MSK. `/etc/posinus/pipeline.env` has no DAYPIC_* keys,
-  so everything runs on code defaults. The FIRST REAL ISSUE comes either from the
-  «Прогнать сейчас» button (the `run-daypic` request now lifts the generate_at gate
-  for that pass) or from the first timer run after 08:00 Moscow on 2026-07-30 —
-  check it end to end on all four platforms. A dev
+  so everything runs on code defaults. The FIRST REAL ISSUE is OUT
+  (2026-07-29 22:28 UTC, via the run-now request): wildcar.org/kartina/2026-07-30/,
+  t.me/posinus/525 and wildcar.ru all ok; VK's upload server returned an empty `photo`
+  once (transient — the timer retries up to PUB_MAX_ATTEMPTS, then best-effort). Both
+  renditions were re-encoded by the owner's `preparer.shrink_image` (ffmpeg, rode into
+  `a8f295a`) from ~3 MB PNG to ~0.5 MB JPG. A dev
   dry run through the live router already returned a valid JSON pair (prompt +
   description, random style, real July-30 holidays).
 

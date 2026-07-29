@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-29 · The first real issue is out (and pictures learned to lose weight)
+- What: the first «Картина дня» went out end-to-end on prod at 22:23–22:28 UTC through the run-now request: JSON prompt+description, both renditions via gpt-image-2, wildcar.org https://wildcar.org/kartina/2026-07-30/, telegram https://t.me/posinus/525, Эгея https://wildcar.ru/all/kartina-dnya-30-iyulya-2026/ — VK's upload server answered with an empty `photo` (transient; retried by the timer up to PUB_MAX_ATTEMPTS). The owner's parallel change rode into commit `a8f295a` via `git add -A`: `preparer.shrink_image` (ffmpeg → JPEG ≤1600px when heavier than 400 KB, lenient on failure), wired into the preparer's downloads and daypic's generations; it re-encoded both 3 MB PNGs to ~0.5 MB JPGs on the first issue.
+- Why: the manual run was the owner's real button press at 01:23 MSK; the shrink is the owner's own work, recorded here so `a8f295a`'s message is not the whole story.
+- Files: (already in `a8f295a`) pipeline/{preparer,daypic}.py, pipeline/tests/test_preparer.py
+- Next: confirm VK lands on a retry; watch the 08:00 timer skip the already-published day.
+
 ## 2026-07-29 · «Прогнать сейчас» значит сейчас
 - What: the `run-daypic` mailbox request lifts the generate_at gate for that pass — the SCRIPT consumes the file (the unit's ExecStartPre rm is gone) and treats it as the operator's «сейчас»; the daily idempotency still holds, and a pause consumes the file too so the .path unit cannot loop. The page says so, and the slot form is pre-filled: migration `0014` writes the real default sizes into empty fields, the model-hint fields carry placeholders naming the pipeline defaults. 244 pipeline + 138 crawler tests pass.
 - Why: the owner pressed the button at 01:18 MSK and nothing happened — the gate held until 08:00, which is right for the timer and wrong for a human's explicit click; and blank fields hid what an empty value actually does.
