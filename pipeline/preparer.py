@@ -22,6 +22,7 @@ Behavior: AGENTS/SPEC.md, section «Подготовка отобранных н
 from __future__ import annotations
 
 import argparse
+import base64
 import gzip
 import hashlib
 import html
@@ -112,6 +113,11 @@ class PreparerConfig:
     user_agent: str = "PositiveNewsEvaluator/0.1 (+mailto:mail@wildcar.ru)"
     fetch_delay: float = 1.0
     max_images: int = MAX_IMAGES
+    # A news item that ends up with zero pictures gets one generated from the
+    # retelling. Empty image_provider switches the feature off; empty
+    # image_model lets the router pick within the provider.
+    image_provider: str = "codex-oauth"
+    image_model: str = ""
 
     @classmethod
     def from_env(cls, env: dict[str, str] = os.environ) -> "PreparerConfig":
@@ -120,6 +126,8 @@ class PreparerConfig:
         cfg.own_db = env.get("EVALUATOR_DB_PATH", cfg.own_db)
         cfg.media_dir = env.get("MEDIA_DIR", cfg.media_dir)
         cfg.user_agent = env.get("PREPARER_USER_AGENT", cfg.user_agent)
+        cfg.image_provider = env.get("IMAGE_PROVIDER", cfg.image_provider)
+        cfg.image_model = env.get("IMAGE_MODEL", cfg.image_model)
         return cfg
 
 
@@ -314,6 +322,77 @@ def download_illustrations(
         path.write_bytes(body)
         saved.append({"path": str(path), "caption": candidate["caption"], "source_url": url})
     return saved
+
+
+# ---------------------------------------------------- generated illustration
+
+
+IMAGE_PROMPT = (
+    "Фотореалистичная горизонтальная иллюстрация к новости. Без текста, надписей, "
+    "логотипов и водяных знаков на изображении.\n"
+    "Новость: {title}\n{lead}"
+)
+IMAGE_PROMPT_LEAD_CHARS = 600
+
+_IMAGE_MAGIC = ((b"\x89PNG", ".png"), (b"\xff\xd8", ".jpg"), (b"RIFF", ".webp"), (b"GIF8", ".gif"))
+
+
+def _sniff_image_ext(data: bytes) -> str:
+    for magic, ext in _IMAGE_MAGIC:
+        if data.startswith(magic):
+            return ext
+    return ".img"
+
+
+def build_image_prompt(title: str, paragraphs: list[str]) -> str:
+    lead = " ".join(paragraphs[:2])[:IMAGE_PROMPT_LEAD_CHARS]
+    return IMAGE_PROMPT.format(title=title, lead=lead)
+
+
+def generate_illustration(
+    cfg: PreparerConfig, router_cfg: "evaluator.Config", news_id: int,
+    title: str, paragraphs: list[str],
+) -> dict[str, str] | None:
+    """One generated picture for a news item that ended up with none.
+
+    Calls the router's `generate_image` tool (provider `image_provider`, the
+    same `news-preparer` identity as the retelling). Lenient like the caption
+    translation: any failure logs and returns None, and the item publishes
+    without a picture as it always did — the picture is a bonus, not a gate.
+    The entry's source_url scheme `generated://` marks the provenance."""
+    arguments: dict[str, Any] = {
+        "external_user_id": router_cfg.router_user or router_cfg.selector_name,
+        "prompt": build_image_prompt(title, paragraphs),
+    }
+    if cfg.image_provider:
+        arguments["provider"] = cfg.image_provider
+    if cfg.image_model:
+        arguments["model_id"] = cfg.image_model
+    try:
+        reply = evaluator.call_tool(router_cfg.router_url, "generate_image", arguments,
+                                    token=router_cfg.router_token or None)
+    except (evaluator.McpError, urllib.error.URLError, OSError) as exc:
+        log.warning("news %s: image generation failed: %s", news_id, exc)
+        return None
+    blobs = reply.get("image_b64") if isinstance(reply, dict) else None
+    if not isinstance(blobs, list) or not blobs:
+        log.warning("news %s: image generation returned no image", news_id)
+        return None
+    try:
+        data = base64.b64decode(blobs[0])
+    except (TypeError, ValueError) as exc:
+        log.warning("news %s: generated image is not decodable base64: %s", news_id, exc)
+        return None
+    if len(data) < MIN_IMAGE_BYTES:
+        log.warning("news %s: generated image is implausibly small (%d bytes), dropped", news_id, len(data))
+        return None
+    target_dir = Path(cfg.media_dir) / str(news_id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    path = target_dir / f"1{_sniff_image_ext(data)}"
+    path.write_bytes(data)
+    model_id = reply.get("model_id") or cfg.image_model or cfg.image_provider
+    log.info("news %s: illustration generated via %s (%d bytes)", news_id, model_id, len(data))
+    return {"path": str(path), "caption": "", "source_url": f"generated://{model_id}"}
 
 
 # ------------------------------------------------------------- retelling
@@ -597,13 +676,23 @@ def prepare_one(cfg: PreparerConfig, router_cfg: "evaluator.Config", news: sqlit
             if candidate["caption"].strip():
                 candidate["caption"] = next(translated)
 
+    generated = False
     if not dry_run:
         images = download_illustrations(cfg, news["news_id"], candidates)
+        if not images and cfg.image_provider:
+            entry = generate_illustration(cfg, router_cfg, news["news_id"], title, paragraphs)
+            if entry is not None:
+                images = [entry]
+                generated = True
     else:
         images = [{"path": f"(dry-run) {c['url']}", "caption": c["caption"], "source_url": c["url"]} for c in candidates]
+        if not candidates and cfg.image_provider:  # a dry run must not spend an image call
+            log.info("news %s [dry-run]: no pictures, one would be generated via %s",
+                     news["news_id"], cfg.image_provider)
     source_url = news["primary_url"] or ""
     body_md = build_markdown(title, paragraphs, source_url, source_name_from_url(source_url) if source_url else "")
-    return {"title": title, "paragraphs": paragraphs, "model_id": model_id, "images": images, "body_md": body_md}
+    return {"title": title, "paragraphs": paragraphs, "model_id": model_id, "images": images,
+            "body_md": body_md, "generated": generated}
 
 
 def add_ignored_image(cfg: PreparerConfig, url: str, note: str, counters: dict | None = None) -> int:
@@ -672,7 +761,7 @@ def run(cfg: PreparerConfig, router_cfg: "evaluator.Config", limit: int, dry_run
             queue = [n for n in selected if n["news_id"] not in done][:limit]
         log.info("selected %d, prepared %d, queue %d (limit %d)", len(selected), len(done), len(queue), limit)
 
-        prepared, failed = 0, 0
+        prepared, failed, generated = 0, 0, 0
         for news in queue:
             try:
                 result = prepare_one(cfg, router_cfg, news, dry_run, ignored)
@@ -692,9 +781,10 @@ def run(cfg: PreparerConfig, router_cfg: "evaluator.Config", limit: int, dry_run
                 log.info("news %s: prepared '%s' (%d images)",
                          news["news_id"], result["title"], len(result["images"]))
             prepared += 1
-        log.info("finished: %d prepared, %d failed", prepared, failed)
+            generated += 1 if result.get("generated") else 0
+        log.info("finished: %d prepared (%d with a generated picture), %d failed", prepared, generated, failed)
         if counters is not None:
-            counters.update(queue=len(selected), prepared=prepared, failed=failed)
+            counters.update(queue=len(selected), prepared=prepared, failed=failed, images_generated=generated)
         return 0 if failed == 0 else 1
     finally:
         news_con.close()
@@ -744,6 +834,7 @@ def main(argv: list[str] | None = None) -> int:
         "provider": router_cfg.provider,
         "batch": args.limit,
         "media_dir": cfg.media_dir,
+        "image_provider": cfg.image_provider,
     }
     with runlog.record("preparer", cfg.own_db, settings) as counters:
         return run(cfg, router_cfg, limit=args.limit, dry_run=False, only=args.news_id, counters=counters)

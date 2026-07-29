@@ -185,6 +185,11 @@ a publish-ready retelling, and posts them to the platforms.
   blocked by the dead nodesource apt repo, see AGENTS/ENV.md), verified by a dry run of
   news 5616 — telegram is a photo upload again, 817 chars against limit 1024. To check
   after the next preparer run: `illustration.caption` comes out Russian.
+- Since 2026-07-29 a news item that ends up with zero pictures gets one generated from
+  the retelling: router `generate_image`, provider `IMAGE_PROVIDER` (default
+  `codex-oauth` → `gpt-image-2`), stored as a normal illustration with
+  `source_url = generated://<model_id>`. Failure is non-fatal; dry runs never spend an
+  image call. 8 tests added, 205 pass.
 - Since 2026-07-28 retellings keep long dashes: the owner lifted the humanizer-ru dash
   ban («длинные тире — прекрасны»), so the prompt line and `normalize_ru` are gone.
   Already-prepared items keep their hyphens; nothing is rewritten retroactively.

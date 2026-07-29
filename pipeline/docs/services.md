@@ -81,6 +81,14 @@ sudo -u posinus-pipeline bash -c 'set -a; . /etc/posinus/pipeline.env; set +a; \
   python3 /opt/posinus/pipeline/preparer.py --ignore-image URL --note "why"'
 ```
 
+A news item that still has zero pictures after download (none in the article, or all of
+them blacklisted/filtered) gets one generated from the retelling: the router's
+`generate_image` tool, provider `IMAGE_PROVIDER` (default `codex-oauth`; empty turns the
+feature off, `IMAGE_MODEL` pins a model). The file is stored as a normal illustration
+with `source_url = generated://<model_id>`, so provenance stays visible in the DB. A
+generation failure never fails the preparation — the item publishes without a picture,
+as it always did. A dry run only logs that it would generate.
+
 Config (in `/etc/posinus/pipeline.env`):
 
 - `PREP_BATCH` (default 5) — selected news prepared per run.
@@ -89,6 +97,8 @@ Config (in `/etc/posinus/pipeline.env`):
   `EVALUATOR_MODEL` (empty → router picks), `EVALUATOR_TIER`.
 - `PREPARER_ROUTER_USER_ID` (default `news-preparer`) — `external_user_id` of the retelling
   calls, so the router does not bill them to `news-evaluator`.
+- `IMAGE_PROVIDER` (default `codex-oauth`), `IMAGE_MODEL` (empty → router picks) — image
+  generation for items with zero pictures.
 
 ## publisher.py
 

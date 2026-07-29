@@ -4,6 +4,13 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-29 · A news with no picture draws one
+- What: a news item that still has zero pictures after download gets one generated from the retelling: the router's `generate_image` tool, provider `IMAGE_PROVIDER` (default `codex-oauth`, `gpt-image-2` on prod; empty switches the feature off, `IMAGE_MODEL` pins a model), same `news-preparer` identity. The file lands as a normal illustration with `source_url = generated://<model_id>`; the prompt asks for a photorealistic horizontal picture with no text or logos, built from the retold title + lead (capped at 600 chars). Lenient like the caption translation: any failure logs and the item publishes pictureless as before. A dry run only logs that it would generate. `images_generated` lands in the run counters. 8 tests added, 205 pass.
+- Why: owner's call. The image blacklist made pictureless items the norm for AP news — the placeholder/promo/badge junk is ignored now, and AP's paywalled real photos never made it through anyway.
+- Files: pipeline/preparer.py, pipeline/tests/test_preparer.py, pipeline/deploy/pipeline.env.example, pipeline/{AGENTS/SPEC.md,docs/services.md}
+- Prod: pending — deploy, then re-prepare news 1702 (prepared with 0 pictures since 24.07) as the live check.
+- Next: decide whether generated pictures should carry a visible «изображение сгенерировано» label on the platforms.
+
 ## 2026-07-29 · AP's boilerplate joins the image blacklist
 - What: three more `--ignore-image` entries on prod, no code change: the AP share-image placeholder («Associated Press / apnews.com»), the AP promo banner (`promo-2x.png` behind its stable `dims4/…/94c503b` resizer URL, seen verbatim on 5 items) and the Google Play badge from AP's footer. 10 blacklist entries total; 1 queued copy purged (news 3567), no AP boilerplate left on any prepared item.
 - Why: owner's call on wildcar.org/news/1624 — the published page carries all three instead of a real photo. AP articles without a photo ship the placeholder as og:image, and every AP page appends the app promo and store badges.

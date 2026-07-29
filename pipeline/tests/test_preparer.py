@@ -406,6 +406,114 @@ class PrepareOneCaptionTests(unittest.TestCase):
                          ["", "Первая", "Вторая"])
 
 
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"x" * 4000
+
+
+class GenerateIllustrationTests(unittest.TestCase):
+    def _router_cfg(self):
+        cfg = evaluator.Config()
+        cfg.router_user = "news-preparer"
+        return cfg
+
+    def test_generated_image_saved_with_sniffed_extension_and_provenance(self):
+        import base64
+        reply = {"image_b64": [base64.b64encode(PNG_BYTES).decode()], "model_id": "gpt-image-2"}
+        calls = {}
+
+        def fake_call_tool(url, tool, arguments, token=None, timeout=300.0):
+            calls.update(tool=tool, arguments=arguments)
+            return reply
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = preparer.PreparerConfig(media_dir=tmp)
+            with mock.patch.object(evaluator, "call_tool", fake_call_tool):
+                entry = preparer.generate_illustration(cfg, self._router_cfg(), 42, "Заголовок", ["Абзац."])
+            self.assertEqual(entry["path"], str(Path(tmp) / "42" / "1.png"))
+            self.assertEqual(Path(entry["path"]).read_bytes(), PNG_BYTES)
+        self.assertEqual(entry["caption"], "")
+        self.assertEqual(entry["source_url"], "generated://gpt-image-2")
+        self.assertEqual(calls["tool"], "generate_image")
+        self.assertEqual(calls["arguments"]["provider"], "codex-oauth")
+        self.assertEqual(calls["arguments"]["external_user_id"], "news-preparer")
+        self.assertIn("Заголовок", calls["arguments"]["prompt"])
+        self.assertIn("Без текста", calls["arguments"]["prompt"])
+
+    def test_failures_return_none_and_never_raise(self):
+        import base64
+        replies = [
+            evaluator.McpError("router down"),          # transport failure
+            {"model_id": "m"},                           # no image in the reply
+            {"image_b64": ["не base64!!"]},              # undecodable payload
+            {"image_b64": [base64.b64encode(b"tiny").decode()]},  # below MIN_IMAGE_BYTES
+        ]
+
+        def fake_call_tool(url, tool, arguments, token=None, timeout=300.0):
+            reply = replies.pop(0)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = preparer.PreparerConfig(media_dir=tmp)
+            with mock.patch.object(evaluator, "call_tool", fake_call_tool):
+                for _ in range(4):
+                    self.assertIsNone(
+                        preparer.generate_illustration(cfg, self._router_cfg(), 42, "Т", ["А."]))
+
+    def test_prompt_caps_the_lead_and_carries_the_no_text_rule(self):
+        prompt = preparer.build_image_prompt("Т", ["а" * 1000, "б" * 1000])
+        self.assertLessEqual(len(prompt), len(preparer.IMAGE_PROMPT) + preparer.IMAGE_PROMPT_LEAD_CHARS)
+        self.assertIn("логотипов", prompt)
+
+
+class PrepareOneGenerationTests(unittest.TestCase):
+    NEWS = {"news_id": 9, "primary_url": "https://s.test/a",
+            "title": "T", "body_text": "B.", "language": "en"}
+    RETOLD = {"text": '{"title": "Т", "body": ["А."]}', "model_id": "m"}
+
+    def _prepare(self, cfg, dry_run, candidates, downloaded, generated_entry):
+        with mock.patch.object(preparer, "allowed_by_robots", return_value=True), \
+             mock.patch.object(preparer, "fetch", return_value=("https://s.test/a", "text/html", b"")), \
+             mock.patch.object(preparer, "extract_illustrations", return_value=candidates), \
+             mock.patch.object(preparer, "download_illustrations", return_value=downloaded), \
+             mock.patch.object(preparer, "generate_illustration", return_value=generated_entry) as gen, \
+             mock.patch.object(evaluator, "chat", return_value=self.RETOLD):
+            result = preparer.prepare_one(cfg, mock.Mock(), self.NEWS, dry_run)
+        return result, gen
+
+    def test_zero_pictures_get_one_generated(self):
+        entry = {"path": "/m/9/1.png", "caption": "", "source_url": "generated://gpt-image-2"}
+        result, gen = self._prepare(preparer.PreparerConfig(fetch_delay=0), False, [], [], entry)
+        self.assertEqual(result["images"], [entry])
+        self.assertTrue(result["generated"])
+        gen.assert_called_once()
+
+    def test_downloaded_pictures_suppress_generation(self):
+        downloaded = [{"path": "/m/9/1.jpg", "caption": "", "source_url": "https://s.test/1.jpg"}]
+        result, gen = self._prepare(preparer.PreparerConfig(fetch_delay=0), False,
+                                    [{"url": "https://s.test/1.jpg", "caption": ""}], downloaded, None)
+        self.assertEqual(result["images"], downloaded)
+        self.assertFalse(result["generated"])
+        gen.assert_not_called()
+
+    def test_dry_run_never_spends_an_image_call(self):
+        result, gen = self._prepare(preparer.PreparerConfig(fetch_delay=0), True, [], [], None)
+        self.assertEqual(result["images"], [])
+        gen.assert_not_called()
+
+    def test_empty_provider_turns_the_feature_off(self):
+        cfg = preparer.PreparerConfig(fetch_delay=0, image_provider="")
+        result, gen = self._prepare(cfg, False, [], [], None)
+        self.assertEqual(result["images"], [])
+        gen.assert_not_called()
+
+    def test_a_generation_failure_does_not_fail_the_preparation(self):
+        result, gen = self._prepare(preparer.PreparerConfig(fetch_delay=0), False, [], [], None)
+        self.assertEqual(result["images"], [])
+        self.assertFalse(result["generated"])
+        gen.assert_called_once()
+
+
 class RouterIdentityTests(unittest.TestCase):
     """The preparer must not spend the evaluator's identity at the router."""
 
