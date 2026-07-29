@@ -793,15 +793,13 @@ def daypic_create(request):
         messages.error(request, "Ключ слота — латиницей, без пробелов, и он не должен повторяться.")
         return redirect("daypic")
     donor = DaypicSlot.objects.first()
-    DaypicSlot.objects.create(
-        slot=key,
-        enabled=False,
-        title=donor.title if donor else "Картина дня",
-        generate_at=donor.generate_at if donor else "08:00",
-        prompt=donor.prompt if donor else "",
-        system_prompt=donor.system_prompt if donor else "",
-        styles=donor.styles if donor else "",
-    )
+    copied = {
+        field: getattr(donor, field)
+        for field in ("title", "generate_at", "prompt", "system_prompt", "styles",
+                      "chat_provider", "chat_model", "image_provider", "image_model",
+                      "image_size", "image_size_wide")
+    } if donor else {}
+    DaypicSlot.objects.create(slot=key, enabled=False, **copied)
     OperatorEvent.objects.create(event_type="daypic_slot_created",
                                  message=f"Добавлен слот картины дня «{key}» (выключен)")
     messages.success(request, f"Слот «{key}» добавлен выключенным: настройте промпт и время, потом включите.")
@@ -820,7 +818,11 @@ def daypic_run(request):
     else:
         OperatorEvent.objects.create(event_type="daypic_run_requested",
                                      message="Запрошен прогон картины дня")
-        messages.success(request, "Прогон запущен. Выпуск появится в галерее, когда конвейер закончит.")
+        messages.success(
+            request,
+            "Прогон запущен, время генерации слота для него не действует. Генерация и публикация "
+            "занимают пару минут; выпуск появится в галерее, когда конвейер закончит.",
+        )
     return redirect("daypic")
 
 

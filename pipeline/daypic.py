@@ -157,6 +157,28 @@ class DaypicError(RuntimeError):
     """The picture could not be produced; the day retries on the next run."""
 
 
+RUN_REQUEST = "run-daypic"
+
+
+def consume_run_request(requests_dir: str) -> bool:
+    """The operator's «Прогнать сейчас», as a file in the mailbox.
+
+    Its presence lifts the generate_at gate for this pass: a human pressing the
+    button means «сейчас», not «в свой час». Consumed before anything else —
+    including the pause check — because the .path unit retriggers the service
+    for as long as the file exists, and a paused run that left it in place
+    would loop until the pause lifted."""
+    path = Path(requests_dir) / RUN_REQUEST
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        log.warning("cannot remove the run request %s: %s", path, exc)
+        return False
+    return True
+
+
 # --------------------------------------------------------------- config
 
 
@@ -404,6 +426,7 @@ def generate_picture(
     target_dir.mkdir(parents=True, exist_ok=True)
     path = target_dir / f"{day}-{slot.slot}{suffix}{preparer._sniff_image_ext(data)}"
     path.write_bytes(data)
+    path = preparer.shrink_image(path)
     model_id = reply.get("model_id") or model or provider
     log.info("slot %s: %s picture generated via %s (%d bytes) -> %s",
              slot.slot, size or "default-size", model_id, len(data), path)
@@ -745,6 +768,10 @@ def run(cfg: DaypicConfig, router_cfg: "evaluator.Config", dry_run: bool,
     pub_cfg = publisher.PublisherConfig.from_env()
     pub_cfg.site_tags = cfg.site_tags
     platforms = pub_cfg.enabled_platforms()
+
+    if not dry_run and consume_run_request(pub_cfg.requests_dir):
+        ignore_time = True
+        log.info("manual run request consumed: the generate_at gate is lifted for this pass")
 
     pause = publisher.read_pause(pub_cfg.requests_dir, now_utc)
     if pause is not None and not dry_run:

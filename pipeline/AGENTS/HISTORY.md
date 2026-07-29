@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-29 · «Прогнать сейчас» значит сейчас
+- What: the `run-daypic` mailbox request lifts the generate_at gate for that pass — the SCRIPT consumes the file (the unit's ExecStartPre rm is gone) and treats it as the operator's «сейчас»; the daily idempotency still holds, and a pause consumes the file too so the .path unit cannot loop. The page says so, and the slot form is pre-filled: migration `0014` writes the real default sizes into empty fields, the model-hint fields carry placeholders naming the pipeline defaults. 244 pipeline + 138 crawler tests pass.
+- Why: the owner pressed the button at 01:18 MSK and nothing happened — the gate held until 08:00, which is right for the timer and wrong for a human's explicit click; and blank fields hid what an empty value actually does.
+- Files: pipeline/daypic.py, pipeline/tests/test_daypic.py, pipeline/deploy/posinus-daypic.service, pipeline/{AGENTS/SPEC.md,docs/services.md}, crawler/collector/{models,forms,views}.py, crawler/collector/migrations/0014_alter_daypicslot_image_size_and_more.py, crawler/templates/collector/daypic.html, crawler/tests/test_daypic_page.py, crawler/AGENTS/SPEC.md
+- Next: deploy needs the updated unit file on the host as well (one install + daemon-reload), then the button makes the first real issue.
+
 ## 2026-07-29 · Картина дня, второй заход: две ориентации, подпись и wildcar.org
 - What: every issue is now drawn twice from one prompt (vertical for telegram, horizontal `1536x1024` for the sites and VK, falling back to vertical); the chat reply is JSON {prompt, description} and every post carries «<title> · <дата по-русски>» plus the day's description; wildcar.org joins the platforms with its own `kartina` section (page + index + nav, synced by the build script alongside news); the style is random, never repeating within the slot's month. Own-DB columns `file_path_wide`/`caption` arrive by in-place migrate; crawler migration `0013` adds `image_size_wide` and refreshes the unedited 0012 seed prompts. 239 pipeline + 138 crawler tests pass.
 - Why: owner's calls, all four — telegram wants vertical while the sites want horizontal, a bare picture without «какие сегодня праздники» under it says nothing, wildcar.org was left out only pending this decision, and the day-of-month style made the month predictable.

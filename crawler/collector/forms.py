@@ -94,10 +94,18 @@ class DaypicSlotForm(forms.ModelForm):
             "image_size": "Размер вертикальной (telegram)",
             "image_size_wide": "Размер горизонтальной (сайты, VK)",
         }
+        # The placeholders name the pipeline's real defaults, so an empty field
+        # reads as «вот что будет», not as a mystery.
         widgets = {
             "prompt": forms.Textarea(attrs={"rows": 6}),
             "system_prompt": forms.Textarea(attrs={"rows": 6}),
             "styles": forms.Textarea(attrs={"rows": 8}),
+            "chat_provider": forms.TextInput(attrs={"placeholder": "пусто — deepseek (умолчание конвейера)"}),
+            "chat_model": forms.TextInput(attrs={"placeholder": "пусто — deepseek-v4-pro (умолчание конвейера)"}),
+            "image_provider": forms.TextInput(attrs={"placeholder": "пусто — codex-oauth (умолчание конвейера)"}),
+            "image_model": forms.TextInput(attrs={"placeholder": "пусто — выбирает роутер"}),
+            "image_size": forms.TextInput(attrs={"placeholder": "1024x1536"}),
+            "image_size_wide": forms.TextInput(attrs={"placeholder": "1536x1024"}),
         }
 
     def clean_generate_at(self):

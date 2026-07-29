@@ -290,6 +290,10 @@ Gotchas:
 - the timer fires every 15 minutes but a slot generates once per local day, after its
   `generate_at` (`DAYPIC_TZ`, Moscow by default). The frequent timer is the catch-up
   after downtime;
+- the `run-daypic` mailbox request (the page's «Прогнать сейчас») lifts the
+  generate_at gate for that pass: the script itself consumes the file — the unit has
+  no ExecStartPre rm, unlike the other services — and seeing it is how it knows a
+  human meant «сейчас». The one-issue-per-day rule still holds;
 - `--dry-run` prints the prompt and the description (one cheap chat call) and never
   spends an image call; `--slot day --ignore-time` checks a slot by hand without
   waiting for its hour;

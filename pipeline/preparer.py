@@ -30,6 +30,7 @@ import logging
 import os
 import re
 import sqlite3
+import subprocess
 import sys
 import time
 import urllib.error
@@ -54,6 +55,14 @@ MAX_RETELL_ATTEMPTS = 2
 MAX_IMAGES = 4
 MIN_IMAGE_BYTES = 3000
 MAX_IMAGE_BYTES = 12_000_000
+# Anything heavier than IMAGE_RECODE_BYTES is resized and re-encoded before it
+# is stored: Telegram refuses photos over 10 MB, and a page of multi-megabyte
+# originals is what a reader on a slow line waits ten seconds for. 1600 px is
+# wider than any platform renders.
+IMAGE_RECODE_BYTES = 400_000
+IMAGE_MAX_WIDTH = 1600
+FFMPEG = "ffmpeg"
+FFMPEG_TIMEOUT = 120.0
 FETCH_TIMEOUT = 30.0
 
 SELECTED_SQL = """
@@ -287,6 +296,44 @@ def extract_illustrations(
     return result
 
 
+def shrink_image(path: Path) -> Path:
+    """Re-encode a heavy picture as a JPEG no wider than IMAGE_MAX_WIDTH and
+    return the (possibly renamed) path.
+
+    The pipeline is stdlib-only, so this shells out to ffmpeg, which the host
+    carries. Light files and GIFs (animation would be lost) pass through
+    untouched. Lenient on failure: when ffmpeg is missing, errors out or does
+    not actually make the file smaller, the original stays — a heavy picture
+    beats a missing one, and Telegram's 10 MB refusal is survivable."""
+    if path.suffix == ".gif" or path.stat().st_size <= IMAGE_RECODE_BYTES:
+        return path
+    tmp = path.with_name(path.stem + ".shrink.jpg")
+    cmd = [
+        FFMPEG, "-y", "-nostdin", "-loglevel", "error", "-i", str(path),
+        "-frames:v", "1", "-map_metadata", "-1",
+        "-vf", f"scale=min(iw\\,{IMAGE_MAX_WIDTH}):-2",
+        "-q:v", "3", str(tmp),
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, timeout=FFMPEG_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as exc:
+        stderr = getattr(exc, "stderr", None) or b""
+        log.warning("image %s: ffmpeg re-encode failed, keeping the original: %s %s",
+                    path, exc, stderr.decode(errors="replace").strip())
+        tmp.unlink(missing_ok=True)
+        return path
+    if not tmp.exists() or not (MIN_IMAGE_BYTES <= tmp.stat().st_size < path.stat().st_size):
+        log.warning("image %s: re-encode produced nothing smaller, keeping the original", path)
+        tmp.unlink(missing_ok=True)
+        return path
+    target = path.with_suffix(".jpg")
+    os.replace(tmp, target)
+    if target != path:
+        path.unlink()
+    log.info("image %s: re-encoded to %s (%d bytes)", path.name, target.name, target.stat().st_size)
+    return target
+
+
 def download_illustrations(
     cfg: PreparerConfig, news_id: int, candidates: list[dict[str, str]]
 ) -> list[dict[str, str]]:
@@ -320,6 +367,7 @@ def download_illustrations(
         filename = f"{position}{CONTENT_TYPE_EXT.get(media_type, '.img')}"
         path = target_dir / filename
         path.write_bytes(body)
+        path = shrink_image(path)
         saved.append({"path": str(path), "caption": candidate["caption"], "source_url": url})
     return saved
 
@@ -390,6 +438,7 @@ def generate_illustration(
     target_dir.mkdir(parents=True, exist_ok=True)
     path = target_dir / f"1{_sniff_image_ext(data)}"
     path.write_bytes(data)
+    path = shrink_image(path)
     model_id = reply.get("model_id") or cfg.image_model or cfg.image_provider
     log.info("news %s: illustration generated via %s (%d bytes)", news_id, model_id, len(data))
     return {"path": str(path), "caption": "", "source_url": f"generated://{model_id}"}

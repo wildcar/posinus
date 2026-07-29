@@ -437,9 +437,11 @@ class DaypicSlot(models.Model):
     image_provider = models.CharField(max_length=100, blank=True)
     image_model = models.CharField(max_length=200, blank=True)
     # Every issue is drawn twice from one prompt: vertical goes to telegram (and
-    # the owner's bot), horizontal to the sites and VK.
-    image_size = models.CharField(max_length=20, blank=True)
-    image_size_wide = models.CharField(max_length=20, blank=True)
+    # the owner's bot), horizontal to the sites and VK. Blank still means «the
+    # pipeline's default», but the defaults are spelled out so the operator sees
+    # real numbers instead of guessing what an empty field does.
+    image_size = models.CharField(max_length=20, blank=True, default="1024x1536")
+    image_size_wide = models.CharField(max_length=20, blank=True, default="1536x1024")
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

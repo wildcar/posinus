@@ -58,6 +58,8 @@ def test_the_migration_seeds_the_day_slot_switched_off():
     assert not slot.enabled
     assert "картину дня" in slot.prompt
     assert len(slot.styles.splitlines()) == 31  # one per day of the longest month
+    assert slot.image_size == "1024x1536"       # filled by migration 0014
+    assert slot.image_size_wide == "1536x1024"
 
 
 @pytest.mark.django_db
@@ -116,6 +118,7 @@ def test_a_new_slot_copies_the_first_and_starts_switched_off(operator):
     assert not evening.enabled
     assert evening.prompt == day.prompt
     assert evening.styles == day.styles
+    assert evening.image_size_wide == day.image_size_wide
 
 
 @pytest.mark.django_db

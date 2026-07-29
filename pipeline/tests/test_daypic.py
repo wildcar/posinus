@@ -414,6 +414,23 @@ class RunTests(unittest.TestCase):
         self.assertEqual(counters["not_due"], 1)
         self.assertEqual(self._rows("SELECT * FROM daypic_item"), [])
 
+    def test_the_run_request_lifts_the_time_gate(self):
+        """«Прогнать сейчас» means now, not at the slot's hour."""
+        (self.requests / "run-daypic").touch()
+        early = datetime(2026, 7, 29, 3, 0, tzinfo=timezone.utc)  # 06:00 Moscow
+        code, counters = self._run(now=early)
+        self.assertEqual(counters["generated"], 1)
+        self.assertFalse((self.requests / "run-daypic").exists())
+
+    def test_a_pause_still_consumes_the_run_request(self):
+        """Otherwise the .path unit would loop the service until the pause lifts."""
+        (self.requests / "run-daypic").touch()
+        (self.requests / "pause").write_text("reason=проверка\n", encoding="utf-8")
+        code, counters = self._run()
+        self.assertTrue(counters.get("paused"))
+        self.assertFalse((self.requests / "run-daypic").exists())
+        self.assertEqual(self._rows("SELECT * FROM daypic_item"), [])
+
     def test_a_dry_run_leaves_no_row_and_spends_no_image_call(self):
         with mock.patch.object(daypic, "generate_pictures") as generate:
             code, _ = self._run(dry_run=True)

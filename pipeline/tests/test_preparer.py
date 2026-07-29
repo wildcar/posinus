@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -332,6 +334,56 @@ class DownloadDedupTests(unittest.TestCase):
         self.assertEqual(len(saved), 2)
         self.assertEqual([s["source_url"] for s in saved],
                          ["https://a.test/1.jpg", "https://a.test/2.jpg"])
+
+
+def _noise_png(path: Path, width: int = 2000, height: int = 1500) -> None:
+    """A PNG of random noise: incompressible, so reliably over IMAGE_RECODE_BYTES."""
+    raw = os.urandom(width * height * 3)
+    subprocess.run(
+        [preparer.FFMPEG, "-y", "-nostdin", "-loglevel", "error",
+         "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{width}x{height}",
+         "-i", "-", "-frames:v", "1", str(path)],
+        input=raw, check=True, capture_output=True,
+    )
+
+
+@unittest.skipUnless(shutil.which(preparer.FFMPEG), "ffmpeg is not on this host")
+class ShrinkImageTests(unittest.TestCase):
+    def test_heavy_png_becomes_a_small_jpg(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "1.png"
+            _noise_png(path)
+            original = path.stat().st_size
+            self.assertGreater(original, preparer.IMAGE_RECODE_BYTES)
+            result = preparer.shrink_image(path)
+            self.assertEqual(result, Path(tmp) / "1.jpg")
+            self.assertFalse(path.exists())
+            self.assertLess(result.stat().st_size, original)
+            # even for pure noise — JPEG's worst case — 1600 px stays under
+            # half of Telegram's 10 MB photo cap; photographs land far lower
+            self.assertLess(result.stat().st_size, 5_000_000)
+
+    def test_light_file_and_gif_pass_through(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            light = Path(tmp) / "1.jpg"
+            light.write_bytes(b"J" * 4000)
+            self.assertEqual(preparer.shrink_image(light), light)
+            self.assertEqual(light.read_bytes(), b"J" * 4000)
+            gif = Path(tmp) / "2.gif"
+            gif.write_bytes(b"G" * (preparer.IMAGE_RECODE_BYTES + 1))
+            self.assertEqual(preparer.shrink_image(gif), gif)
+
+    def test_ffmpeg_failure_keeps_the_original(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "1.png"
+            body = b"\x89PNG not really a picture" * 20_000
+            path.write_bytes(body)
+            with mock.patch.object(preparer, "FFMPEG", "/nonexistent/ffmpeg"):
+                self.assertEqual(preparer.shrink_image(path), path)
+            self.assertEqual(path.read_bytes(), body)  # broken input: ffmpeg fails
+            self.assertEqual(preparer.shrink_image(path), path)
+            self.assertEqual(path.read_bytes(), body)
+            self.assertEqual(sorted(p.name for p in Path(tmp).iterdir()), ["1.png"])
 
 
 class ParseCaptionsTests(unittest.TestCase):
