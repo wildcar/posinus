@@ -47,6 +47,15 @@ The `posinus` group is what grants access to the crawler database. Clients run w
 - Router Bearer token: `AUTH_TOKEN` in `/opt/model-router-mcp/.env` (root-readable via sudo).
   The crawler reads it as `POSINUS_ROUTER_AUTH_TOKEN`, the pipeline as `ROUTER_AUTH_TOKEN`.
   `pipeline/deploy/install.sh` copies it in automatically. Never commit it.
+- Codex OAuth for the router's `codex-oauth` provider (image generation): `CODEX_AUTH_PATH`
+  in the router's `.env` points at `/var/lib/model-router/home/.codex/auth.json` (owner
+  `modelrouter`, 0600). The OpenAI refresh token is SINGLE-USE and rotates on refresh, so
+  this file dies whenever another holder of the same session (keeper's `~/.codex`, hermes)
+  refreshes first — that is what `~/repo/openai-auth-sync` was built for, but its user units
+  have been down since 2026-06-16 and its config does not watch the router's path. Dead
+  since 2026-07-21, found 2026-07-29 (`HTTP 401 access_denied` on refresh). Reviving it is
+  the owner's operation: fresh `codex login` under the modelrouter user (its own chain, no
+  seesaw), or copy the newest token bundle in and accept the shared-chain rotation risk.
 - Platform secrets (Telegram bot token, Эгея password, VK token) live only in
   `/etc/posinus/pipeline.env`, `root:posinus-pipeline`, mode `0640`.
 - Django secret key and the operator password stay out of the repository.
