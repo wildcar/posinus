@@ -14,9 +14,10 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .forms import SourceForm
+from .forms import DaypicSlotForm, SourceForm
 from .models import (
     CrawlRun,
+    DaypicSlot,
     EvaluationCharacteristic,
     LatestEvaluationScore,
     LatestReview,
@@ -30,6 +31,7 @@ from .models import (
     Topic,
 )
 from .services.broadcast import broadcast_state, image_path, news_pipeline_state
+from .services.daypic import gallery as daypic_gallery, picture_path as daypic_picture_path
 from .services.calibration import (
     ADDED_LIMIT,
     NEAR_MISS_LIMIT,
@@ -735,6 +737,104 @@ def queue_action(request):
     )
     messages.success(request, f"Новость {QUEUE_ACTIONS[action]}. Публикатор увидит это в ближайший прогон.")
     return redirect("broadcast")
+
+
+@login_required
+def daypic(request):
+    """«Картина дня»: the slot settings and the gallery of past issues.
+
+    The settings live in this database and the pipeline reads them; the gallery
+    is read from the pipeline's database and degrades to one honest line when
+    that file is missing, as it is on a development machine.
+    """
+    issues, pipeline_error = daypic_gallery()
+    context = {
+        "forms": [DaypicSlotForm(instance=slot, prefix=slot.slot)
+                  for slot in DaypicSlot.objects.all()],
+        "issues": issues,
+        "pipeline_error": pipeline_error,
+    }
+    return render(request, "collector/daypic.html", context)
+
+
+@login_required
+@require_POST
+def daypic_save(request, slot):
+    instance = get_object_or_404(DaypicSlot, pk=slot)
+    form = DaypicSlotForm(request.POST, instance=instance, prefix=slot)
+    if not form.is_valid():
+        issues, pipeline_error = daypic_gallery()
+        others = [DaypicSlotForm(instance=other, prefix=other.slot)
+                  for other in DaypicSlot.objects.exclude(pk=slot)]
+        forms_in_order = sorted([form] + others, key=lambda f: f.instance.pk)
+        messages.error(request, "Слот не сохранён: в форме есть ошибки.")
+        return render(request, "collector/daypic.html",
+                      {"forms": forms_in_order, "issues": issues, "pipeline_error": pipeline_error})
+    form.save()
+    OperatorEvent.objects.create(
+        event_type="daypic_slot_saved",
+        message=f"Слот картины дня «{slot}» сохранён"
+                + ("" if form.instance.enabled else " (выключен)"),
+    )
+    messages.success(request, "Слот сохранён. Конвейер прочитает настройки на ближайшем прогоне.")
+    return redirect("daypic")
+
+
+@login_required
+@require_POST
+def daypic_create(request):
+    """A new slot — the way «картина вечера» arrives: a row, not code.
+
+    Settings are copied from the first existing slot so the operator edits a
+    working prompt rather than an empty form; the new slot starts switched off.
+    """
+    key = request.POST.get("slot", "").strip().lower()
+    if not key.isidentifier() or DaypicSlot.objects.filter(pk=key).exists():
+        messages.error(request, "Ключ слота — латиницей, без пробелов, и он не должен повторяться.")
+        return redirect("daypic")
+    donor = DaypicSlot.objects.first()
+    DaypicSlot.objects.create(
+        slot=key,
+        enabled=False,
+        title=donor.title if donor else "Картина дня",
+        generate_at=donor.generate_at if donor else "08:00",
+        prompt=donor.prompt if donor else "",
+        system_prompt=donor.system_prompt if donor else "",
+        styles=donor.styles if donor else "",
+    )
+    OperatorEvent.objects.create(event_type="daypic_slot_created",
+                                 message=f"Добавлен слот картины дня «{key}» (выключен)")
+    messages.success(request, f"Слот «{key}» добавлен выключенным: настройте промпт и время, потом включите.")
+    return redirect("daypic")
+
+
+@login_required
+@require_POST
+def daypic_run(request):
+    """Ask the pipeline for a pass right now (the generate_at gate still holds)."""
+    try:
+        request_run("daypic")
+    except MailboxUnavailable as exc:
+        logger.error("Cannot request a daypic run: %s", exc)
+        messages.error(request, "Не получилось запустить прогон: нет доступа к каталогу заявок конвейера.")
+    else:
+        OperatorEvent.objects.create(event_type="daypic_run_requested",
+                                     message="Запрошен прогон картины дня")
+        messages.success(request, "Прогон запущен. Выпуск появится в галерее, когда конвейер закончит.")
+    return redirect("daypic")
+
+
+@login_required
+def daypic_image(request, filename):
+    """Serve one daily picture from the pipeline's private directory.
+
+    Same rules as the news illustrations: the login is checked, the name must
+    match a row in the pipeline DB, and the directory is never exposed raw.
+    """
+    path = daypic_picture_path(filename)
+    if path is None or not path.exists():
+        raise Http404("нет такой картины")
+    return FileResponse(path.open("rb"))
 
 
 @login_required

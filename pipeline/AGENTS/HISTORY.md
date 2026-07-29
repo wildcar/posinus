@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-29 · Картина дня moves in from ort_bot
+- What: `daypic.py` — a daily generated picture per operator-configured slot: chat model builds the prompt from the date and a day-of-month style, `generate_image` draws it (codex-oauth, vertical 1024x1536, one safe-suffix retry), the publisher's adapters post it to telegram/site/vk with its own `daypic_publication` idempotency; file lands as `daypic/<date>-<slot>.<ext>` for the owner's bot. Slots live in the crawler DB (`exchange_daypic_slot`), retention purges files after `DAYPIC_KEEP_DAYS` (90). New units posinus-daypic.{service,timer} + run.path; 26 tests, 231 pass.
+- Why: owner's call — extract the ort_bot «картинка дня» into the pipeline, where the platforms, the router and the timers already live, and make prompt/model/styles editable on the crawler site.
+- Files: pipeline/daypic.py, pipeline/retention.py, pipeline/runlog.py, pipeline/tests/{test_daypic,test_runlog,test_stdlib_only}.py, pipeline/deploy/{install.sh,pipeline.env.example,posinus-daypic.*}, pipeline/{AGENTS/SPEC.md,docs/services.md,README.md}, docs/contracts/database-contract.md, docs/deployment.md
+- Next: deploy (update-ubuntu.sh + owner's install.sh), the operator fills/enables the `day` slot on the new page; wildcar_org section for pictures stays an open owner's call; the evening slot is one row on the page when wanted.
+
 ## 2026-07-29 · A news with no picture draws one
 - What: a news item that still has zero pictures after download gets one generated from the retelling: the router's `generate_image` tool, provider `IMAGE_PROVIDER` (default `codex-oauth`, `gpt-image-2` on prod; empty switches the feature off, `IMAGE_MODEL` pins a model), same `news-preparer` identity. The file lands as a normal illustration with `source_url = generated://<model_id>`; the prompt asks for a photorealistic horizontal picture with no text or logos, built from the retold title + lead (capped at 600 chars). Lenient like the caption translation: any failure logs and the item publishes pictureless as before. A dry run only logs that it would generate. `images_generated` lands in the run counters. 8 tests added, 205 pass.
 - Why: owner's call. The image blacklist made pictureless items the norm for AP news — the placeholder/promo/badge junk is ignored now, and AP's paywalled real photos never made it through anyway.

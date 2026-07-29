@@ -215,6 +215,22 @@ a publish-ready retelling, and posts them to the platforms.
   Caveat: dims.apnews.com keys embed the crop signature, so a different crop of the same
   AP placeholder would slip through — matching the `?url=` asset is the fix if it does.
 
+- Since 2026-07-29 the pipeline has a fourth deliverable: «Картина дня» (`daypic.py`,
+  ported from ~/repo/ort_bot). Slots (prompt, styles by day of month, caption, local
+  time, model hints) live in the crawler DB (`exchange_daypic_slot`, migration `0012`,
+  seeded `day` slot switched OFF) and are edited on the crawler's «Картина дня» page;
+  the pipeline generates via the router (chat builds the prompt from the date — no web
+  search at the router, the calendar comes from the model's knowledge; `generate_image`
+  draws, default codex-oauth 1024x1536, one safe-suffix retry) and posts through the
+  publisher's adapters to telegram/site/vk (wildcar_org deliberately excluded for now).
+  Files: `/var/lib/posinus/pipeline/daypic/<date>-<slot>.<ext>` — stable names for the
+  owner's bot to pick up. Own tables `daypic_item`/`daypic_publication`; retention
+  deletes files after `DAYPIC_KEEP_DAYS` (90), rows stay. 26 daypic tests, 231 pass
+  total; crawler side 138 pass. NOT YET DEPLOYED as of this writing: needs
+  `update-ubuntu.sh` (code + migration) and the owner's `install.sh` run (new units
+  posinus-daypic.{service,timer} + posinus-daypic-run.path + daypic dir); harmless
+  until the operator enables the slot.
+
 ## Next
 
 1. Prompt calibration and soft profiles («Россия» / «Международное»). The `default` profile

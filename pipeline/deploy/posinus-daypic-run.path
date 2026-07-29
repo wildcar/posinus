@@ -1,0 +1,9 @@
+[Unit]
+Description=Start the daily picture service when the web drops a run request
+
+[Path]
+PathExists=/var/lib/posinus/pipeline/requests/run-daypic
+Unit=posinus-daypic.service
+
+[Install]
+WantedBy=multi-user.target

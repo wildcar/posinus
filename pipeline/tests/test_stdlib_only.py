@@ -14,7 +14,8 @@ import unittest
 from pathlib import Path
 
 PIPELINE_DIR = Path(__file__).resolve().parent.parent
-MODULES = ("evaluator.py", "preparer.py", "publisher.py", "runlog.py", "notify.py", "apply_edits.py")
+MODULES = ("evaluator.py", "preparer.py", "publisher.py", "runlog.py", "notify.py",
+           "apply_edits.py", "retention.py", "daypic.py")
 
 # The pipeline modules import each other: preparer uses evaluator's router client,
 # publisher uses preparer's own-DB schema and markdown builder, and all three

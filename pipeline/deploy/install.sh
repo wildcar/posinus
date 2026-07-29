@@ -29,7 +29,7 @@ fi
 if [ "$REPO_DIR" != /opt/posinus/pipeline ]; then
     echo "NOTE: units will run the code at /opt/posinus/pipeline, not $REPO_DIR." >&2
 fi
-for script in evaluator.py preparer.py publisher.py; do
+for script in evaluator.py preparer.py publisher.py daypic.py; do
     if [ ! -r "/opt/posinus/pipeline/$script" ]; then
         echo "Missing /opt/posinus/pipeline/$script — clone the repo to /opt/posinus." >&2
         exit 1
@@ -41,6 +41,10 @@ done
 # the service user.
 install -d -o posinus-pipeline -g posinus-pipeline -m 0750 /var/lib/posinus/pipeline
 install -d -o posinus-pipeline -g posinus-pipeline -m 0750 /var/lib/posinus/pipeline/media
+# Daily pictures («Картина дня»): stable names <date>-<slot>.<ext>. The operator
+# UI reads it for the gallery, and the owner's bot may pick files up from here —
+# both through group posinus.
+install -d -o posinus-pipeline -g posinus-pipeline -m 0750 /var/lib/posinus/pipeline/daypic
 
 # The operator UI reads this database (never writes it) and shows the pictures,
 # so group posinus needs read access to the DB, its -wal/-shm sidecars and the
@@ -54,9 +58,10 @@ install -d -o posinus-pipeline -g posinus-pipeline -m 0750 /var/lib/posinus/pipe
 # oneshots, so between runs there is no -shm to attach to. A reader without write
 # access simply cannot open the file. The guarantee that the web never writes is
 # `PRAGMA query_only` on its connection, not the file mode.
-chgrp posinus /var/lib/posinus/pipeline /var/lib/posinus/pipeline/media
+chgrp posinus /var/lib/posinus/pipeline /var/lib/posinus/pipeline/media /var/lib/posinus/pipeline/daypic
 chmod 2770 /var/lib/posinus/pipeline
 chmod 2750 /var/lib/posinus/pipeline/media  # the gallery needs to list it
+chmod 2750 /var/lib/posinus/pipeline/daypic # same: the daypic gallery lists it
 for f in /var/lib/posinus/pipeline/evaluator.sqlite3 \
          /var/lib/posinus/pipeline/evaluator.sqlite3-wal \
          /var/lib/posinus/pipeline/evaluator.sqlite3-shm; do
@@ -64,9 +69,11 @@ for f in /var/lib/posinus/pipeline/evaluator.sqlite3 \
 done
 if command -v setfacl >/dev/null 2>&1; then
     setfacl -m g:posinus:rx -d -m g:posinus:r-x /var/lib/posinus/pipeline/media
+    setfacl -m g:posinus:rx -d -m g:posinus:r /var/lib/posinus/pipeline/daypic
     setfacl -d -m g:posinus:rw /var/lib/posinus/pipeline
     find /var/lib/posinus/pipeline/media -type d -exec setfacl -m g:posinus:rx -d -m g:posinus:r-x {} +
     find /var/lib/posinus/pipeline/media -type f -exec setfacl -m g:posinus:r {} +
+    find /var/lib/posinus/pipeline/daypic -type f -exec setfacl -m g:posinus:r {} +
 else
     echo "NOTE: setfacl is missing; install acl so new pipeline files stay readable for the web." >&2
 fi
@@ -127,13 +134,17 @@ install -m 0644 "$REPO_DIR/deploy/posinus-notify-digest.timer" /etc/systemd/syst
 # Retention: the only thing that deletes pipeline files. Daily, after the backup.
 install -m 0644 "$REPO_DIR/deploy/posinus-retention.service" /etc/systemd/system/posinus-retention.service
 install -m 0644 "$REPO_DIR/deploy/posinus-retention.timer" /etc/systemd/system/posinus-retention.timer
+# Картина дня: generates and posts the daily picture; stays idle until the
+# operator enables a slot on the «Картина дня» page.
+install -m 0644 "$REPO_DIR/deploy/posinus-daypic.service" /etc/systemd/system/posinus-daypic.service
+install -m 0644 "$REPO_DIR/deploy/posinus-daypic.timer" /etc/systemd/system/posinus-daypic.timer
 # Operator edits: no timer, it runs when the web drops an edit-*.json request.
 install -m 0644 "$REPO_DIR/deploy/posinus-apply-edits.service" /etc/systemd/system/posinus-apply-edits.service
 # wildcar.org rebuild: no timer either, the publisher touches the marker file.
 install -m 0644 "$REPO_DIR/deploy/posinus-wildcar-org-build.service" /etc/systemd/system/posinus-wildcar-org-build.service
 for unit in posinus-evaluator-run.path posinus-preparer-run.path posinus-publisher-run.path \
             posinus-evaluator-backfill-run.path posinus-apply-edits-run.path \
-            posinus-wildcar-org-build.path; do
+            posinus-wildcar-org-build.path posinus-daypic-run.path; do
     install -m 0644 "$REPO_DIR/deploy/$unit" "/etc/systemd/system/$unit"
 done
 systemctl daemon-reload
@@ -149,13 +160,16 @@ systemctl enable --now posinus-notify-digest.timer
 systemctl enable --now posinus-apply-edits-run.path
 systemctl enable --now posinus-retention.timer
 systemctl enable --now posinus-wildcar-org-build.path
+systemctl enable --now posinus-daypic.timer
+systemctl enable --now posinus-daypic-run.path
 
 # The crawler's update script stops every service listed here before touching
 # the DB schema (both open the crawler DB).
 touch /etc/posinus/update-services
 for unit in posinus-evaluator.service posinus-preparer.service posinus-publisher.service \
             posinus-evaluator-backfill.service posinus-notify.service \
-            posinus-notify-digest.service posinus-apply-edits.service; do
+            posinus-notify-digest.service posinus-apply-edits.service \
+            posinus-daypic.service; do
     if ! grep -qx "$unit" /etc/posinus/update-services; then
         echo "$unit" >> /etc/posinus/update-services
         echo "registered $unit in /etc/posinus/update-services"

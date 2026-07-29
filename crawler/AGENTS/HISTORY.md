@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-29 · A page for the daily picture
+- What: «Картина дня» in the nav — migration `0012` adds `exchange_daypic_slot` (the eighth readable object of the contract) seeded with the `day` slot switched off, prompts and 31 styles ported from ort_bot. The page edits each slot (prompt pair, styles by day of month, HH:MM local time, caption, model hints), adds a new slot by key («картина вечера» is a row, not code), shows the gallery of past issues from the pipeline DB with per-platform links, serves the picture bytes login-checked from `POSINUS_DAYPIC_DIR`, and «Прогнать сейчас» drops `run-daypic` into the mailbox. 9 tests added, 138 pass.
+- Why: owner's call — the ort_bot «картинка дня» becomes a pipeline service, and its prompt/model/styles must be editable on the site rather than by deploy; settings live on this side for the same reason the selection thresholds do.
+- Files: crawler/collector/{models,views,urls,forms}.py, crawler/collector/migrations/0012_daypicslot.py, crawler/collector/services/{daypic,pipeline_mailbox}.py, crawler/templates/{base.html,collector/daypic.html}, crawler/posinus_crawler/settings.py, crawler/tests/test_daypic_page.py, docs/contracts/database-contract.md, crawler/AGENTS/SPEC.md
+- Next: deploy migration `0012`; the operator fills in and enables the `day` slot once the pipeline units are installed.
+
 ## 2026-07-26 · The rubric of a news item, through the contract
 - What: `exchange_topic` (ten rubrics plus the non-assignable placeholder) and `exchange_news_topic` (one row per news item) in migration `0011`; the whole already-evaluated corpus gets the placeholder. The flow gained a «Тема» column and filter, the card names the rubric, «Состав ленты» now shows rubric shares next to source shares, and run counters read in Russian instead of `prepared 3`. 6 tests added, 127 pass.
 - Why: the twenty axes give a ninth rescued dog the same nine they gave the first — monotony is invisible until the subscriber count notices. The owner chose the honest path over a field in the preparer's prompt, so the rubric covers the whole corpus and not only what went out, and chose the placeholder over re-running the model on candidates whose text tonight's purge blanks anyway.

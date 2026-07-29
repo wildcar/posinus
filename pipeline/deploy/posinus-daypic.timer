@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the daily picture service every 15 minutes
+# The frequent timer is the catch-up: the issue goes out on the first run
+# after its slot's generate_at, including after host downtime.
+
+[Timer]
+OnBootSec=6min
+OnUnitActiveSec=15min
+RandomizedDelaySec=1min
+
+[Install]
+WantedBy=timers.target

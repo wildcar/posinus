@@ -406,6 +406,47 @@ class NewsTopic(models.Model):
         return f"{self.news_item_id}:{self.topic_id}"
 
 
+class DaypicSlot(models.Model):
+    """One issue of the daily generated picture («Картина дня»).
+
+    The pipeline generates and posts the picture; the operator decides what it
+    asks for. The settings live here rather than in the pipeline's env file for
+    the same reason the selection thresholds do: the rule is edited on this side
+    and executed on that one, and one rule must not exist in two copies. The
+    pipeline reads this table read-only (`exchange_daypic_slot` in the
+    contract); results and files stay in the pipeline's own database.
+
+    Seeded with the `day` slot switched off. «Картина вечера» is one more row,
+    not more code.
+    """
+
+    slot = models.SlugField(max_length=32, primary_key=True)
+    enabled = models.BooleanField(default=False)
+    title = models.CharField(max_length=200, default="Картина дня")
+    # Local time (the pipeline's DAYPIC_TZ, Moscow by default) before which the
+    # day's issue is not generated. Plain HH:MM text: the reader is a stdlib
+    # script, and a TimeField would store seconds it cannot parse.
+    generate_at = models.CharField(max_length=5, default="08:00")
+    prompt = models.TextField()
+    system_prompt = models.TextField(blank=True)
+    # One style per line; the pipeline picks the day-of-month entry, clamped to
+    # the end of the list.
+    styles = models.TextField(blank=True)
+    chat_provider = models.CharField(max_length=100, blank=True)
+    chat_model = models.CharField(max_length=200, blank=True)
+    image_provider = models.CharField(max_length=100, blank=True)
+    image_model = models.CharField(max_length=200, blank=True)
+    image_size = models.CharField(max_length=20, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "exchange_daypic_slot"
+        ordering = ["slot"]
+
+    def __str__(self):
+        return self.slot
+
+
 class EvaluationScore(models.Model):
     review_event = models.ForeignKey(ReviewEvent, on_delete=models.PROTECT, related_name="evaluation_scores")
     characteristic = models.ForeignKey(

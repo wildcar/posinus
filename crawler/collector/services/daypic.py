@@ -1,0 +1,125 @@
+"""«Картина дня»: the gallery of past issues, read from the pipeline's database.
+
+The split mirrors the rest of the system: the settings (what to draw, when,
+in which style) live in the crawler DB and are edited here; what the machine
+actually did — the pictures, the prompts it used, where each issue was posted —
+lives in the pipeline's own database and is only read, through the same
+rules as everything in `pipeline_db`.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+
+from django.conf import settings
+
+from collector.services.pipeline_db import PipelineUnavailable, fetch_all
+
+PLATFORM_TITLES = {"telegram": "Telegram", "site": "wildcar.ru", "vk": "ВКонтакте"}
+
+ITEMS_SQL = """
+SELECT id, day, slot, status, title, style, prompt, file_path,
+       prompt_model_id, image_model_id, attempts, error,
+       generated_at, published_at, file_purged_at
+FROM daypic_item
+ORDER BY day DESC, slot ASC
+LIMIT ?
+"""
+
+PUBLICATIONS_SQL = """
+SELECT item_id, platform, status, url, error, attempts
+FROM daypic_publication
+"""
+
+
+@dataclass
+class DaypicIssue:
+    item_id: int
+    day: str
+    slot: str
+    status: str
+    style: str
+    prompt: str
+    filename: str
+    image_model: str
+    attempts: int
+    error: str
+    file_purged: bool
+    published_at: datetime | None
+    platforms: list[dict] = field(default_factory=list)
+
+
+def _moment(raw) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        value = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+    return value
+
+
+def gallery(limit: int = 60) -> tuple[list[DaypicIssue], str]:
+    """Past issues, newest first, with per-platform links; ('', reason) style.
+
+    Returns the reason as the second value when the pipeline DB is unreachable
+    or predates the daypic tables — the settings half of the page still works.
+    """
+    try:
+        rows = fetch_all(ITEMS_SQL, (limit,))
+        publications = fetch_all(PUBLICATIONS_SQL)
+    except PipelineUnavailable as exc:
+        return [], str(exc)
+    issues: dict[int, DaypicIssue] = {}
+    for row in rows:
+        issues[row["id"]] = DaypicIssue(
+            item_id=row["id"],
+            day=row["day"],
+            slot=row["slot"],
+            status=row["status"],
+            style=row["style"] or "",
+            prompt=row["prompt"] or "",
+            filename=Path(row["file_path"]).name if row["file_path"] else "",
+            image_model=row["image_model_id"] or "",
+            attempts=row["attempts"],
+            error=row["error"] or "",
+            file_purged=bool(row["file_purged_at"]),
+            published_at=_moment(row["published_at"]),
+        )
+    for row in publications:
+        issue = issues.get(row["item_id"])
+        if issue is None:
+            continue
+        issue.platforms.append({
+            "platform": row["platform"],
+            "title": PLATFORM_TITLES.get(row["platform"], row["platform"]),
+            "status": row["status"],
+            "url": row["url"] or "",
+            "error": row["error"] or "",
+            "attempts": row["attempts"],
+        })
+    for issue in issues.values():
+        issue.platforms.sort(key=lambda row: row["title"])
+    return list(issues.values()), ""
+
+
+def picture_path(filename: str) -> Path | None:
+    """Absolute path of one daily picture, if the pipeline really has that row.
+
+    The name comes from a URL, so it is never trusted: it must match a row in
+    the pipeline DB and resolve inside the daypic directory.
+    """
+    try:
+        rows = fetch_all("SELECT file_path FROM daypic_item WHERE file_path IS NOT NULL")
+    except PipelineUnavailable:
+        return None
+    names = {Path(row["file_path"]).name for row in rows}
+    if filename not in names:
+        return None
+    root = Path(settings.POSINUS_DAYPIC_DIR).resolve()
+    candidate = (root / filename).resolve()
+    if not candidate.is_relative_to(root):
+        return None
+    return candidate

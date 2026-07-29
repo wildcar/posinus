@@ -23,6 +23,12 @@ Three stdlib-only scripts (Python 3.12):
   secret is set in the env file; idempotent per platform, marks «Опубликовано» when all
   enabled platforms succeed.
 
+Plus `daypic.py` — «Картина дня»: a daily generated picture, drawn from the current
+date (styles rotate by day of month) and posted to telegram, the Эгея site and VK
+through the publisher's adapters. The operator edits its prompt, styles and schedule
+on the crawler's «Картина дня» page; the file lands in
+`/var/lib/posinus/pipeline/daypic/<date>-<slot>.<ext>` for external pickup.
+
 The model is configured in `/etc/posinus/pipeline.env` (never hard-coded;
 each event records the model that actually answered).
 

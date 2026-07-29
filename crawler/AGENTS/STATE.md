@@ -105,6 +105,14 @@ Operate a single-host multilingual news crawler whose source list improves from 
   the purge blanks. The flow filters and shows «Тема», the card names it, «Состав ленты» shows rubric
   shares. NOT YET DEPLOYED as of this writing.
 
+- «Картина дня» is in the UI since 2026-07-29 (migration `0012`): the operator edits the
+  slots of the daily generated picture on their own page (prompt, styles by day of month,
+  local time, caption, model hints — stored in `exchange_daypic_slot`, the eighth readable
+  contract object), can add an evening slot by key, sees the gallery of past issues from
+  the pipeline DB and can request a run through the mailbox (`run-daypic`). The seeded
+  `day` slot is switched off, so nothing generates until the operator enables it.
+  NOT YET DEPLOYED as of this writing.
+
 ## Next
 
 1. Deploy migration `0011` and watch the first evaluator runs: how often the model's rubric misses the closed list («без темы» in the run counters).

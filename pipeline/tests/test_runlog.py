@@ -77,7 +77,8 @@ class RunLogTests(unittest.TestCase):
         """A row left on 'running' by a killed process must be judgeable."""
         self.assertEqual(
             set(runlog.STALE_AFTER_SECONDS),
-            {"evaluator", "preparer", "publisher", "evaluator-backfill", "notify-check", "notify-digest"},
+            {"evaluator", "preparer", "publisher", "evaluator-backfill", "notify-check",
+             "notify-digest", "daypic"},
         )
 
 

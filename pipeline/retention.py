@@ -75,11 +75,27 @@ WHERE images_purged_at IS NULL
 """
 
 
+# How long the daily pictures live. One file a day means megabytes a month,
+# so the period is generous; the rows stay forever, like everything else here,
+# and the gallery says «файл удалён по сроку» instead of showing a hole.
+DAYPIC_KEEP_DAYS = 90
+
+# Issues whose picture file is past its date and not yet purged.
+DAYPIC_DUE_SQL = """
+SELECT id, day, slot, file_path
+FROM daypic_item
+WHERE file_purged_at IS NULL
+  AND file_path IS NOT NULL
+  AND day < :day_before
+"""
+
+
 @dataclass
 class RetentionConfig:
     own_db: str = "/var/lib/posinus/pipeline/evaluator.sqlite3"
     media_dir: str = "/var/lib/posinus/pipeline/media"
     keep_published_days: int = KEEP_PUBLISHED_DAYS
+    daypic_keep_days: int = DAYPIC_KEEP_DAYS
 
     @classmethod
     def from_env(cls, env: dict[str, str] = os.environ) -> "RetentionConfig":
@@ -88,6 +104,8 @@ class RetentionConfig:
         cfg.media_dir = env.get("MEDIA_DIR", cfg.media_dir)
         if value := env.get("KEEP_PUBLISHED_DAYS"):
             cfg.keep_published_days = int(value)
+        if value := env.get("DAYPIC_KEEP_DAYS"):
+            cfg.daypic_keep_days = int(value)
         return cfg
 
 
@@ -150,6 +168,42 @@ def orphan_directories(con: sqlite3.Connection, cfg: RetentionConfig) -> list[Pa
     return [entry for entry in directories if entry.name not in known]
 
 
+def purge_daypic(con: sqlite3.Connection, cfg: RetentionConfig, now: datetime,
+                 dry_run: bool) -> tuple[int, int]:
+    """Delete daily pictures past DAYPIC_KEEP_DAYS. Returns (files, bytes).
+
+    Tolerates a database without the daypic tables: older pipeline code never
+    created them, and retention must not fail over a feature that is not there.
+    Rows survive with `file_purged_at`, so the gallery stays honest.
+    """
+    day_before = (now - timedelta(days=cfg.daypic_keep_days)).date().isoformat()
+    try:
+        rows = con.execute(DAYPIC_DUE_SQL, {"day_before": day_before}).fetchall()
+    except sqlite3.OperationalError:
+        return 0, 0
+    removed = freed = 0
+    for row in rows:
+        path = Path(row["file_path"])
+        if dry_run:
+            log.info("daypic %s/%s: %s would go", row["day"], row["slot"], path)
+            continue
+        try:
+            freed += path.stat().st_size
+            path.unlink()
+            removed += 1
+        except FileNotFoundError:
+            pass  # already gone; the row still has to be marked
+        except OSError as exc:
+            log.warning("daypic %s/%s: cannot remove %s: %s", row["day"], row["slot"], path, exc)
+            continue
+        with con:
+            con.execute(
+                "UPDATE daypic_item SET file_purged_at = ? WHERE id = ?",
+                (now.isoformat(timespec="seconds"), row["id"]),
+            )
+    return removed, freed
+
+
 def run(cfg: RetentionConfig, dry_run: bool = False, counters: dict | None = None,
         now: datetime | None = None) -> int:
     now = now or datetime.now(timezone.utc)
@@ -180,13 +234,18 @@ def run(cfg: RetentionConfig, dry_run: bool = False, counters: dict | None = Non
             except OSError as exc:
                 log.warning("cannot remove orphan %s: %s", directory, exc)
 
+        daypic_removed, daypic_freed = purge_daypic(con, cfg, now, dry_run)
+        removed += daypic_removed
+        freed += daypic_freed
+
         freed_mb = round(freed / (1024 * 1024), 1)
         log.info(
-            "%s: %d items past their date, %d pictures removed, %d orphan directories, %.1f MB freed",
-            "dry-run" if dry_run else "finished", checked, removed, orphans, freed_mb,
+            "%s: %d items past their date, %d pictures removed (%d daily), %d orphan directories, %.1f MB freed",
+            "dry-run" if dry_run else "finished", checked, removed, daypic_removed, orphans, freed_mb,
         )
         if counters is not None:
-            counters.update(checked=checked, removed=removed, orphans=orphans, freed_mb=freed_mb)
+            counters.update(checked=checked, removed=removed, orphans=orphans, freed_mb=freed_mb,
+                            daypic_removed=daypic_removed)
         return 0
     finally:
         con.close()
@@ -209,6 +268,7 @@ def main(argv: list[str] | None = None) -> int:
     config = {
         "media_dir": cfg.media_dir,
         "keep_published_days": cfg.keep_published_days,
+        "daypic_keep_days": cfg.daypic_keep_days,
     }
     with runlog.record("retention", cfg.own_db, config) as counters:
         return run(cfg, dry_run=False, counters=counters)

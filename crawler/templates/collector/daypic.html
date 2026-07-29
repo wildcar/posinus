@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Картина дня{% endblock %}
+{% block head %}
+<style>
+.slotgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.8rem}
+.slotform label{display:block;margin:.5rem 0 .15rem;font-size:.92rem;color:#3c4a56}
+.slotform .wide{grid-column:1/-1}
+.slotform textarea{font-size:.9rem}
+.slothead{display:flex;align-items:baseline;gap:.8rem;flex-wrap:wrap}
+.slothead .pill{text-transform:none}
+.gallery img{max-height:180px;max-width:120px;border-radius:6px;display:block}
+.errors{color:#a32b2b;font-size:.9rem;margin:.2rem 0}
+.actions{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-top:.8rem}
+.newslot{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+.newslot input{max-width:220px}
+</style>
+{% endblock %}
+{% block content %}
+<h1>Картина дня</h1>
+<p class="muted">Конвейер каждый день рисует картину по этим настройкам и публикует её на площадки.
+Настройки исполняются на ближайшем прогоне; файл выпуска лежит под стабильным именем
+<code>&lt;дата&gt;-&lt;слот&gt;.png</code>, откуда его могут забирать внешние потребители.</p>
+
+<div class="card">
+  <form method="post" action="{% url 'daypic_run' %}" style="display:inline">{% csrf_token %}
+    <button>Прогнать сейчас</button>
+  </form>
+  <span class="muted">Запускает прогон немедленно. Время генерации слота при этом действует:
+  выпуск раньше своего часа не появится.</span>
+</div>
+
+{% for form in forms %}
+<div class="card slotform">
+  <form method="post" action="{% url 'daypic_save' form.instance.pk %}">{% csrf_token %}
+    <div class="slothead">
+      <h2>Слот «{{ form.instance.pk }}»</h2>
+      {% if form.instance.enabled %}<span class="pill ok">включён</span>
+      {% else %}<span class="pill">выключен</span>{% endif %}
+      <label style="margin:0"><input type="checkbox" name="{{ form.enabled.html_name }}"
+        {% if form.enabled.value %}checked{% endif %} style="width:auto"> включён</label>
+    </div>
+    {% if form.errors %}<p class="errors">{{ form.errors }}</p>{% endif %}
+    <div class="slotgrid">
+      <div><label>{{ form.title.label }}</label>{{ form.title }}</div>
+      <div><label>{{ form.generate_at.label }}</label>{{ form.generate_at }}</div>
+      <div><label>{{ form.chat_provider.label }}</label>{{ form.chat_provider }}</div>
+      <div><label>{{ form.chat_model.label }}</label>{{ form.chat_model }}</div>
+      <div><label>{{ form.image_provider.label }}</label>{{ form.image_provider }}</div>
+      <div><label>{{ form.image_model.label }}</label>{{ form.image_model }}</div>
+      <div><label>{{ form.image_size.label }}</label>{{ form.image_size }}</div>
+      <div class="wide"><label>{{ form.prompt.label }}</label>{{ form.prompt }}</div>
+      <div class="wide"><label>{{ form.system_prompt.label }}</label>{{ form.system_prompt }}</div>
+      <div class="wide"><label>{{ form.styles.label }}</label>{{ form.styles }}</div>
+    </div>
+    <p class="muted">Пустые поля модели оставляют выбор конфигу конвейера и роутеру.
+    Веб-поиска у модели нет: праздники она берёт из своих знаний календаря по переданной дате.</p>
+    <div class="actions"><button>Сохранить слот</button></div>
+  </form>
+</div>
+{% endfor %}
+
+<div class="card">
+  <h3>Новый слот</h3>
+  <form method="post" action="{% url 'daypic_create' %}" class="newslot">{% csrf_token %}
+    <input name="slot" placeholder="evening" pattern="[a-z_][a-z0-9_]*" required>
+    <button>Добавить</button>
+    <span class="muted">Так появится «картина вечера»: слот копирует настройки первого и
+    добавляется выключенным.</span>
+  </form>
+</div>
+
+<div class="card gallery">
+  <h2>Прошлые выпуски</h2>
+  {% if pipeline_error %}
+  <p class="muted">Галерея недоступна: {{ pipeline_error }}. Настройки выше работают как обычно.</p>
+  {% elif not issues %}
+  <p class="muted">Выпусков пока нет. Первый появится после включения слота, в ближайший прогон
+  после его времени генерации.</p>
+  {% else %}
+  <table>
+    <tr><th>День</th><th>Картина</th><th>Стиль и промпт</th><th>Площадки</th></tr>
+    {% for issue in issues %}
+    <tr>
+      <td class="num">{{ issue.day }}<br><span class="muted">{{ issue.slot }}</span><br>
+        {% if issue.status == "published" %}<span class="ok">опубликована</span>
+        {% elif issue.status == "generated" %}<span class="muted">сгенерирована</span>
+        {% else %}<span class="bad">ошибка ({{ issue.attempts }})</span>{% endif %}
+      </td>
+      <td>
+        {% if issue.file_purged %}<span class="muted">файл удалён по сроку</span>
+        {% elif issue.filename %}
+          <a href="{% url 'daypic_image' issue.filename %}" target="_blank">
+            <img src="{% url 'daypic_image' issue.filename %}" alt="{{ issue.day }} {{ issue.slot }}" loading="lazy"></a>
+        {% else %}<span class="muted">нет картинки</span>{% endif %}
+      </td>
+      <td>
+        {% if issue.style %}<span class="pill">{{ issue.style }}</span>{% endif %}
+        {% if issue.image_model %}<span class="muted">{{ issue.image_model }}</span>{% endif %}
+        {% if issue.prompt %}<details><summary class="muted">промпт</summary>
+          <div class="text" style="font-size:.85rem">{{ issue.prompt }}</div></details>{% endif %}
+        {% if issue.error %}<div class="bad" style="font-size:.85rem">{{ issue.error }}</div>{% endif %}
+      </td>
+      <td>
+        {% for pub in issue.platforms %}
+          {% if pub.status == "ok" %}
+            <div><a href="{{ pub.url }}" target="_blank">{{ pub.title }}</a></div>
+          {% else %}
+            <div><span class="bad">{{ pub.title }}</span>
+              <span class="muted" style="font-size:.85rem">{{ pub.error|truncatechars:80 }}
+              (попыток: {{ pub.attempts }})</span></div>
+          {% endif %}
+        {% empty %}<span class="muted">—</span>{% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+{% endblock %}

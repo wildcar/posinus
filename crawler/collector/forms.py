@@ -4,7 +4,7 @@ from django import forms
 from django.db import transaction
 from django.utils import timezone
 
-from .models import OperatorEvent, Source, SourceEndpoint, SourceRuntimeState
+from .models import DaypicSlot, OperatorEvent, Source, SourceEndpoint, SourceRuntimeState
 
 
 class SourceForm(forms.ModelForm):
@@ -59,3 +59,48 @@ class SourceForm(forms.ModelForm):
                     SourceEndpoint.objects.update_or_create(source=source, url=url, defaults={"kind": kind, "enabled": True, "priority": priority})
             OperatorEvent.objects.create(event_type="source_saved", source=source, message="Источник сохранен оператором")
         return source
+
+
+class DaypicSlotForm(forms.ModelForm):
+    """One slot of the daily picture, as the operator edits it.
+
+    generate_at stays plain HH:MM text on purpose: the consumer is the
+    pipeline's stdlib script, and a TimeField would store seconds it cannot
+    read. The regex is the validation the model field itself cannot give.
+    """
+
+    generate_at = forms.RegexField(
+        regex=r"^\d{1,2}:\d{2}$", label="Время генерации (местное, ЧЧ:ММ)",
+        error_messages={"invalid": "Время в виде ЧЧ:ММ, например 08:00."},
+    )
+
+    class Meta:
+        model = DaypicSlot
+        fields = [
+            "enabled", "title", "generate_at", "prompt", "system_prompt", "styles",
+            "chat_provider", "chat_model", "image_provider", "image_model", "image_size",
+        ]
+        labels = {
+            "enabled": "Включён",
+            "title": "Подпись публикации",
+            "prompt": "Задание чат-модели",
+            "system_prompt": "Системный промпт",
+            "styles": "Стили (по одному в строке, выбирается по числу месяца)",
+            "chat_provider": "Провайдер чат-модели",
+            "chat_model": "Чат-модель",
+            "image_provider": "Провайдер генерации",
+            "image_model": "Модель генерации",
+            "image_size": "Размер картинки",
+        }
+        widgets = {
+            "prompt": forms.Textarea(attrs={"rows": 6}),
+            "system_prompt": forms.Textarea(attrs={"rows": 6}),
+            "styles": forms.Textarea(attrs={"rows": 8}),
+        }
+
+    def clean_generate_at(self):
+        raw = self.cleaned_data["generate_at"]
+        hour, _, minute = raw.partition(":")
+        if not (0 <= int(hour) <= 23 and 0 <= int(minute) <= 59):
+            raise forms.ValidationError("Время в виде ЧЧ:ММ, например 08:00.")
+        return f"{int(hour):02d}:{minute}"

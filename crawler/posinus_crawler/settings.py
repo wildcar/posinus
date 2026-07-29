@@ -83,6 +83,11 @@ POSINUS_PIPELINE_DB_PATH = os.environ.get(
 POSINUS_PIPELINE_MEDIA_DIR = os.environ.get(
     "POSINUS_PIPELINE_MEDIA_DIR", "/var/lib/posinus/pipeline/media"
 )
+# The daily pictures («Картина дня»), written by the pipeline; the gallery view
+# reads them from here. Absent on a development machine, like the rest.
+POSINUS_DAYPIC_DIR = os.environ.get(
+    "POSINUS_DAYPIC_DIR", "/var/lib/posinus/pipeline/daypic"
+)
 # Illustrations live in a private directory. Django checks the login, Nginx reads
 # the file: an internal redirect keeps the bytes out of the Python process. Empty
 # means «send it from Django» — right for a development machine, wasteful in prod.

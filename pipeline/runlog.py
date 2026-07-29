@@ -56,6 +56,7 @@ STALE_AFTER_SECONDS = {
     "evaluator-backfill": 30 * 60,
     "notify-check": 2 * 60 * 60,
     "notify-digest": 26 * 60 * 60,
+    "daypic": 35 * 60,
 }
 
 
