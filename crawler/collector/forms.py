@@ -78,19 +78,21 @@ class DaypicSlotForm(forms.ModelForm):
         model = DaypicSlot
         fields = [
             "enabled", "title", "generate_at", "prompt", "system_prompt", "styles",
-            "chat_provider", "chat_model", "image_provider", "image_model", "image_size",
+            "chat_provider", "chat_model", "image_provider", "image_model",
+            "image_size", "image_size_wide",
         ]
         labels = {
             "enabled": "Включён",
             "title": "Подпись публикации",
             "prompt": "Задание чат-модели",
             "system_prompt": "Системный промпт",
-            "styles": "Стили (по одному в строке, выбирается по числу месяца)",
+            "styles": "Стили (по одному в строке; выбирается случайно, без повторов в течение месяца)",
             "chat_provider": "Провайдер чат-модели",
             "chat_model": "Чат-модель",
             "image_provider": "Провайдер генерации",
             "image_model": "Модель генерации",
-            "image_size": "Размер картинки",
+            "image_size": "Размер вертикальной (telegram)",
+            "image_size_wide": "Размер горизонтальной (сайты, VK)",
         }
         widgets = {
             "prompt": forms.Textarea(attrs={"rows": 6}),

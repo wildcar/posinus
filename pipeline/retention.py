@@ -80,12 +80,13 @@ WHERE images_purged_at IS NULL
 # and the gallery says «файл удалён по сроку» instead of showing a hole.
 DAYPIC_KEEP_DAYS = 90
 
-# Issues whose picture file is past its date and not yet purged.
+# Issues whose picture files are past their date and not yet purged. Both
+# renditions of one issue (vertical + horizontal) age together.
 DAYPIC_DUE_SQL = """
-SELECT id, day, slot, file_path
+SELECT id, day, slot, file_path, file_path_wide
 FROM daypic_item
 WHERE file_purged_at IS NULL
-  AND file_path IS NOT NULL
+  AND (file_path IS NOT NULL OR file_path_wide IS NOT NULL)
   AND day < :day_before
 """
 
@@ -183,18 +184,23 @@ def purge_daypic(con: sqlite3.Connection, cfg: RetentionConfig, now: datetime,
         return 0, 0
     removed = freed = 0
     for row in rows:
-        path = Path(row["file_path"])
+        paths = [Path(raw) for raw in (row["file_path"], row["file_path_wide"]) if raw]
         if dry_run:
-            log.info("daypic %s/%s: %s would go", row["day"], row["slot"], path)
+            for path in paths:
+                log.info("daypic %s/%s: %s would go", row["day"], row["slot"], path)
             continue
-        try:
-            freed += path.stat().st_size
-            path.unlink()
-            removed += 1
-        except FileNotFoundError:
-            pass  # already gone; the row still has to be marked
-        except OSError as exc:
-            log.warning("daypic %s/%s: cannot remove %s: %s", row["day"], row["slot"], path, exc)
+        blocked = False
+        for path in paths:
+            try:
+                freed += path.stat().st_size
+                path.unlink()
+                removed += 1
+            except FileNotFoundError:
+                pass  # already gone; the row still has to be marked
+            except OSError as exc:
+                log.warning("daypic %s/%s: cannot remove %s: %s", row["day"], row["slot"], path, exc)
+                blocked = True
+        if blocked:
             continue
         with con:
             con.execute(

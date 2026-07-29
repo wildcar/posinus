@@ -1,27 +1,35 @@
 #!/usr/bin/env python3
 """Картина дня: draws the daily picture and posts it to the platforms.
 
-Once a day (per slot: `day` now, an evening slot later) this builds an image
-prompt from the current date — a chat model turns the slot's instruction, the
-day-of-month style and the calendar into one ready prompt — generates the
-picture through the router's `generate_image` tool and publishes it to the
-publisher's platforms (telegram, Эгея site, VK; wildcar_org is a separate
-owner's call). The picture file lands in DAYPIC_DIR under a stable name
-`<YYYY-MM-DD>-<slot>.<ext>`, so external consumers (the owner's bot) can pick
-it up by schedule.
+Once a day (per slot: `day` now, an evening slot later) this asks a chat model
+for two things in one JSON reply — an image prompt built from the current date
+and a random style, and a short Russian description of the day's holidays and
+events — then draws the picture TWICE from that one prompt (vertical for
+telegram and the owner's bot, horizontal for the sites and VK) and publishes it
+everywhere the news publisher posts, wildcar.org included (its own section,
+`DAYPIC_WILDCAR_SECTION`). Every post carries the text «<title> · <дата>» plus
+the description. The vertical file lands in DAYPIC_DIR under the stable name
+`<YYYY-MM-DD>-<slot>.<ext>` (the horizontal one adds `-wide`), so external
+consumers can pick it up by schedule.
+
+The style is chosen at random from the slot's list, never repeating a style
+this slot already used in the current calendar month; when no fresh style is
+left, any goes — a repeat beats a missing day.
 
 The slots — prompt, system prompt, style list, caption, generation time, model
-hints — are the operator's to edit on the crawler's «Картина дня» page and live
-in the crawler DB (`exchange_daypic_slot`, read-only here, like the selection
-profile). Results live in the pipeline's own DB: `daypic_item` one row per
-(day, slot), `daypic_publication` one row per (item, platform), idempotent the
-same way news publications are. The stop cock (`pause` in the request mailbox)
-holds the whole run, generation included.
+hints, the two sizes — are the operator's to edit on the crawler's «Картина
+дня» page and live in the crawler DB (`exchange_daypic_slot`, read-only here,
+like the selection profile). Results live in the pipeline's own DB:
+`daypic_item` one row per (day, slot), `daypic_publication` one row per
+(item, platform), idempotent the same way news publications are. The stop cock
+(`pause` in the request mailbox) holds the whole run, generation included.
 
 A failed generation retries on the next timer run, at most DAYPIC_MAX_ATTEMPTS
 per day: generation costs money, and a broken day has to end rather than burn
-budget until midnight. A dry run builds and prints the prompt (one cheap chat
-call) but never spends an image call, sends nothing and leaves no row.
+budget until midnight. The vertical picture is the gate; a failed horizontal
+one only logs, and the platforms fall back to the vertical file. A dry run
+builds and prints the prompt (one cheap chat call) but never spends an image
+call, sends nothing and leaves no row.
 
 Single-file, stdlib-only. Reuses the router client from evaluator.py and the
 platform adapters and config from publisher.py.
@@ -35,10 +43,13 @@ import argparse
 import base64
 import logging
 import os
+import random
+import shutil
 import sqlite3
 import sys
 import time
 import urllib.error
+import urllib.parse
 from dataclasses import dataclass, replace
 from datetime import datetime, time as dt_time, timezone
 from pathlib import Path
@@ -51,7 +62,7 @@ import runlog
 
 log = logging.getLogger("posinus-daypic")
 
-DAYPIC_VERSION = "0.1.0"
+DAYPIC_VERSION = "0.2.0"
 DAYPIC_ROUTER_USER = "daypic"   # external_user_id at the model router
 MAX_PROMPT_ATTEMPTS = 2
 DB_LOCK_RETRIES = 4
@@ -60,7 +71,8 @@ DB_LOCK_RETRIES = 4
 # is not an error: «Картина дня» is simply not set up on this database.
 SLOTS_SQL = """
 SELECT slot, enabled, title, generate_at, prompt, system_prompt, styles,
-       chat_provider, chat_model, image_provider, image_model, image_size
+       chat_provider, chat_model, image_provider, image_model,
+       image_size, image_size_wide
 FROM exchange_daypic_slot
 WHERE enabled = 1
 ORDER BY slot
@@ -72,10 +84,12 @@ CREATE TABLE IF NOT EXISTS daypic_item (
     day TEXT NOT NULL,              -- local date of the issue, YYYY-MM-DD
     slot TEXT NOT NULL,
     status TEXT NOT NULL,           -- 'error' | 'generated' | 'published'
-    title TEXT,
+    title TEXT,                     -- the composed post title: «Картина дня · 30 июля 2026»
     style TEXT,
     prompt TEXT,                    -- the final image prompt that was used
-    file_path TEXT,
+    caption TEXT,                   -- the day's description, goes under the picture
+    file_path TEXT,                 -- vertical (telegram, the owner's bot)
+    file_path_wide TEXT,            -- horizontal (sites and VK); may be NULL
     prompt_model_id TEXT,
     image_model_id TEXT,
     attempts INTEGER NOT NULL DEFAULT 0,  -- generation attempts this day
@@ -99,11 +113,17 @@ CREATE TABLE IF NOT EXISTS daypic_publication (
 
 # The prompt scaffolding around the operator's slot prompt. The router has no
 # web search, so the date discipline matters: the model must build the day from
-# its own knowledge of the calendar and not drift to a neighbouring date.
+# its own knowledge of the calendar and not drift to a neighbouring date. The
+# reply format is owned here, not by the slot text: the code is what parses it.
 PROMPT_REQUEST = (
     "Сегодня {date}, {weekday}. Используй только эту дату и события и праздники именно "
-    "этого дня; не придумывай другую дату и не смещайся на соседние дни. "
-    "День месяца: {day}.{style_line}\n\n{task}"
+    "этого дня; не придумывай другую дату и не смещайся на соседние дни.{style_line}\n\n"
+    "{task}\n\n"
+    "Картинка будет отрисована дважды, вертикально и горизонтально, поэтому ориентацию "
+    "кадра в промпте не задавай. Верни один JSON-объект и больше ничего: "
+    '{{"prompt": "<готовый промпт для модели генерации изображений>", '
+    '"description": "<два-четыре предложения по-русски: какие сегодня праздники и '
+    'события, нейтрально и дружелюбно>"}}'
 )
 STYLE_LINE = " Базовый стиль картинки: {style}."
 RU_WEEKDAYS = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
@@ -111,7 +131,7 @@ RU_WEEKDAYS = ("понедельник", "вторник", "среда", "чет
 # When the chat model would not answer, the issue still goes out on this
 # template: a plainer picture is better than a missing day.
 FALLBACK_PROMPT = (
-    "Создай вертикальную «картину дня» для даты {date}. {style_line}"
+    "Создай «картину дня» для даты {date}. {style_line}"
     "Покажи спокойную, безопасную атмосферу этого дня: сезон, городской или праздничный "
     "контекст с приоритетом российских праздников, дружелюбное настроение, красивый свет "
     "и композицию открытки. Избегай насилия, трагедий, политики, катастроф и шок-контента. "
@@ -125,6 +145,11 @@ SAFE_SUFFIX = (
     "Сделай изображение безопасным для широкой аудитории: без насилия, катастроф, оружия, "
     "трагедий, политики, реальных конфликтов и пугающих сцен. Если события дня чувствительные, "
     "передай только нейтральное настроение дня, сезон и праздники."
+)
+
+RETRY_MESSAGE = (
+    "Твой ответ не прошёл проверку: {error}. "
+    "Пришли один JSON-объект той же схемы и больше ничего."
 )
 
 
@@ -145,8 +170,10 @@ class DaypicConfig:
     # Router hints when the slot leaves its own fields empty.
     image_provider: str = "codex-oauth"
     image_model: str = ""
-    image_size: str = "1024x1536"   # vertical, the ort_bot 9:16 heritage
+    image_size: str = "1024x1536"        # vertical: telegram and the pickup file
+    image_size_wide: str = "1536x1024"   # horizontal: the sites and VK
     site_tags: str = "картина дня"
+    wildcar_section: str = "kartina"     # the daily-picture section of wildcar.org
 
     @classmethod
     def from_env(cls, env: dict[str, str] = os.environ) -> "DaypicConfig":
@@ -160,7 +187,9 @@ class DaypicConfig:
         cfg.image_provider = env.get("DAYPIC_IMAGE_PROVIDER", env.get("IMAGE_PROVIDER", cfg.image_provider))
         cfg.image_model = env.get("DAYPIC_IMAGE_MODEL", cfg.image_model)
         cfg.image_size = env.get("DAYPIC_IMAGE_SIZE", cfg.image_size)
+        cfg.image_size_wide = env.get("DAYPIC_IMAGE_SIZE_WIDE", cfg.image_size_wide)
         cfg.site_tags = env.get("DAYPIC_SITE_TAGS", cfg.site_tags)
+        cfg.wildcar_section = env.get("DAYPIC_WILDCAR_SECTION", cfg.wildcar_section).strip("/")
         return cfg
 
 
@@ -177,6 +206,7 @@ class Slot:
     image_provider: str = ""
     image_model: str = ""
     image_size: str = ""
+    image_size_wide: str = ""
 
 
 def load_slots(news_db: str) -> list[Slot]:
@@ -212,6 +242,7 @@ def load_slots(news_db: str) -> list[Slot]:
             image_provider=(row["image_provider"] or "").strip(),
             image_model=(row["image_model"] or "").strip(),
             image_size=(row["image_size"] or "").strip(),
+            image_size_wide=(row["image_size_wide"] or "").strip(),
         ))
     return slots
 
@@ -219,68 +250,111 @@ def load_slots(news_db: str) -> list[Slot]:
 # ------------------------------------------------------------ prompt stage
 
 
-def pick_style(styles: tuple[str, ...], day_of_month: int) -> str:
-    """The style for the day: the day-of-month entry, clamped to the list.
+def pick_style(styles: tuple[str, ...], used: set[str]) -> str:
+    """A random style the slot has not used this month; any style when all are.
 
-    The 31st runs into the last entry when the list is shorter — a repeat once
-    a month is better than a special case."""
+    Random rather than day-of-month by the owner's call: the calendar index made
+    the whole month predictable. Non-repetition within the month is the part
+    that matters — a feed where two mornings look alike reads as a machine."""
     if not styles:
         return ""
-    return styles[min(max(day_of_month, 1), len(styles)) - 1]
+    fresh = [style for style in styles if style not in used]
+    return random.choice(fresh or list(styles))
 
 
-def build_prompt_request(slot: Slot, now_local: datetime) -> str:
-    style = pick_style(slot.styles, now_local.day)
+def used_styles(con: sqlite3.Connection, slot: str, day: str) -> set[str]:
+    """Styles this slot already spent in the month of `day` (YYYY-MM-DD)."""
+    return {
+        row[0]
+        for row in con.execute(
+            "SELECT DISTINCT style FROM daypic_item "
+            "WHERE slot = ? AND day LIKE ? AND style IS NOT NULL AND style <> ''",
+            (slot, f"{day[:7]}-%"),
+        )
+    }
+
+
+def compose_title(slot_title: str, now_local: datetime) -> str:
+    """The post title: «Картина дня · 30 июля 2026»."""
+    return f"{slot_title} · {publisher._format_date_ru(now_local)}"
+
+
+def build_prompt_request(slot: Slot, now_local: datetime, style: str) -> str:
     return PROMPT_REQUEST.format(
         date=now_local.strftime("%Y-%m-%d"),
         weekday=RU_WEEKDAYS[now_local.weekday()],
-        day=now_local.day,
         style_line=STYLE_LINE.format(style=style) if style else "",
         task=slot.prompt,
     )
 
 
-def fallback_prompt(slot: Slot, now_local: datetime) -> str:
-    style = pick_style(slot.styles, now_local.day)
+def fallback_prompt(slot: Slot, now_local: datetime, style: str) -> str:
     return FALLBACK_PROMPT.format(
         date=now_local.strftime("%Y-%m-%d"),
         style_line=f"Стиль: {style}. " if style else "",
     )
 
 
-def build_prompt(router_cfg: "evaluator.Config", slot: Slot, now_local: datetime) -> tuple[str, str]:
-    """The image prompt for today, via the chat model; (prompt, model_id).
+def parse_prompt_reply(text: str) -> tuple[str, str]:
+    """(prompt, description) out of the model's JSON reply.
 
-    Two attempts (the second asks for a shorter, simpler prompt), then the
-    built-in fallback template: the issue is worth more than the prose.
+    Raises EvaluationInvalid when there is no usable prompt; a missing or
+    unusable description is not worth a second paid call — the picture is the
+    product, the caption text merely dresses it."""
+    payload = evaluator.extract_json_object(text)
+    prompt = payload.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise evaluator.EvaluationInvalid("в ответе нет непустого поля prompt")
+    description = payload.get("description")
+    if not isinstance(description, str):
+        description = ""
+    return " ".join(prompt.split()), " ".join(description.split())
+
+
+def build_prompt(
+    router_cfg: "evaluator.Config", slot: Slot, now_local: datetime, style: str,
+) -> tuple[str, str, str]:
+    """Today's image prompt and day description; (prompt, description, model_id).
+
+    Two attempts with the validation error fed back, then a last resort: a
+    non-JSON but non-empty reply is used raw as the prompt (the model wrote a
+    prompt, just not the envelope), and only after that the built-in template —
+    the issue is worth more than the prose.
     """
     cfg = replace(
         router_cfg,
         provider=slot.chat_provider or router_cfg.provider,
         model_id=slot.chat_model or router_cfg.model_id,
     )
-    request = build_prompt_request(slot, now_local)
     messages = [
         {"role": "system", "content": slot.system_prompt},
-        {"role": "user", "content": request},
+        {"role": "user", "content": build_prompt_request(slot, now_local, style)},
     ]
+    last_text = ""
     for attempt in range(1, MAX_PROMPT_ATTEMPTS + 1):
         try:
             reply = evaluator.chat(cfg, messages)
         except (evaluator.McpError, urllib.error.URLError, OSError) as exc:
             log.warning("slot %s: prompt attempt %d/%d failed: %s",
                         slot.slot, attempt, MAX_PROMPT_ATTEMPTS, exc)
-            messages = [
-                {"role": "system", "content": slot.system_prompt},
-                {"role": "user", "content": f"{request}\n\nСделай промпт короче и проще, но сохрани суть."},
-            ]
             continue
-        prompt = (reply.get("text") or "").strip()
-        if prompt:
-            return prompt, reply.get("model_id") or cfg.model_id
-        log.warning("slot %s: prompt attempt %d/%d returned empty text", slot.slot, attempt, MAX_PROMPT_ATTEMPTS)
+        text = (reply.get("text") or "").strip()
+        last_text = text or last_text
+        try:
+            prompt, description = parse_prompt_reply(text)
+        except evaluator.EvaluationInvalid as exc:
+            log.warning("slot %s: prompt attempt %d/%d rejected: %s",
+                        slot.slot, attempt, MAX_PROMPT_ATTEMPTS, exc)
+            messages.append({"role": "assistant", "content": text})
+            messages.append({"role": "user", "content": RETRY_MESSAGE.format(error=exc)})
+            continue
+        return prompt, description, reply.get("model_id") or cfg.model_id
+    if last_text:
+        log.warning("slot %s: no valid JSON after %d attempts, using the raw reply as the prompt",
+                    slot.slot, MAX_PROMPT_ATTEMPTS)
+        return last_text, "", cfg.model_id
     log.warning("slot %s: falling back to the built-in prompt template", slot.slot)
-    return fallback_prompt(slot, now_local), "fallback-template"
+    return fallback_prompt(slot, now_local, style), "", "fallback-template"
 
 
 # ------------------------------------------------------------- image stage
@@ -288,16 +362,15 @@ def build_prompt(router_cfg: "evaluator.Config", slot: Slot, now_local: datetime
 
 def generate_picture(
     cfg: DaypicConfig, router_cfg: "evaluator.Config", slot: Slot,
-    prompt: str, day: str,
+    prompt: str, day: str, size: str, suffix: str = "",
 ) -> tuple[str, str]:
-    """Generate and save today's picture; (file path, image model id).
+    """Generate and save one rendition; (file path, image model id).
 
     One retry with the safety suffix: image providers refuse prompts that carry
     too much of the day's news, and a toned-down picture beats a missing one.
     """
     provider = slot.image_provider or cfg.image_provider
     model = slot.image_model or cfg.image_model
-    size = slot.image_size or cfg.image_size
     reply = None
     for attempt, text in enumerate((prompt, f"{prompt}\n\n{SAFE_SUFFIX}"), start=1):
         arguments: dict = {
@@ -315,7 +388,7 @@ def generate_picture(
                                         token=router_cfg.router_token or None)
             break
         except (evaluator.McpError, urllib.error.URLError, OSError) as exc:
-            log.warning("slot %s: image attempt %d/2 failed: %s", slot.slot, attempt, exc)
+            log.warning("slot %s: image attempt %d/2 (%s) failed: %s", slot.slot, attempt, size, exc)
             if attempt == 2:
                 raise DaypicError(f"генерация картинки не удалась: {exc}") from exc
     blobs = reply.get("image_b64") if isinstance(reply, dict) else None
@@ -329,14 +402,51 @@ def generate_picture(
         raise DaypicError(f"изображение неправдоподобно маленькое ({len(data)} байт)")
     target_dir = Path(cfg.daypic_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
-    path = target_dir / f"{day}-{slot.slot}{preparer._sniff_image_ext(data)}"
+    path = target_dir / f"{day}-{slot.slot}{suffix}{preparer._sniff_image_ext(data)}"
     path.write_bytes(data)
     model_id = reply.get("model_id") or model or provider
-    log.info("slot %s: picture generated via %s (%d bytes) -> %s", slot.slot, model_id, len(data), path)
+    log.info("slot %s: %s picture generated via %s (%d bytes) -> %s",
+             slot.slot, size or "default-size", model_id, len(data), path)
     return str(path), model_id
 
 
+def generate_pictures(
+    cfg: DaypicConfig, router_cfg: "evaluator.Config", slot: Slot, prompt: str, day: str,
+) -> tuple[str, str | None, str]:
+    """Both renditions from one prompt; (vertical path, wide path or None, model).
+
+    The vertical picture is the gate — it feeds telegram and the pickup file,
+    and without it there is no issue. The horizontal one is best-effort: on
+    failure the platforms take the vertical file and the day is not held up.
+    """
+    vertical, model_id = generate_picture(
+        cfg, router_cfg, slot, prompt, day, slot.image_size or cfg.image_size)
+    try:
+        wide, _ = generate_picture(
+            cfg, router_cfg, slot, prompt, day,
+            slot.image_size_wide or cfg.image_size_wide, suffix="-wide")
+    except DaypicError as exc:
+        log.warning("slot %s: horizontal rendition failed, platforms will take the vertical one: %s",
+                    slot.slot, exc)
+        wide = None
+    return vertical, wide, model_id
+
+
 # ---------------------------------------------------------------- storage
+
+
+def migrate_own_db(con: sqlite3.Connection) -> None:
+    """Bring a first-deploy daypic schema forward: the two-orientation issue
+    added `file_path_wide` and `caption`. Empty tables in the wild, but ALTER
+    keeps even a non-empty one."""
+    columns = {row["name"] for row in con.execute("PRAGMA table_info(daypic_item)")}
+    if columns and "file_path_wide" not in columns:
+        con.execute("ALTER TABLE daypic_item ADD COLUMN file_path_wide TEXT")
+        con.commit()
+    columns = {row["name"] for row in con.execute("PRAGMA table_info(daypic_item)")}
+    if columns and "caption" not in columns:
+        con.execute("ALTER TABLE daypic_item ADD COLUMN caption TEXT")
+        con.commit()
 
 
 def open_own_db(path: str) -> sqlite3.Connection:
@@ -348,6 +458,7 @@ def open_own_db(path: str) -> sqlite3.Connection:
     con.execute("PRAGMA journal_mode = WAL")
     con.execute("PRAGMA busy_timeout = 30000")
     con.execute("PRAGMA foreign_keys = ON")
+    migrate_own_db(con)
     con.executescript(OWN_SCHEMA_SQL)
     return con
 
@@ -377,19 +488,22 @@ def get_item(con: sqlite3.Connection, day: str, slot: str) -> sqlite3.Row | None
 
 
 def record_generated(
-    con: sqlite3.Connection, day: str, slot: Slot, style: str, prompt: str,
-    file_path: str, prompt_model: str, image_model: str,
+    con: sqlite3.Connection, day: str, slot: Slot, title: str, style: str,
+    prompt: str, caption: str, file_path: str, file_path_wide: str | None,
+    prompt_model: str, image_model: str,
 ) -> None:
     def action() -> None:
         con.execute(
-            "INSERT INTO daypic_item (day, slot, status, title, style, prompt, file_path, "
-            "prompt_model_id, image_model_id, attempts, generated_at) "
-            "VALUES (?, ?, 'generated', ?, ?, ?, ?, ?, ?, 1, ?) "
+            "INSERT INTO daypic_item (day, slot, status, title, style, prompt, caption, "
+            "file_path, file_path_wide, prompt_model_id, image_model_id, attempts, generated_at) "
+            "VALUES (?, ?, 'generated', ?, ?, ?, ?, ?, ?, ?, ?, 1, ?) "
             "ON CONFLICT(day, slot) DO UPDATE SET status='generated', title=excluded.title, "
-            "style=excluded.style, prompt=excluded.prompt, file_path=excluded.file_path, "
+            "style=excluded.style, prompt=excluded.prompt, caption=excluded.caption, "
+            "file_path=excluded.file_path, file_path_wide=excluded.file_path_wide, "
             "prompt_model_id=excluded.prompt_model_id, image_model_id=excluded.image_model_id, "
             "attempts=daypic_item.attempts+1, generated_at=excluded.generated_at, error=NULL",
-            (day, slot.slot, slot.title, style, prompt, file_path, prompt_model, image_model, _now_iso()),
+            (day, slot.slot, title, style, prompt, caption, file_path, file_path_wide,
+             prompt_model, image_model, _now_iso()),
         )
     _with_lock_retries(con, action)
 
@@ -438,6 +552,106 @@ def finalize(con: sqlite3.Connection, item_id: int) -> None:
     _with_lock_retries(con, action)
 
 
+# ------------------------------------------------- platform: wildcar.org
+
+
+DAYPIC_NAV_YML = """\
+# Generated by the posinus daily-picture service (daypic.py) — do not edit here.
+title: Картина дня
+nav:
+  - index.md
+"""
+
+
+def wildcar_slug(day: str, slot: str) -> str:
+    """The page directory: the plain date for the main slot, date-slot for others."""
+    return day if slot == "day" else f"{day}-{slot}"
+
+
+def wildcar_section_url(cfg: DaypicConfig, pub_cfg: "publisher.PublisherConfig") -> str:
+    return f"{pub_cfg.wildcar_base}/{cfg.wildcar_section}/"
+
+
+def build_wildcar_page(title: str, image_name: str, caption: str) -> str:
+    parts = [f"# {title}"]
+    if image_name:
+        parts.append(f"![]({urllib.parse.quote(image_name)})")
+    if caption:
+        parts.append(caption)
+    return "\n\n".join(parts) + "\n"
+
+
+def build_wildcar_index(entries: list[tuple[str, str, str]]) -> str:
+    """The section index; entries are (slug, day, title), newest first."""
+    lines = [
+        "# Картина дня",
+        "",
+        "Каждый день машина рисует картину по праздникам и событиям этого дня "
+        "и публикует её здесь и на площадках проекта "
+        "[posinus](https://github.com/wildcar/posinus).",
+        "",
+    ]
+    for slug, day, title in entries:
+        year, month, dom = day.split("-")
+        lines.append(f"- {dom}.{month}.{year} — [{title}]({slug}/index.md)")
+    return "\n".join(lines) + "\n"
+
+
+def _wildcar_published_issues(con: sqlite3.Connection, exclude_id: int) -> list[tuple[str, str, str]]:
+    """Issues already on wildcar.org, newest first, for the regenerated index."""
+    return [
+        (wildcar_slug(row["day"], row["slot"]), row["day"], row["title"] or "Картина дня")
+        for row in con.execute(
+            "SELECT i.day, i.slot, i.title FROM daypic_publication p "
+            "JOIN daypic_item i ON i.id = p.item_id "
+            "WHERE p.platform = 'wildcar_org' AND p.status = 'ok' AND i.id <> ? "
+            "ORDER BY i.day DESC, i.slot ASC", (exclude_id,))
+    ]
+
+
+def publish_wildcar_org(
+    cfg: DaypicConfig, pub_cfg: "publisher.PublisherConfig", con: sqlite3.Connection,
+    row: sqlite3.Row, item: "publisher.PreparedNews",
+) -> str:
+    """Write the issue into the site's daily-picture section and wait for it.
+
+    Same mechanics as the news platform: files into the content directory, the
+    rebuild marker for the site-build unit, then wait until the page answers.
+    Everything here is regenerated on a retry, so a half-finished run heals."""
+    slug = wildcar_slug(row["day"], row["slot"])
+    page_url = wildcar_section_url(cfg, pub_cfg) + f"{slug}/"
+
+    section = Path(pub_cfg.wildcar_content_dir) / cfg.wildcar_section
+    page_dir = section / slug
+    page_dir.mkdir(parents=True, exist_ok=True)
+    image_name = ""
+    if item.lead_image:
+        image_name = Path(item.lead_image).name
+        shutil.copyfile(item.lead_image, page_dir / image_name)
+    (page_dir / "index.md").write_text(
+        build_wildcar_page(item.title, image_name, "\n\n".join(item.paragraphs)),
+        encoding="utf-8",
+    )
+    entries = [(slug, row["day"], item.title)] + _wildcar_published_issues(con, exclude_id=row["id"])
+    (section / ".nav.yml").write_text(DAYPIC_NAV_YML, encoding="utf-8")
+    (section / "index.md").write_text(build_wildcar_index(entries), encoding="utf-8")
+
+    Path(pub_cfg.requests_dir, publisher.WILDCAR_REBUILD_MARKER).touch()
+    deadline = time.monotonic() + max(pub_cfg.wildcar_wait_seconds, 0)
+    while True:
+        try:
+            status, _ = publisher.http_send(page_url, method="GET", timeout=30)
+        except OSError:
+            status = 0
+        if status == 200:
+            return page_url
+        if time.monotonic() >= deadline:
+            raise publisher.PublishError(
+                f"wildcar_org: {page_url} is not live after {pub_cfg.wildcar_wait_seconds}s "
+                f"(status {status}); is posinus-wildcar-org-build.path running?")
+        time.sleep(3)
+
+
 # ---------------------------------------------------------------- pipeline
 
 
@@ -466,36 +680,45 @@ def _zone(name: str) -> ZoneInfo:
 
 
 def publish_item(
-    pub_cfg: "publisher.PublisherConfig", con: sqlite3.Connection,
+    cfg: DaypicConfig, pub_cfg: "publisher.PublisherConfig", con: sqlite3.Connection,
     item_row: sqlite3.Row, platforms: list[str],
 ) -> bool:
     """Send one issue to every platform still pending; True when it settled.
 
-    Same shape as the news publisher: a platform already 'ok' is skipped, a
-    failing one retries up to max_attempts, and the issue finalizes best-effort
-    with whatever platforms succeeded, so a broken platform cannot hold the
-    picture of every following day."""
+    Telegram takes the vertical picture, everything else the horizontal one
+    (falling back to the vertical when it is missing). Same shape as the news
+    publisher: a platform already 'ok' is skipped, a failing one retries up to
+    max_attempts, and the issue finalizes best-effort with whatever platforms
+    succeeded, so a broken platform cannot hold the picture of every following
+    day."""
     item_id = item_row["id"]
-    file_path = item_row["file_path"] or ""
-    if not file_path or not Path(file_path).exists():
+    vertical = item_row["file_path"] or ""
+    if not vertical or not Path(vertical).exists():
         log.error("daypic %s/%s: picture file %s is missing, nothing to publish",
-                  item_row["day"], item_row["slot"], file_path)
+                  item_row["day"], item_row["slot"], vertical)
         return False
+    wide = item_row["file_path_wide"] or ""
+    if not wide or not Path(wide).exists():
+        wide = vertical
+    title = item_row["title"] or "Картина дня"
+    paragraphs = [item_row["caption"]] if item_row["caption"] else []
+
+    def item_for(platform: str) -> "publisher.PreparedNews":
+        image = vertical if platform == "telegram" else wide
+        return publisher.PreparedNews(
+            news_id=item_id, title=title, paragraphs=list(paragraphs),
+            lead_image=image, source_url="", source_name="", images=[(image, "")],
+        )
+
     state = publication_state(con, item_id)
     pending = [p for p in platforms
                if state.get(p, ("", 0))[0] != "ok" and state.get(p, ("", 0))[1] < pub_cfg.max_attempts]
-    item = publisher.PreparedNews(
-        news_id=item_id,
-        title=item_row["title"] or "Картина дня",
-        paragraphs=[],
-        lead_image=file_path,
-        source_url="",
-        source_name="",
-        images=[(file_path, "")],
-    )
     for platform in pending:
         try:
-            url = publisher.ADAPTERS[platform](pub_cfg, item, False)
+            if platform == "wildcar_org":
+                url = publish_wildcar_org(cfg, pub_cfg, con, item_row, item_for(platform))
+            else:
+                url = publisher.ADAPTERS[platform](pub_cfg, item_for(platform), False)
         except Exception as exc:  # one bad platform must not sink the rest
             log.error("daypic %s/%s -> %s failed: %s", item_row["day"], item_row["slot"], platform, exc)
             record_publication(con, item_id, platform, "error", None, str(exc))
@@ -521,7 +744,7 @@ def run(cfg: DaypicConfig, router_cfg: "evaluator.Config", dry_run: bool,
     now_utc = now or datetime.now(timezone.utc)
     pub_cfg = publisher.PublisherConfig.from_env()
     pub_cfg.site_tags = cfg.site_tags
-    platforms = [p for p in pub_cfg.enabled_platforms() if p != "wildcar_org"]
+    platforms = pub_cfg.enabled_platforms()
 
     pause = publisher.read_pause(pub_cfg.requests_dir, now_utc)
     if pause is not None and not dry_run:
@@ -559,21 +782,24 @@ def run(cfg: DaypicConfig, router_cfg: "evaluator.Config", dry_run: bool,
                     log.warning("slot %s: %d failed attempts today, giving the day up",
                                 slot.slot, row["attempts"])
                     continue
-                style = pick_style(slot.styles, now_local.day)
-                prompt, prompt_model = build_prompt(router_cfg, slot, now_local)
+                style = pick_style(slot.styles, used_styles(own, slot.slot, day))
+                prompt, description, prompt_model = build_prompt(router_cfg, slot, now_local, style)
                 if dry_run:
                     log.info("slot %s [dry-run]: style '%s', prompt via %s; no image call is spent",
                              slot.slot, style, prompt_model)
                     print(prompt)
+                    if description:
+                        print(f"--- описание ---\n{description}")
                     continue
                 try:
-                    file_path, image_model = generate_picture(cfg, router_cfg, slot, prompt, day)
+                    vertical, wide, image_model = generate_pictures(cfg, router_cfg, slot, prompt, day)
                 except DaypicError as exc:
                     failed += 1
                     log.error("slot %s: %s", slot.slot, exc)
                     record_failure(own, day, slot, str(exc))
                     continue
-                record_generated(own, day, slot, style, prompt, file_path, prompt_model, image_model)
+                record_generated(own, day, slot, compose_title(slot.title, now_local), style,
+                                 prompt, description, vertical, wide, prompt_model, image_model)
                 generated += 1
                 row = get_item(own, day, slot.slot)
 
@@ -583,7 +809,7 @@ def run(cfg: DaypicConfig, router_cfg: "evaluator.Config", dry_run: bool,
                 log.warning("slot %s: no platform configured; the picture is saved but goes nowhere",
                             slot.slot)
                 continue
-            if publish_item(pub_cfg, own, row, platforms):
+            if publish_item(cfg, pub_cfg, own, row, platforms):
                 published += 1
         if counters is not None:
             counters.update(slots=len(slots), generated=generated, published=published,
@@ -627,7 +853,7 @@ def main(argv: list[str] | None = None) -> int:
     settings = {
         "tz": cfg.tz,
         "image_provider": cfg.image_provider,
-        "image_size": cfg.image_size,
+        "image_sizes": f"{cfg.image_size}+{cfg.image_size_wide}",
         "max_attempts": cfg.max_attempts,
     }
     with runlog.record("daypic", cfg.own_db, settings) as counters:

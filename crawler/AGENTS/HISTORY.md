@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-07-29 · The daily picture grows a second orientation and a caption
+- What: migration `0013` — `image_size_wide` on `exchange_daypic_slot` (vertical goes to telegram, horizontal to the sites and VK) and a refresh of the unedited 0012 seed texts: the prompt no longer fixes the orientation and the system prompt now asks for a description of the day too (the pipeline requests JSON {prompt, description}). The page edits both sizes, the styles label says «случайно, без повторов в течение месяца», the gallery shows the caption and links the horizontal file, `wildcar_org` joins the platform titles. 138 tests pass.
+- Why: owner's call — one picture cannot serve telegram and the sites at once, and a picture without «какие сегодня праздники» under it says nothing.
+- Files: crawler/collector/{models,forms}.py, crawler/collector/migrations/0013_daypicslot_image_size_wide.py, crawler/collector/services/daypic.py, crawler/templates/collector/daypic.html, crawler/tests/test_daypic_page.py, docs/contracts/database-contract.md, crawler/AGENTS/SPEC.md
+- Next: deploy `0013` together with the pipeline side.
+
 ## 2026-07-29 · A page for the daily picture
 - What: «Картина дня» in the nav — migration `0012` adds `exchange_daypic_slot` (the eighth readable object of the contract) seeded with the `day` slot switched off, prompts and 31 styles ported from ort_bot. The page edits each slot (prompt pair, styles by day of month, HH:MM local time, caption, model hints), adds a new slot by key («картина вечера» is a row, not code), shows the gallery of past issues from the pipeline DB with per-platform links, serves the picture bytes login-checked from `POSINUS_DAYPIC_DIR`, and «Прогнать сейчас» drops `run-daypic` into the mailbox. 9 tests added, 138 pass.
 - Why: owner's call — the ort_bot «картинка дня» becomes a pipeline service, and its prompt/model/styles must be editable on the site rather than by deploy; settings live on this side for the same reason the selection thresholds do.

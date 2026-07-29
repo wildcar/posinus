@@ -48,6 +48,7 @@
       <div><label>{{ form.image_provider.label }}</label>{{ form.image_provider }}</div>
       <div><label>{{ form.image_model.label }}</label>{{ form.image_model }}</div>
       <div><label>{{ form.image_size.label }}</label>{{ form.image_size }}</div>
+      <div><label>{{ form.image_size_wide.label }}</label>{{ form.image_size_wide }}</div>
       <div class="wide"><label>{{ form.prompt.label }}</label>{{ form.prompt }}</div>
       <div class="wide"><label>{{ form.system_prompt.label }}</label>{{ form.system_prompt }}</div>
       <div class="wide"><label>{{ form.styles.label }}</label>{{ form.styles }}</div>
@@ -91,11 +92,15 @@
         {% elif issue.filename %}
           <a href="{% url 'daypic_image' issue.filename %}" target="_blank">
             <img src="{% url 'daypic_image' issue.filename %}" alt="{{ issue.day }} {{ issue.slot }}" loading="lazy"></a>
+          {% if issue.filename_wide %}
+            <a href="{% url 'daypic_image' issue.filename_wide %}" target="_blank" style="font-size:.85rem">горизонтальная</a>
+          {% endif %}
         {% else %}<span class="muted">нет картинки</span>{% endif %}
       </td>
       <td>
         {% if issue.style %}<span class="pill">{{ issue.style }}</span>{% endif %}
         {% if issue.image_model %}<span class="muted">{{ issue.image_model }}</span>{% endif %}
+        {% if issue.caption %}<div class="text" style="font-size:.85rem">{{ issue.caption }}</div>{% endif %}
         {% if issue.prompt %}<details><summary class="muted">промпт</summary>
           <div class="text" style="font-size:.85rem">{{ issue.prompt }}</div></details>{% endif %}
         {% if issue.error %}<div class="bad" style="font-size:.85rem">{{ issue.error }}</div>{% endif %}

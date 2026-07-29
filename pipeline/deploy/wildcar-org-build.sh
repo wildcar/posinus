@@ -7,7 +7,9 @@
 # so it writes files, touches the rebuild marker and waits for this.
 set -euo pipefail
 
-SRC="${WILDCAR_ORG_CONTENT_DIR:-/var/lib/posinus/wildcar-org}/news"
+CONTENT="${WILDCAR_ORG_CONTENT_DIR:-/var/lib/posinus/wildcar-org}"
+SRC="$CONTENT/news"
+DAYPIC_SRC="$CONTENT/${DAYPIC_WILDCAR_SECTION:-kartina}"
 SITE_REPO="${WILDCAR_SITE_REPO:-/home/keeper/repo/wildcar-site}"
 SITE_OUT="${WILDCAR_SITE_OUT:-/var/www/wildcar.org}"
 MKDOCS="${MKDOCS_BIN:-/home/keeper/.venvs/mkdocs/bin/mkdocs}"
@@ -22,4 +24,10 @@ fi
 # docs/news is generated content, gitignored in the site repository; the
 # publisher's copy is the source of truth and this sync is one-way.
 rsync -a --delete "$SRC/" "$SITE_REPO/docs/news/"
+# The daily-picture section rides the same rebuild. It appears only after the
+# first issue, so its absence is normal — and the same guard keeps a broken
+# content dir from wiping the published pages.
+if [ -r "$DAYPIC_SRC/index.md" ]; then
+    rsync -a --delete "$DAYPIC_SRC/" "$SITE_REPO/docs/$(basename "$DAYPIC_SRC")/"
+fi
 "$MKDOCS" build --config-file "$SITE_REPO/mkdocs.yml" --site-dir "$SITE_OUT"

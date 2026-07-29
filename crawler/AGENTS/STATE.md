@@ -105,11 +105,14 @@ Operate a single-host multilingual news crawler whose source list improves from 
   the purge blanks. The flow filters and shows «Тема», the card names it, «Состав ленты» shows rubric
   shares. NOT YET DEPLOYED as of this writing.
 
-- «Картина дня» is in the UI since 2026-07-29 (migration `0012`): the operator edits the
-  slots of the daily generated picture on their own page (prompt, styles by day of month,
-  local time, caption, model hints — stored in `exchange_daypic_slot`, the eighth readable
-  contract object), can add an evening slot by key, sees the gallery of past issues from
-  the pipeline DB and can request a run through the mailbox (`run-daypic`). The seeded
+- «Картина дня» is in the UI since 2026-07-29 (migrations `0012`+`0013`): the operator
+  edits the slots of the daily generated picture on their own page (prompt pair, style
+  list — picked at random by the pipeline, no repeats within the month — local time,
+  caption, model hints and the two image sizes, vertical + horizontal; stored in
+  `exchange_daypic_slot`, the eighth readable contract object), can add an evening slot
+  by key, sees the gallery of past issues (both renditions, the day's description, the
+  per-platform links) from the pipeline DB and can request a run through the mailbox
+  (`run-daypic`). The seeded
   `day` slot is switched off, so nothing generates until the operator enables it.
   LIVE on prod at `a7352b5` (2026-07-29 21:42 UTC, `update-ubuntu.sh`): migration `0012`
   applied, web and worker active, `/daypic/` answers behind the login.

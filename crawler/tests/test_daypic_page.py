@@ -16,12 +16,15 @@ def pipeline_db(settings, tmp_path):
     pictures.mkdir()
     picture = pictures / "2026-07-29-day.png"
     picture.write_bytes(b"\x89PNG picture bytes")
+    wide = pictures / "2026-07-29-day-wide.png"
+    wide.write_bytes(b"\x89PNG wide bytes")
     con = sqlite3.connect(path)
     con.executescript(
         """
         CREATE TABLE daypic_item (
             id INTEGER PRIMARY KEY AUTOINCREMENT, day TEXT, slot TEXT, status TEXT,
-            title TEXT, style TEXT, prompt TEXT, file_path TEXT, prompt_model_id TEXT,
+            title TEXT, style TEXT, prompt TEXT, caption TEXT, file_path TEXT,
+            file_path_wide TEXT, prompt_model_id TEXT,
             image_model_id TEXT, attempts INTEGER DEFAULT 0, error TEXT,
             generated_at TEXT, published_at TEXT, file_purged_at TEXT
         );
@@ -32,10 +35,11 @@ def pipeline_db(settings, tmp_path):
         """
     )
     con.execute(
-        "INSERT INTO daypic_item (day, slot, status, style, prompt, file_path, image_model_id, "
-        "published_at) VALUES ('2026-07-29', 'day', 'published', 'low-poly', 'промпт', ?, "
-        "'gpt-image-2', '2026-07-29T05:10:00+00:00')",
-        (str(picture),),
+        "INSERT INTO daypic_item (day, slot, status, style, prompt, caption, file_path, "
+        "file_path_wide, image_model_id, published_at) "
+        "VALUES ('2026-07-29', 'day', 'published', 'low-poly', 'промпт', "
+        "'Сегодня день дружбы.', ?, ?, 'gpt-image-2', '2026-07-29T05:10:00+00:00')",
+        (str(picture), str(wide)),
     )
     con.execute(
         "INSERT INTO daypic_publication (item_id, platform, status, url, attempts, updated_at) "
@@ -76,6 +80,7 @@ def test_saving_a_slot_updates_it_and_logs_the_operator_event(operator):
             "day-prompt": "новое задание", "day-system_prompt": "с", "day-styles": "realistic",
             "day-chat_provider": "", "day-chat_model": "", "day-image_provider": "",
             "day-image_model": "", "day-image_size": "1024x1536",
+            "day-image_size_wide": "1536x1024",
         },
         follow=True,
     )
@@ -95,7 +100,7 @@ def test_a_broken_time_does_not_save(operator):
         {"day-title": "Картина дня", "day-generate_at": "скоро", "day-prompt": "з",
          "day-system_prompt": "", "day-styles": "", "day-chat_provider": "",
          "day-chat_model": "", "day-image_provider": "", "day-image_model": "",
-         "day-image_size": ""},
+         "day-image_size": "", "day-image_size_wide": ""},
     )
 
     assert response.status_code == 200
@@ -130,16 +135,20 @@ def test_the_gallery_shows_the_issue_with_its_platform_link(operator, pipeline_d
     assert len(issues) == 1
     assert issues[0].status == "published"
     assert issues[0].platforms[0]["url"] == "https://t.me/posinus/9"
+    assert issues[0].caption == "Сегодня день дружбы."
     assert b"2026-07-29-day.png" in response.content
+    assert b"2026-07-29-day-wide.png" in response.content
 
 
 @pytest.mark.django_db
 def test_the_picture_is_served_only_when_the_pipeline_knows_it(operator, pipeline_db):
     ok = operator.get(reverse("daypic_image", args=["2026-07-29-day.png"]))
+    wide = operator.get(reverse("daypic_image", args=["2026-07-29-day-wide.png"]))
     missing = operator.get(reverse("daypic_image", args=["stolen.png"]))
 
     assert ok.status_code == 200
     assert b"".join(ok.streaming_content) == b"\x89PNG picture bytes"
+    assert wide.status_code == 200
     assert missing.status_code == 404
 
 

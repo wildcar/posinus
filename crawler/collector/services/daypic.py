@@ -17,12 +17,17 @@ from django.conf import settings
 
 from collector.services.pipeline_db import PipelineUnavailable, fetch_all
 
-PLATFORM_TITLES = {"telegram": "Telegram", "site": "wildcar.ru", "vk": "ВКонтакте"}
+PLATFORM_TITLES = {
+    "telegram": "Telegram", "site": "wildcar.ru", "vk": "ВКонтакте",
+    "wildcar_org": "wildcar.org",
+}
 
+# `SELECT *` on purpose, same as the news card: the pipeline owns this schema
+# and adds columns on its own schedule (`file_path_wide` and `caption` arrived
+# after the first deploy). Naming them here would blind the gallery for as long
+# as the two deploys are out of step.
 ITEMS_SQL = """
-SELECT id, day, slot, status, title, style, prompt, file_path,
-       prompt_model_id, image_model_id, attempts, error,
-       generated_at, published_at, file_purged_at
+SELECT *
 FROM daypic_item
 ORDER BY day DESC, slot ASC
 LIMIT ?
@@ -42,7 +47,9 @@ class DaypicIssue:
     status: str
     style: str
     prompt: str
+    caption: str
     filename: str
+    filename_wide: str
     image_model: str
     attempts: int
     error: str
@@ -61,6 +68,10 @@ def _moment(raw) -> datetime | None:
     return value
 
 
+def _column(row, name: str):
+    return row[name] if name in row.keys() else None
+
+
 def gallery(limit: int = 60) -> tuple[list[DaypicIssue], str]:
     """Past issues, newest first, with per-platform links; ('', reason) style.
 
@@ -74,6 +85,7 @@ def gallery(limit: int = 60) -> tuple[list[DaypicIssue], str]:
         return [], str(exc)
     issues: dict[int, DaypicIssue] = {}
     for row in rows:
+        wide = _column(row, "file_path_wide")
         issues[row["id"]] = DaypicIssue(
             item_id=row["id"],
             day=row["day"],
@@ -81,7 +93,9 @@ def gallery(limit: int = 60) -> tuple[list[DaypicIssue], str]:
             status=row["status"],
             style=row["style"] or "",
             prompt=row["prompt"] or "",
+            caption=_column(row, "caption") or "",
             filename=Path(row["file_path"]).name if row["file_path"] else "",
+            filename_wide=Path(wide).name if wide else "",
             image_model=row["image_model_id"] or "",
             attempts=row["attempts"],
             error=row["error"] or "",
@@ -109,13 +123,18 @@ def picture_path(filename: str) -> Path | None:
     """Absolute path of one daily picture, if the pipeline really has that row.
 
     The name comes from a URL, so it is never trusted: it must match a row in
-    the pipeline DB and resolve inside the daypic directory.
+    the pipeline DB (either orientation) and resolve inside the daypic directory.
     """
     try:
-        rows = fetch_all("SELECT file_path FROM daypic_item WHERE file_path IS NOT NULL")
+        rows = fetch_all("SELECT * FROM daypic_item")
     except PipelineUnavailable:
         return None
-    names = {Path(row["file_path"]).name for row in rows}
+    names = set()
+    for row in rows:
+        for column in ("file_path", "file_path_wide"):
+            value = _column(row, column)
+            if value:
+                names.add(Path(value).name)
     if filename not in names:
         return None
     root = Path(settings.POSINUS_DAYPIC_DIR).resolve()

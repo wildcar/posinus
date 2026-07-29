@@ -252,40 +252,49 @@ and given up on.
 
 ## daypic.py
 
-«Картина дня»: once a day (per slot) the script builds an image prompt from the current
-date through the router's chat model, generates the picture (`generate_image`, default
-`codex-oauth` → vertical `1024x1536`) and posts it to telegram, the Эгея site (its own
-tags, `DAYPIC_SITE_TAGS`) and VK, reusing the publisher's adapters and secrets.
-wildcar_org is deliberately not among the platforms yet — a picture section on the
-static site is a separate owner's call.
+«Картина дня»: once a day (per slot) the script asks the router's chat model for one
+JSON reply — an image prompt built from the current date and a random style, plus a
+short Russian description of the day's holidays — draws the picture TWICE from that
+prompt (`generate_image`, default `codex-oauth`: vertical `1024x1536` for telegram,
+horizontal `1536x1024` for the sites and VK) and posts it to all four platforms:
+wildcar.org (its own section, `DAYPIC_WILDCAR_SECTION`, default `kartina` — the build
+script syncs it alongside news), telegram, the Эгея site (its own tags,
+`DAYPIC_SITE_TAGS`) and VK, reusing the publisher's adapters and secrets. Every post
+carries «<title слота> · <дата по-русски>» plus the description.
 
-The slots (prompt, system prompt, style list picked by day of month, caption, local
-generation time, model hints) live in the CRAWLER database — `exchange_daypic_slot`,
-edited on the operator's «Картина дня» page — and are read here read-only, like the
-selection profile. No table, no enabled slot, no run: the timer idles harmlessly until
-the operator switches a slot on. The seeded `day` slot starts off.
+The slots (prompt, system prompt, style list, caption, local generation time, model
+hints, the two sizes) live in the CRAWLER database — `exchange_daypic_slot`, edited on
+the operator's «Картина дня» page — and are read here read-only, like the selection
+profile. No table, no enabled slot, no run: the timer idles harmlessly until the
+operator switches a slot on. The seeded `day` slot starts off.
 
 Results live in the own DB: `daypic_item` one row per (day, slot) — style, the exact
-prompt used, the file, models, attempts — and `daypic_publication` per platform,
-idempotent like `publication`. The picture file lands in `DAYPIC_DIR`
-(`/var/lib/posinus/pipeline/daypic`) as `<YYYY-MM-DD>-<slot>.<ext>`: a stable name the
-owner's bot (ort_bot, where this feature came from) can pick up on its own schedule.
+prompt and description used, both files, models, attempts — and `daypic_publication`
+per platform, idempotent like `publication`. The vertical file lands in `DAYPIC_DIR`
+(`/var/lib/posinus/pipeline/daypic`) as `<YYYY-MM-DD>-<slot>.<ext>` (`-wide` for the
+horizontal one): a stable name the owner's bot (ort_bot, where this feature came from)
+can pick up on its own schedule.
 
 Gotchas:
 
 - the router has no web search, so the prompt model builds the day from its knowledge
   of the calendar; the seeded system prompt says so explicitly. Editing the prompt is an
   operator action on the web page, not a deploy;
+- the style is random but never repeats within the slot's current month (checked
+  against `daypic_item`); when the list runs out, any style goes;
 - a failed generation retries on the next 15-minute timer run, at most
-  `DAYPIC_MAX_ATTEMPTS` (4) per day — generation costs money and a broken day must end;
+  `DAYPIC_MAX_ATTEMPTS` (4) per day — generation costs money and a broken day must end.
+  Only the vertical picture gates the issue: a failed horizontal one logs, and the
+  platforms take the vertical file instead;
 - the stop cock (`pause`) holds daypic entirely, generation included;
 - the timer fires every 15 minutes but a slot generates once per local day, after its
   `generate_at` (`DAYPIC_TZ`, Moscow by default). The frequent timer is the catch-up
   after downtime;
-- `--dry-run` prints the prompt (one cheap chat call) and never spends an image call;
-  `--slot day --ignore-time` checks a slot by hand without waiting for its hour;
-- files older than `DAYPIC_KEEP_DAYS` (90) are deleted by retention.py; rows stay and
-  the gallery says «файл удалён по сроку».
+- `--dry-run` prints the prompt and the description (one cheap chat call) and never
+  spends an image call; `--slot day --ignore-time` checks a slot by hand without
+  waiting for its hour;
+- files older than `DAYPIC_KEEP_DAYS` (90) — both renditions — are deleted by
+  retention.py; rows stay and the gallery says «файл удалён по сроку».
 
 ## notify.py
 

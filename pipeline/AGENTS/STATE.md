@@ -216,16 +216,19 @@ a publish-ready retelling, and posts them to the platforms.
   AP placeholder would slip through — matching the `?url=` asset is the fix if it does.
 
 - Since 2026-07-29 the pipeline has a fourth deliverable: «Картина дня» (`daypic.py`,
-  ported from ~/repo/ort_bot). Slots (prompt, styles by day of month, caption, local
-  time, model hints) live in the crawler DB (`exchange_daypic_slot`, migration `0012`,
-  seeded `day` slot switched OFF) and are edited on the crawler's «Картина дня» page;
-  the pipeline generates via the router (chat builds the prompt from the date — no web
-  search at the router, the calendar comes from the model's knowledge; `generate_image`
-  draws, default codex-oauth 1024x1536, one safe-suffix retry) and posts through the
-  publisher's adapters to telegram/site/vk (wildcar_org deliberately excluded for now).
-  Files: `/var/lib/posinus/pipeline/daypic/<date>-<slot>.<ext>` — stable names for the
-  owner's bot to pick up. Own tables `daypic_item`/`daypic_publication`; retention
-  deletes files after `DAYPIC_KEEP_DAYS` (90), rows stay. 26 daypic tests, 231 pass
+  ported from ~/repo/ort_bot). Slots (prompt pair, style list, caption, local time,
+  model hints, the two sizes) live in the crawler DB (`exchange_daypic_slot`,
+  migrations `0012`+`0013`, seeded `day` slot switched OFF) and are edited on the
+  crawler's «Картина дня» page. Per issue the chat model returns JSON {prompt,
+  description} built from the date and a RANDOM style that never repeats within the
+  slot's month (no web search at the router — the calendar comes from the model's
+  knowledge); the picture is drawn TWICE from that prompt (vertical 1024x1536 for
+  telegram and the pickup file, horizontal 1536x1024 for the sites and VK; horizontal
+  failure falls back to vertical) and posted with «<title> · <дата>» + description to
+  wildcar.org (own `kartina` section, synced by the build script), telegram, Эгея and
+  VK. Files: `/var/lib/posinus/pipeline/daypic/<date>-<slot>[-wide].<ext>` — stable
+  names for the owner's bot. Own tables `daypic_item`/`daypic_publication`; retention
+  deletes both files after `DAYPIC_KEEP_DAYS` (90), rows stay. 34 daypic tests, 239 pass
   total; crawler side 138 pass. Code is LIVE at `a7352b5` (2026-07-29 21:42 UTC,
   `update-ubuntu.sh`, backup `pre-update-20260729T214158Z.sqlite3`); migration `0012`
   applied, the `day` slot sits on prod switched off, and `daypic.py --dry-run` ran in

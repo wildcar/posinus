@@ -429,14 +429,17 @@ class DaypicSlot(models.Model):
     generate_at = models.CharField(max_length=5, default="08:00")
     prompt = models.TextField()
     system_prompt = models.TextField(blank=True)
-    # One style per line; the pipeline picks the day-of-month entry, clamped to
-    # the end of the list.
+    # One style per line; the pipeline picks one at random, never repeating a
+    # style this slot already used in the current month.
     styles = models.TextField(blank=True)
     chat_provider = models.CharField(max_length=100, blank=True)
     chat_model = models.CharField(max_length=200, blank=True)
     image_provider = models.CharField(max_length=100, blank=True)
     image_model = models.CharField(max_length=200, blank=True)
+    # Every issue is drawn twice from one prompt: vertical goes to telegram (and
+    # the owner's bot), horizontal to the sites and VK.
     image_size = models.CharField(max_length=20, blank=True)
+    image_size_wide = models.CharField(max_length=20, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
