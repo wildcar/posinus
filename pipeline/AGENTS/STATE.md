@@ -193,8 +193,10 @@ a publish-ready retelling, and posts them to the platforms.
   2026-07-29 ~15:00 UTC after the owner refreshed the router's codex auth.json: a
   sandbox `generate_illustration` call returned a 2.9 MB photorealistic PNG from
   `gpt-image-2`, no text or logos on it, saved as `1.png` with
-  `source_url = generated://gpt-image-2`. The rotation risk remains documented in
-  `../AGENTS/ENV.md`: openai-auth-sync is down and does not watch the router's path.
+  `source_url = generated://gpt-image-2`. The router's codex credential is its own login
+  session (owner, 2026-07-29) — no rotation seesaw with other holders; if it expires,
+  the symptom is a 401 in the logs and pictureless posts until the owner re-logs it in
+  (`../AGENTS/ENV.md`).
 - Since 2026-07-28 retellings keep long dashes: the owner lifted the humanizer-ru dash
   ban («длинные тире — прекрасны»), so the prompt line and `normalize_ru` are gone.
   Already-prepared items keep their hyphens; nothing is rewritten retroactively.
