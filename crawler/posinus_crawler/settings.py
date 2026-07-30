@@ -61,7 +61,9 @@ LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "dashboard"
 LOGOUT_REDIRECT_URL = "login"
 POSINUS_USER_AGENT = os.environ.get("POSINUS_USER_AGENT", "PositiveNewsCrawler/0.1 (+operator@example.invalid)")
-POSINUS_ROUTER_MCP_URL = os.environ.get("POSINUS_ROUTER_MCP_URL", "http://127.0.0.1:8088/mcp")
+# Trailing slash on purpose: /mcp answers with a 307 the server issues without
+# reading the request body, and a large POST dies with ECONNRESET instead.
+POSINUS_ROUTER_MCP_URL = os.environ.get("POSINUS_ROUTER_MCP_URL", "http://127.0.0.1:8088/mcp/")
 POSINUS_ROUTER_AUTH_TOKEN = os.environ.get("POSINUS_ROUTER_AUTH_TOKEN", "")
 POSINUS_ROUTER_TIMEOUT_SECONDS = float(os.environ.get("POSINUS_ROUTER_TIMEOUT_SECONDS", "300"))
 POSINUS_TRANSLATION_PROVIDER = os.environ.get("POSINUS_TRANSLATION_PROVIDER", "deepseek")

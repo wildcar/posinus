@@ -218,7 +218,11 @@ class Config:
     """
 
     db_path: str = "/var/lib/posinus/posinus.sqlite3"
-    router_url: str = "http://127.0.0.1:8088/mcp"
+    # The trailing slash matters: FastMCP mounts at /mcp/ and answers /mcp with
+    # a 307 WITHOUT reading the request body first — a megabyte-scale POST (an
+    # image in `images_b64`) overflows the socket buffer and dies with an
+    # instant ECONNRESET instead of the redirect (root-caused 2026-07-30).
+    router_url: str = "http://127.0.0.1:8088/mcp/"
     router_token: str = ""
     provider: str = "deepseek"
     model_id: str = "deepseek-v4-pro"

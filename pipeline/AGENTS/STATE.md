@@ -217,14 +217,19 @@ a publish-ready retelling, and posts them to the platforms.
 - Since 2026-07-30 downloaded pictures are also judged by LOOKING: each goes to the
   router's `chat` tool as an image (`IMAGE_CHECK_PROVIDER`, default `codex-oauth`), and an
   explicit `drop` verdict deletes it — logos, banners, badges, text cards, watermarked and
-  off-topic photos. Lenient: any failure keeps the picture; >2.5 MB and unknown-MIME files
-  are skipped (MCP transport caps a message at 4 MB); an instant ECONNRESET on a
-  megabyte-scale body (router quirk, root cause open — `../AGENTS/ENV.md`) is retried
-  once. `--review-images` swept the pre-check queue on prod (2026-07-30 11:24 UTC):
+  off-topic photos. Lenient: any failure keeps the picture; >8 MB and unknown-MIME files
+  are skipped. `--review-images` swept the pre-check queue on prod (2026-07-30 11:24 UTC):
   197 pictures of 74 items, 51 dropped, incl. the UPI header + Google badge from the
-  owner's news-7464 report; the 6 items it emptied get generated pictures. Items still
-  pictureless after the sweep get one generated from the stored retelling. LIVE at
-  `9e052ae` + the follow-up commit; 256 tests pass.
+  owner's news-7464 report; the 6 items it emptied got pictures generated from their
+  stored retellings (2026-07-30 ~11:50 UTC), and the sweep now ends by doing that itself.
+  LIVE at `9e052ae`+`e38cfcd`+the slash commit; 254 tests pass.
+- The sweep's flaky ECONNRESETs root-caused by the owner (2026-07-30): FastMCP answers
+  `/mcp` with a 307 to `/mcp/` WITHOUT reading the request body, so megabyte POSTs died
+  on the redirect — there is no 4 MB message cap. `router_url` now defaults to `/mcp/`
+  everywhere (evaluator, crawler settings, env examples, `/etc/posinus/pipeline.env`),
+  the retry and the 2.5 MB gate are reverted (the vision-check cap is 8 MB, a sanity
+  bound); the 3.7 MB GIF that used to reset passed 4 of 4 through `/mcp/` live. Killing
+  the redirect inside model-router-mcp (and its 401-without-draining twin) stays open.
 
 - Since 2026-07-29 the pipeline has a fourth deliverable: «Картина дня» (`daypic.py`,
   ported from ~/repo/ort_bot). Slots (prompt pair, style list, caption, local time,

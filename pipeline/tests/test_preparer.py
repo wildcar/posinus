@@ -557,8 +557,10 @@ class ReviewIllustrationsTests(unittest.TestCase):
         self.assertTrue(first["images_b64"][0])
 
     def test_failures_keep_the_picture(self):
+        import urllib.error
         replies = [
-            evaluator.McpError("router down"),   # tool failure: no retry
+            evaluator.McpError("router down"),   # tool failure
+            urllib.error.URLError("reset"),      # transport failure
             {"text": "тут нет никакого JSON"},   # unparseable reply
             {"text": '{"reason": "без вердикта"}'},  # JSON without a verdict
         ]
@@ -572,45 +574,11 @@ class ReviewIllustrationsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = preparer.PreparerConfig(media_dir=tmp)
             with mock.patch.object(evaluator, "call_tool", fake_call_tool):
-                for name in ("1.jpg", "2.jpg", "3.jpg"):
+                for name in ("1.jpg", "2.jpg", "3.jpg", "4.jpg"):
                     image = self._image(tmp, name)
                     kept = preparer.review_illustrations(cfg, self._router_cfg(), 9, "Т", [image])
                     self.assertEqual(kept, [image])
                     self.assertTrue(Path(image["path"]).exists())
-
-    def test_a_transport_reset_is_retried_once(self):
-        import urllib.error
-        attempts = []
-
-        def flaky_call_tool(url, tool, arguments, token=None, timeout=300.0):
-            attempts.append(1)
-            if len(attempts) == 1:  # the instant ECONNRESET the router sometimes gives
-                raise urllib.error.URLError(ConnectionResetError(104, "Connection reset by peer"))
-            return {"text": '{"verdict": "drop", "reason": "логотип"}'}
-
-        with tempfile.TemporaryDirectory() as tmp:
-            image = self._image(tmp, "1.jpg")
-            cfg = preparer.PreparerConfig(media_dir=tmp)
-            with mock.patch.object(evaluator, "call_tool", flaky_call_tool), \
-                 mock.patch.object(preparer.time, "sleep"):
-                kept = preparer.review_illustrations(cfg, self._router_cfg(), 9, "Т", [image])
-        self.assertEqual(len(attempts), 2)
-        self.assertEqual(kept, [])  # the retried call's verdict was applied
-
-    def test_a_double_transport_failure_keeps_the_picture(self):
-        import urllib.error
-
-        def dead_call_tool(url, tool, arguments, token=None, timeout=300.0):
-            raise urllib.error.URLError(ConnectionResetError(104, "Connection reset by peer"))
-
-        with tempfile.TemporaryDirectory() as tmp:
-            image = self._image(tmp, "1.jpg")
-            cfg = preparer.PreparerConfig(media_dir=tmp)
-            with mock.patch.object(evaluator, "call_tool", dead_call_tool), \
-                 mock.patch.object(preparer.time, "sleep"):
-                kept = preparer.review_illustrations(cfg, self._router_cfg(), 9, "Т", [image])
-            self.assertEqual(kept, [image])
-            self.assertTrue(Path(image["path"]).exists())
 
     def test_unknown_type_and_oversize_are_kept_without_a_call(self):
         def fail_call_tool(url, tool, arguments, token=None, timeout=300.0):

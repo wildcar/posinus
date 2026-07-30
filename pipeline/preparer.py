@@ -391,12 +391,12 @@ IMAGE_CHECK_PROMPT = (
     "Верни один JSON-объект и больше ничего: "
     '{{"verdict": "keep" | "drop", "reason": "<коротко почему>"}}'
 )
-# Bigger files are not sent to the model and stay unchecked. The MCP
-# streamable-HTTP transport resets connections on messages over 4 MB (news
-# 7464's 3.7 MB banner GIF hit exactly that), and base64 costs 4/3: 2.5 MB of
-# raw bytes is the biggest picture whose request still fits. Junk graphics are
-# small anyway; a file this heavy is almost certainly a real photograph.
-IMAGE_CHECK_MAX_BYTES = 2_500_000
+# Bigger files are not sent to the model and stay unchecked: junk graphics are
+# small, a file this heavy is almost certainly a real photograph, and a
+# multi-megabyte data URI is what a provider chokes on. (The resets that once
+# looked like a 4 MB transport cap were the /mcp 307 redirect issued without
+# reading the request body — gone since router_url carries the trailing slash.)
+IMAGE_CHECK_MAX_BYTES = 8_000_000
 
 EXT_MIME = {".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp",
             ".gif": "image/gif", ".avif": "image/avif"}
@@ -439,29 +439,15 @@ def review_illustrations(
             arguments["provider"] = cfg.image_check_provider
         if cfg.image_check_model:
             arguments["model_id"] = cfg.image_check_model
-        payload = None
-        for attempt in (1, 2):
-            try:
-                reply = evaluator.call_tool(router_cfg.router_url, "chat", arguments,
-                                            token=router_cfg.router_token or None)
-                text = reply.get("text") if isinstance(reply, dict) else None
-                payload = evaluator.extract_json_object(text or "")
-                break
-            except (urllib.error.URLError, OSError) as exc:
-                # A megabyte-scale images_b64 body occasionally gets an instant
-                # ECONNRESET before the router even sees the request (transport
-                # quirk, ../AGENTS/ENV.md); the same call succeeds a moment
-                # later — 7 of 197 sweep calls failed this way and all were
-                # size-correlated flukes, so one retry is worth its pause.
-                log.warning("news %s: vision check transport error for %s (attempt %d/2): %s",
-                            news_id, image["source_url"], attempt, exc)
-                if attempt == 1:
-                    time.sleep(2.0)
-            except (evaluator.McpError, evaluator.EvaluationInvalid) as exc:
-                log.warning("news %s: vision check failed for %s, keeping it: %s",
-                            news_id, image["source_url"], exc)
-                break
-        if payload is None:
+        try:
+            reply = evaluator.call_tool(router_cfg.router_url, "chat", arguments,
+                                        token=router_cfg.router_token or None)
+            text = reply.get("text") if isinstance(reply, dict) else None
+            payload = evaluator.extract_json_object(text or "")
+        except (evaluator.McpError, evaluator.EvaluationInvalid,
+                urllib.error.URLError, OSError) as exc:
+            log.warning("news %s: vision check failed for %s, keeping it: %s",
+                        news_id, image["source_url"], exc)
             kept.append(image)
             continue
         if payload.get("verdict") == "drop":

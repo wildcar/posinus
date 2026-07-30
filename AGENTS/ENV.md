@@ -35,7 +35,7 @@ The `posinus` group is what grants access to the crawler database. Clients run w
 - ffmpeg at `/usr/bin/ffmpeg` (distro package): `preparer.shrink_image` shells out to it
   to re-encode heavy illustrations — the one non-Python binary the pipeline depends on.
 - model-router-mcp: MCP server for model access, unit `model-router-mcp.service`, Streamable
-  HTTP endpoint `http://127.0.0.1:8088/mcp`, deployed at `/opt/model-router-mcp`, sources at
+  HTTP endpoint `http://127.0.0.1:8088/mcp/`, deployed at `/opt/model-router-mcp`, sources at
   `~/repo/model-router-mcp`. Registered deepseek models: `deepseek-v4-pro`, `deepseek-v4-flash`. DeepSeek retired `deepseek-chat` and `deepseek-reasoner` around 2026-07-25 and its API now rejects both names; `bootstrap.py` in model-router-mcp still seeds the retired pair, so the working entry is a manual registry row.
 - wildcar.org: static MkDocs (Material) site served by nginx from `/var/www/wildcar.org` on
   THIS host (vhost `web.wildcar.org`; hel-vps terminates TLS for `wildcar.org` and proxies
@@ -150,14 +150,15 @@ sudo -u posinus-pipeline env ROUTER_AUTH_TOKEN="$TOKEN" \
 - Set `POSINUS_SECURE=1` only after HTTPS termination is configured.
 - `newscrawler.wildcar.org` is the live operator UI hostname with a Let's Encrypt
   certificate. It kept its old name on purpose: renaming it means DNS plus a new certificate.
-- FastMCP redirects `/mcp` to `/mcp/` with 307; urllib does not re-POST on redirects, so the
-  pipeline's client follows 307/308 manually.
-- The router's MCP transport hard-caps a message at 4 MB — a bigger POST body (e.g. a
-  3.7 MB picture as base64 in `images_b64`) gets the connection reset, nothing reaches the
-  app. Below the cap, megabyte-scale bodies still draw an INSTANT ECONNRESET occasionally
-  (7 of 197 vision-check calls on 2026-07-30; reproduced: the same 1.5 MB image passed
-  twice, then reset in 0.0 s), so callers sending images retry once — the retry
-  practically always lands. Root cause in model-router-mcp is unfound and still open.
+- Talk to the router at `/mcp/` WITH the trailing slash (the default everywhere since
+  2026-07-30). FastMCP answers `/mcp` with a 307 to `/mcp/` — and issues it without
+  reading the request body, so a megabyte-scale POST (a picture in `images_b64`)
+  overflows the socket buffer and dies with an instant ECONNRESET instead of the
+  redirect (what looked like a 4 MB message cap and flaky resets on 2026-07-30 was
+  all this). Both clients still follow 307/308 manually (urllib refuses to re-POST),
+  which is enough for small bodies only. Killing the redirect inside model-router-mcp
+  (rewrite `scope["path"]` in the ASGI middleware; its 401 branch answers without
+  draining the body too) is still open.
 - The router's deepseek adapter forwards only `temperature`, `max_tokens` and `top_p`.
   `response_format` (JSON mode) never reaches the provider, so strict JSON relies on the
   prompt plus validation.

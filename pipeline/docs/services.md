@@ -94,9 +94,9 @@ image attached, provider `IMAGE_CHECK_PROVIDER`, default `codex-oauth`) which an
 logo only after an operator has seen it published, while the model catches it the first
 time by looking. A `drop` verdict deletes the picture with its file; a router failure or
 an unusable reply keeps it, so the check can only improve on the old behavior. Files
-without a known MIME or over 2.5 MB are kept unchecked (the MCP transport resets
-connections on messages over 4 MB, and base64 adds a third); a transport reset on a
-megabyte-scale body is retried once (see the quirk in `../../AGENTS/ENV.md`).
+without a known MIME or over 8 MB are kept unchecked — junk graphics are small, a file
+that heavy is almost certainly a real photograph. (Large bodies require the router URL
+with its trailing slash, `/mcp/` — see the ECONNRESET quirk in `../../AGENTS/ENV.md`.)
 `preparer.py --review-images` runs the same check over the already prepared, not yet
 published, not operator-edited queue — for items prepared before the check existed;
 generated pictures are skipped. A queued item left (or found) without a single picture
