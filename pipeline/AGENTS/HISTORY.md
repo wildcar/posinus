@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-30 · Junk pictures are now caught by looking: a vision check in the preparer
+- What: every downloaded picture goes to the router's `chat` tool as an image (`IMAGE_CHECK_PROVIDER`, default `codex-oauth`); an explicit `drop` verdict deletes it, everything else — router failure, unusable reply, unknown MIME, >2.5 MB — keeps it. A transport quirk found and worked around: megabyte-scale `images_b64` bodies occasionally get an instant ECONNRESET before the router sees the request (root cause open, `../AGENTS/ENV.md`), so the call retries once; the hard 4 MB MCP message cap is why >2.5 MB files are skipped. `--review-images` swept the pre-check queue on prod: 197 pictures of 74 items, 51 dropped — including the UPI header and the «Add as a preferred source on Google» badge from the owner's report, GNN logos, watermarked and off-topic photos; items left pictureless get one generated from the stored retelling. 256 tests pass.
+- Why: the owner's report on news 7464 — the URL blacklist catches a logo only the second time, after it has already been published; filters cannot see what a picture is, a vision model can. Live-verified on 7464's own four pictures: drop/drop/(over-cap GIF kept)/keep, every verdict correct.
+- Files: pipeline/preparer.py, pipeline/tests/test_preparer.py, pipeline/{AGENTS/SPEC.md,docs/services.md,README.md,deploy/pipeline.env.example}, ../AGENTS/ENV.md
+- Next: the 6 items the sweep emptied get generated pictures via the one-off run; watch the next preparer runs for check verdicts in the logs.
+
 ## 2026-07-30 · Telegram's 10 MB refusal root-caused: news 3143, prepared before the shrink
 - What: the operator's complaint («попыток до 8 … file of size 10668803 bytes is too big for a photo») is news 3143 — two ~10 MB PNGs stored as-is before `shrink_image` existed; telegram burned all 8 attempts, the other three platforms are ok, and https://wildcar.org/news/3143/ weighs ~20 MB. `shrink_image` (this session's change; the concurrent daypic session's `git add -A` swept it into `a8f295a`, so the entry below calls it the owner's) is the cure going forward, verified on those exact files: 10.7 MB → 314 KB, 10 MB → 146 KB, quality checked by eye. 3 new tests; 244 pass. A sweep of the media tree found nothing else over Telegram's cap.
 - Why: the pipeline published every picture byte-for-byte as downloaded, and readers paid for it — Telegram with a refusal, slow lines with 5–10 s page loads.

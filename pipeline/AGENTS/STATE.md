@@ -214,6 +214,17 @@ a publish-ready retelling, and posts them to the platforms.
   10 blacklist entries, 29 queued copies purged in total, none left on a prepared item.
   Caveat: dims.apnews.com keys embed the crop signature, so a different crop of the same
   AP placeholder would slip through — matching the `?url=` asset is the fix if it does.
+- Since 2026-07-30 downloaded pictures are also judged by LOOKING: each goes to the
+  router's `chat` tool as an image (`IMAGE_CHECK_PROVIDER`, default `codex-oauth`), and an
+  explicit `drop` verdict deletes it — logos, banners, badges, text cards, watermarked and
+  off-topic photos. Lenient: any failure keeps the picture; >2.5 MB and unknown-MIME files
+  are skipped (MCP transport caps a message at 4 MB); an instant ECONNRESET on a
+  megabyte-scale body (router quirk, root cause open — `../AGENTS/ENV.md`) is retried
+  once. `--review-images` swept the pre-check queue on prod (2026-07-30 11:24 UTC):
+  197 pictures of 74 items, 51 dropped, incl. the UPI header + Google badge from the
+  owner's news-7464 report; the 6 items it emptied get generated pictures. Items still
+  pictureless after the sweep get one generated from the stored retelling. LIVE at
+  `9e052ae` + the follow-up commit; 256 tests pass.
 
 - Since 2026-07-29 the pipeline has a fourth deliverable: «Картина дня» (`daypic.py`,
   ported from ~/repo/ort_bot). Slots (prompt pair, style list, caption, local time,

@@ -439,15 +439,29 @@ def review_illustrations(
             arguments["provider"] = cfg.image_check_provider
         if cfg.image_check_model:
             arguments["model_id"] = cfg.image_check_model
-        try:
-            reply = evaluator.call_tool(router_cfg.router_url, "chat", arguments,
-                                        token=router_cfg.router_token or None)
-            text = reply.get("text") if isinstance(reply, dict) else None
-            payload = evaluator.extract_json_object(text or "")
-        except (evaluator.McpError, evaluator.EvaluationInvalid,
-                urllib.error.URLError, OSError) as exc:
-            log.warning("news %s: vision check failed for %s, keeping it: %s",
-                        news_id, image["source_url"], exc)
+        payload = None
+        for attempt in (1, 2):
+            try:
+                reply = evaluator.call_tool(router_cfg.router_url, "chat", arguments,
+                                            token=router_cfg.router_token or None)
+                text = reply.get("text") if isinstance(reply, dict) else None
+                payload = evaluator.extract_json_object(text or "")
+                break
+            except (urllib.error.URLError, OSError) as exc:
+                # A megabyte-scale images_b64 body occasionally gets an instant
+                # ECONNRESET before the router even sees the request (transport
+                # quirk, ../AGENTS/ENV.md); the same call succeeds a moment
+                # later — 7 of 197 sweep calls failed this way and all were
+                # size-correlated flukes, so one retry is worth its pause.
+                log.warning("news %s: vision check transport error for %s (attempt %d/2): %s",
+                            news_id, image["source_url"], attempt, exc)
+                if attempt == 1:
+                    time.sleep(2.0)
+            except (evaluator.McpError, evaluator.EvaluationInvalid) as exc:
+                log.warning("news %s: vision check failed for %s, keeping it: %s",
+                            news_id, image["source_url"], exc)
+                break
+        if payload is None:
             kept.append(image)
             continue
         if payload.get("verdict") == "drop":
@@ -468,7 +482,12 @@ def review_prepared_images(cfg: PreparerConfig, router_cfg: "evaluator.Config",
     out, and a human's choice of pictures is not re-reviewed by a machine.
     Generated pictures are skipped too: the pipeline made them itself, from a
     prompt that already forbids text and logos. Dropped pictures lose their
-    row and their file."""
+    row and their file.
+
+    Afterwards, any queued item without a single picture — emptied by this
+    sweep, or prepared back when generation was off or failing — gets one
+    generated from its stored retelling, the same bonus a zero-picture item
+    gets at preparation time."""
     con = open_own_db(cfg.own_db)
     try:
         rows = con.execute(
@@ -497,10 +516,31 @@ def review_prepared_images(cfg: PreparerConfig, router_cfg: "evaluator.Config",
                     con.execute("DELETE FROM illustration WHERE id = ?", (int(image["id"]),))
                     dropped += 1
             con.commit()
-        log.info("review finished: %d pictures of %d prepared items checked, %d dropped",
-                 checked, len(by_news), dropped)
+        generated = 0
+        if cfg.image_provider:
+            empties = con.execute(
+                "SELECT p.news_id, p.retold_title, p.retold_body_md FROM prepared_item p "
+                "LEFT JOIN illustration i ON i.news_id = p.news_id "
+                "WHERE p.status = 'prepared' AND p.edited_at IS NULL "
+                "AND p.retold_body_md IS NOT NULL GROUP BY p.news_id HAVING count(i.id) = 0"
+            ).fetchall()
+            for row in empties:
+                paragraphs = [block for block in (row["retold_body_md"] or "").split("\n\n")
+                              if block.strip() and not block.startswith(("# ", "Источник:"))]
+                entry = generate_illustration(cfg, router_cfg, row["news_id"],
+                                              row["retold_title"] or "", paragraphs)
+                if entry is not None:
+                    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                    con.execute(
+                        "INSERT INTO illustration (news_id, position, file_path, caption, "
+                        "source_url, downloaded_at) VALUES (?, 1, ?, ?, ?, ?)",
+                        (row["news_id"], entry["path"], entry["caption"], entry["source_url"], now))
+                    generated += 1
+            con.commit()
+        log.info("review finished: %d pictures of %d prepared items checked, %d dropped, "
+                 "%d generated for pictureless items", checked, len(by_news), dropped, generated)
         if counters is not None:
-            counters.update(checked=checked, dropped=dropped)
+            counters.update(checked=checked, dropped=dropped, generated=generated)
         return 0
     finally:
         con.close()

@@ -152,6 +152,12 @@ sudo -u posinus-pipeline env ROUTER_AUTH_TOKEN="$TOKEN" \
   certificate. It kept its old name on purpose: renaming it means DNS plus a new certificate.
 - FastMCP redirects `/mcp` to `/mcp/` with 307; urllib does not re-POST on redirects, so the
   pipeline's client follows 307/308 manually.
+- The router's MCP transport hard-caps a message at 4 MB — a bigger POST body (e.g. a
+  3.7 MB picture as base64 in `images_b64`) gets the connection reset, nothing reaches the
+  app. Below the cap, megabyte-scale bodies still draw an INSTANT ECONNRESET occasionally
+  (7 of 197 vision-check calls on 2026-07-30; reproduced: the same 1.5 MB image passed
+  twice, then reset in 0.0 s), so callers sending images retry once — the retry
+  practically always lands. Root cause in model-router-mcp is unfound and still open.
 - The router's deepseek adapter forwards only `temperature`, `max_tokens` and `top_p`.
   `response_format` (JSON mode) never reaches the provider, so strict JSON relies on the
   prompt plus validation.

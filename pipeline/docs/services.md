@@ -95,10 +95,12 @@ logo only after an operator has seen it published, while the model catches it th
 time by looking. A `drop` verdict deletes the picture with its file; a router failure or
 an unusable reply keeps it, so the check can only improve on the old behavior. Files
 without a known MIME or over 2.5 MB are kept unchecked (the MCP transport resets
-connections on messages over 4 MB, and base64 adds a third). `preparer.py
---review-images` runs the same check over the already prepared, not yet published,
-not operator-edited queue — for items prepared before the check existed; generated
-pictures are skipped.
+connections on messages over 4 MB, and base64 adds a third); a transport reset on a
+megabyte-scale body is retried once (see the quirk in `../../AGENTS/ENV.md`).
+`preparer.py --review-images` runs the same check over the already prepared, not yet
+published, not operator-edited queue — for items prepared before the check existed;
+generated pictures are skipped. A queued item left (or found) without a single picture
+then gets one generated from its stored retelling, as at preparation time.
 
 A news item that still has zero pictures after download (none in the article, or all of
 them blacklisted/filtered/dropped by the vision check) gets one generated from the retelling: the router's

@@ -558,7 +558,7 @@ class ReviewIllustrationsTests(unittest.TestCase):
 
     def test_failures_keep_the_picture(self):
         replies = [
-            evaluator.McpError("router down"),   # transport failure
+            evaluator.McpError("router down"),   # tool failure: no retry
             {"text": "тут нет никакого JSON"},   # unparseable reply
             {"text": '{"reason": "без вердикта"}'},  # JSON without a verdict
         ]
@@ -577,6 +577,40 @@ class ReviewIllustrationsTests(unittest.TestCase):
                     kept = preparer.review_illustrations(cfg, self._router_cfg(), 9, "Т", [image])
                     self.assertEqual(kept, [image])
                     self.assertTrue(Path(image["path"]).exists())
+
+    def test_a_transport_reset_is_retried_once(self):
+        import urllib.error
+        attempts = []
+
+        def flaky_call_tool(url, tool, arguments, token=None, timeout=300.0):
+            attempts.append(1)
+            if len(attempts) == 1:  # the instant ECONNRESET the router sometimes gives
+                raise urllib.error.URLError(ConnectionResetError(104, "Connection reset by peer"))
+            return {"text": '{"verdict": "drop", "reason": "логотип"}'}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            image = self._image(tmp, "1.jpg")
+            cfg = preparer.PreparerConfig(media_dir=tmp)
+            with mock.patch.object(evaluator, "call_tool", flaky_call_tool), \
+                 mock.patch.object(preparer.time, "sleep"):
+                kept = preparer.review_illustrations(cfg, self._router_cfg(), 9, "Т", [image])
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(kept, [])  # the retried call's verdict was applied
+
+    def test_a_double_transport_failure_keeps_the_picture(self):
+        import urllib.error
+
+        def dead_call_tool(url, tool, arguments, token=None, timeout=300.0):
+            raise urllib.error.URLError(ConnectionResetError(104, "Connection reset by peer"))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            image = self._image(tmp, "1.jpg")
+            cfg = preparer.PreparerConfig(media_dir=tmp)
+            with mock.patch.object(evaluator, "call_tool", dead_call_tool), \
+                 mock.patch.object(preparer.time, "sleep"):
+                kept = preparer.review_illustrations(cfg, self._router_cfg(), 9, "Т", [image])
+            self.assertEqual(kept, [image])
+            self.assertTrue(Path(image["path"]).exists())
 
     def test_unknown_type_and_oversize_are_kept_without_a_call(self):
         def fail_call_tool(url, tool, arguments, token=None, timeout=300.0):
@@ -638,7 +672,7 @@ class ReviewPreparedImagesTests(unittest.TestCase):
             # Only news 1 (queued) and news 4 would qualify, and 4 is generated:
             # exactly the two pictures of news 1 were shown to the model.
             self.assertEqual(sorted(calls), [b"logo-bytes", b"photo-bytes"])
-            self.assertEqual(counters, {"checked": 2, "dropped": 1})
+            self.assertEqual(counters, {"checked": 2, "dropped": 1, "generated": 0})
             con = open_own_db(cfg.own_db)
             remaining = {row["source_url"] for row in con.execute("SELECT source_url FROM illustration")}
             con.close()
@@ -658,7 +692,8 @@ class ReviewPreparedImagesTests(unittest.TestCase):
             return {"text": '{"verdict": "drop", "reason": "логотип"}'}
 
         with tempfile.TemporaryDirectory() as tmp:
-            cfg = preparer.PreparerConfig(own_db=str(Path(tmp) / "own.sqlite3"), media_dir=tmp)
+            cfg = preparer.PreparerConfig(own_db=str(Path(tmp) / "own.sqlite3"), media_dir=tmp,
+                                          image_provider="")
             real = Path(tmp) / "5" / "1.png"
             real.parent.mkdir(parents=True)
             real.write_bytes(b"logo-bytes")
@@ -673,6 +708,38 @@ class ReviewPreparedImagesTests(unittest.TestCase):
                 preparer.review_prepared_images(cfg, router_cfg)
 
             self.assertFalse(real.exists())
+
+    def test_an_emptied_item_gets_a_picture_generated(self):
+        def fake_call_tool(url, tool, arguments, token=None, timeout=300.0):
+            return {"text": '{"verdict": "drop", "reason": "логотип"}'}
+
+        entry = {"path": "/m/6/1.png", "caption": "", "source_url": "generated://gpt-image-2"}
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = preparer.PreparerConfig(own_db=str(Path(tmp) / "own.sqlite3"), media_dir=tmp)
+            logo = Path(tmp) / "6" / "1.png"
+            logo.parent.mkdir(parents=True)
+            logo.write_bytes(b"logo-bytes")
+            con = open_own_db(cfg.own_db)
+            save_prepared(con, 6, "Заголовок", "# Заголовок\n\nАбзац.\n\nИсточник: [s](https://s.test)\n",
+                          "m", [{"path": str(logo), "caption": "", "source_url": "https://s.test/logo.png"}])
+            con.close()
+
+            router_cfg = evaluator.Config()
+            counters: dict = {}
+            with mock.patch.object(evaluator, "call_tool", fake_call_tool), \
+                 mock.patch.object(preparer, "generate_illustration", return_value=entry) as gen:
+                preparer.review_prepared_images(cfg, router_cfg, counters)
+
+            gen.assert_called_once()
+            self.assertEqual(gen.call_args.args[3], "Заголовок")
+            self.assertEqual(gen.call_args.args[4], ["Абзац."])  # heading and source line stripped
+            self.assertEqual(counters, {"checked": 1, "dropped": 1, "generated": 1})
+            con = open_own_db(cfg.own_db)
+            row = con.execute("SELECT position, file_path, source_url FROM illustration "
+                              "WHERE news_id = 6").fetchone()
+            con.close()
+            self.assertEqual((row["position"], row["file_path"], row["source_url"]),
+                             (1, "/m/6/1.png", "generated://gpt-image-2"))
 
 
 class PrepareOneGenerationTests(unittest.TestCase):
