@@ -32,6 +32,8 @@ The `posinus` group is what grants access to the crawler database. Clients run w
 - Python `>=3.12,<3.15`. The crawler venv lives at `/opt/posinus/crawler/.venv`; the pipeline
   uses `/usr/bin/python3` directly.
 - Playwright Chromium at `/var/lib/posinus/playwright`, installed with `--with-deps`.
+- ffmpeg at `/usr/bin/ffmpeg` (distro package): `preparer.shrink_image` shells out to it
+  to re-encode heavy illustrations — the one non-Python binary the pipeline depends on.
 - model-router-mcp: MCP server for model access, unit `model-router-mcp.service`, Streamable
   HTTP endpoint `http://127.0.0.1:8088/mcp`, deployed at `/opt/model-router-mcp`, sources at
   `~/repo/model-router-mcp`. Registered deepseek models: `deepseek-v4-pro`, `deepseek-v4-flash`. DeepSeek retired `deepseek-chat` and `deepseek-reasoner` around 2026-07-25 and its API now rejects both names; `bootstrap.py` in model-router-mcp still seeds the retired pair, so the working entry is a manual registry row.

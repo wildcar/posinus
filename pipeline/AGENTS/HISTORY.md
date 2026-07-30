@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-07-30 · Telegram's 10 MB refusal root-caused: news 3143, prepared before the shrink
+- What: the operator's complaint («попыток до 8 … file of size 10668803 bytes is too big for a photo») is news 3143 — two ~10 MB PNGs stored as-is before `shrink_image` existed; telegram burned all 8 attempts, the other three platforms are ok, and https://wildcar.org/news/3143/ weighs ~20 MB. `shrink_image` (this session's change; the concurrent daypic session's `git add -A` swept it into `a8f295a`, so the entry below calls it the owner's) is the cure going forward, verified on those exact files: 10.7 MB → 314 KB, 10 MB → 146 KB, quality checked by eye. 3 new tests; 244 pass. A sweep of the media tree found nothing else over Telegram's cap.
+- Why: the pipeline published every picture byte-for-byte as downloaded, and readers paid for it — Telegram with a refusal, slow lines with 5–10 s page loads.
+- Files: docs only here (pipeline/docs/services.md, pipeline/AGENTS/STATE.md, ../AGENTS/ENV.md); code already in `a8f295a`.
+- Next: the owner runs the handed-over repair block for 3143 (permission policy blocks agent sudo-writes under /var/lib/posinus), then the publisher's next run sends the photo and the wildcar-org build picks up the lighter page.
+
 ## 2026-07-29 · The first real issue is out (and pictures learned to lose weight)
 - What: the first «Картина дня» went out end-to-end on prod at 22:23–22:28 UTC through the run-now request: JSON prompt+description, both renditions via gpt-image-2, wildcar.org https://wildcar.org/kartina/2026-07-30/, telegram https://t.me/posinus/525, Эгея https://wildcar.ru/all/kartina-dnya-30-iyulya-2026/ — VK's upload server answered with an empty `photo` (transient; retried by the timer up to PUB_MAX_ATTEMPTS). The owner's parallel change rode into commit `a8f295a` via `git add -A`: `preparer.shrink_image` (ffmpeg → JPEG ≤1600px when heavier than 400 KB, lenient on failure), wired into the preparer's downloads and daypic's generations; it re-encoded both 3 MB PNGs to ~0.5 MB JPGs on the first issue.
 - Why: the manual run was the owner's real button press at 01:23 MSK; the shrink is the owner's own work, recorded here so `a8f295a`'s message is not the whole story.

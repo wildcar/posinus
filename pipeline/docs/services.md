@@ -69,6 +69,13 @@ retelling call as a «Подписи к иллюстрациям» block and com
 `captions` array; an unusable array keeps the originals and never fails the retelling —
 same leniency as the rubric, one paid call either way.
 
+Every stored picture heavier than 400 KB — downloaded or generated, GIFs excepted so
+animation survives — is re-encoded on arrival by `shrink_image`: ffmpeg, JPEG capped at
+1600 px wide. Telegram refuses photos over 10 MB, and the wildcar.org pages were
+shipping 10 MB originals to readers. ffmpeg (`/usr/bin/ffmpeg`) is the one non-Python
+binary the pipeline shells out to; when it is missing or fails, the original file stays
+and the item publishes with it as before.
+
 There is also an image blacklist, `ignored_image` in the pipeline's own DB, matched by
 URL-without-query. The typical entry is a source site's logo, which the parser mistakes
 for an illustration. A blacklisted candidate is dropped before download, takes no slot in
