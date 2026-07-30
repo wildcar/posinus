@@ -172,6 +172,26 @@ class GenerateTests(unittest.TestCase):
         sizes = [call_args.args[2]["params"]["size"] for call_args in call.call_args_list]
         self.assertEqual(sizes, ["1024x1536", "1536x1024"])
 
+    def test_the_orientation_travels_in_the_prompt_too(self):
+        """codex-oauth drops params.size, so the frame has to be said in words."""
+        reply = {"image_b64": [base64.b64encode(PNG).decode()], "model_id": "m"}
+        with mock.patch.object(evaluator, "call_tool", return_value=reply) as call:
+            daypic.generate_pictures(self.cfg, self.router, make_slot(), "сцена", DAY)
+        prompts = [args.args[2]["prompt"] for args in call.call_args_list]
+        self.assertTrue(prompts[0].startswith(daypic.ORIENTATIONS["vertical"]))
+        self.assertTrue(prompts[1].startswith(daypic.ORIENTATIONS["horizontal"]))
+        self.assertIn("сцена", prompts[0])
+
+    def test_a_frame_that_comes_back_the_wrong_way_is_logged(self):
+        landscape = (b"\x89PNG\r\n\x1a\n" + b"\x00" * 4 + b"IHDR"
+                     + (1536).to_bytes(4, "big") + (1024).to_bytes(4, "big") + b"x" * 4000)
+        reply = {"image_b64": [base64.b64encode(landscape).decode()], "model_id": "m"}
+        with mock.patch.object(evaluator, "call_tool", return_value=reply):
+            with self.assertLogs("posinus-daypic", level="WARNING") as logs:
+                daypic.generate_picture(self.cfg, self.router, make_slot(), "prompt", DAY,
+                                        "1024x1536", "vertical")
+        self.assertIn("asked for a vertical frame, got 1536x1024", "\n".join(logs.output))
+
     def test_a_failed_horizontal_does_not_hold_the_day(self):
         reply = {"image_b64": [base64.b64encode(PNG).decode()], "model_id": "m"}
         calls = []
@@ -199,20 +219,23 @@ class GenerateTests(unittest.TestCase):
             return reply
 
         with mock.patch.object(evaluator, "call_tool", side_effect=fake_call):
-            daypic.generate_picture(self.cfg, self.router, make_slot(), "prompt", DAY, "1024x1536")
+            daypic.generate_picture(self.cfg, self.router, make_slot(), "prompt", DAY,
+                                    "1024x1536", "vertical")
         self.assertEqual(len(calls), 2)
         self.assertIn(daypic.SAFE_SUFFIX, calls[1])
 
     def test_two_refusals_fail_the_day(self):
         with mock.patch.object(evaluator, "call_tool", side_effect=evaluator.McpError("no")):
             with self.assertRaises(daypic.DaypicError):
-                daypic.generate_picture(self.cfg, self.router, make_slot(), "prompt", DAY, "1024x1536")
+                daypic.generate_picture(self.cfg, self.router, make_slot(), "prompt", DAY,
+                                    "1024x1536", "vertical")
 
     def test_an_implausibly_small_image_is_rejected(self):
         reply = {"image_b64": [base64.b64encode(b"tiny").decode()]}
         with mock.patch.object(evaluator, "call_tool", return_value=reply):
             with self.assertRaises(daypic.DaypicError):
-                daypic.generate_picture(self.cfg, self.router, make_slot(), "prompt", DAY, "1024x1536")
+                daypic.generate_picture(self.cfg, self.router, make_slot(), "prompt", DAY,
+                                    "1024x1536", "vertical")
 
 
 class SlotLoadingTests(unittest.TestCase):

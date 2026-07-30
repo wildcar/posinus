@@ -5,7 +5,8 @@ Once a day (per slot: `day` now, an evening slot later) this asks a chat model
 for two things in one JSON reply — an image prompt built from the current date
 and a random style, and a short Russian description of the day's holidays and
 events — then draws the picture TWICE from that one prompt (vertical for
-telegram and the owner's bot, horizontal for the sites and VK) and publishes it
+telegram and the owner's bot, horizontal for the sites and VK; the orientation
+travels in the prompt as well as in `params.size`, see ORIENTATIONS) and publishes it
 everywhere the news publisher posts, wildcar.org included (its own section,
 `DAYPIC_WILDCAR_SECTION`). Every post carries the text «<title> · <дата>» plus
 the description. The vertical file lands in DAYPIC_DIR under the stable name
@@ -382,9 +383,33 @@ def build_prompt(
 # ------------------------------------------------------------- image stage
 
 
+# The orientation has to be in the PROMPT, not only in `params.size`. The
+# codex-oauth backend drops the requested size: on 2026-07-30 the router asked
+# `1024x1536` and got 1536x1024 back, twice (router request_logs 8618, 8570) —
+# it is the model that picks the canvas when it emits the image_generation call,
+# and it reads the prompt. Saying it in words produced a real 1024x1536 frame,
+# so both channels are used now: the size for providers that honour it, the
+# sentence for the one that does not.
+ORIENTATIONS = {
+    "vertical": "Вертикальный портретный кадр, ориентация 2:3: высота больше ширины.",
+    "horizontal": "Горизонтальный кадр, ориентация 3:2: ширина больше высоты.",
+}
+
+
+def _png_size(data: bytes) -> tuple[int, int] | None:
+    """(width, height) of a PNG, or None when these are not PNG bytes.
+
+    Enough to tell portrait from landscape without a decoder: the provider
+    returns PNG, and the check exists to catch the day the orientation silently
+    flips again."""
+    if not data.startswith(b"\x89PNG\r\n\x1a\n") or len(data) < 24:
+        return None
+    return (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big"))
+
+
 def generate_picture(
     cfg: DaypicConfig, router_cfg: "evaluator.Config", slot: Slot,
-    prompt: str, day: str, size: str, suffix: str = "",
+    prompt: str, day: str, size: str, orientation: str, suffix: str = "",
 ) -> tuple[str, str]:
     """Generate and save one rendition; (file path, image model id).
 
@@ -393,8 +418,9 @@ def generate_picture(
     """
     provider = slot.image_provider or cfg.image_provider
     model = slot.image_model or cfg.image_model
+    framed = f"{ORIENTATIONS[orientation]}\n\n{prompt}" if orientation in ORIENTATIONS else prompt
     reply = None
-    for attempt, text in enumerate((prompt, f"{prompt}\n\n{SAFE_SUFFIX}"), start=1):
+    for attempt, text in enumerate((framed, f"{framed}\n\n{SAFE_SUFFIX}"), start=1):
         arguments: dict = {
             "external_user_id": router_cfg.router_user or DAYPIC_ROUTER_USER,
             "prompt": text,
@@ -422,14 +448,22 @@ def generate_picture(
         raise DaypicError(f"изображение не декодируется из base64: {exc}") from exc
     if len(data) < preparer.MIN_IMAGE_BYTES:
         raise DaypicError(f"изображение неправдоподобно маленькое ({len(data)} байт)")
+    # Warn rather than fail: a wrongly-framed picture still beats no issue, and
+    # the log line is what tells the operator the backend changed its mind.
+    measured = _png_size(data)
+    if measured is not None:
+        got = "vertical" if measured[1] > measured[0] else "horizontal"
+        if orientation in ORIENTATIONS and got != orientation:
+            log.warning("slot %s: asked for a %s frame, got %dx%d (%s)",
+                        slot.slot, orientation, measured[0], measured[1], got)
     target_dir = Path(cfg.daypic_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     path = target_dir / f"{day}-{slot.slot}{suffix}{preparer._sniff_image_ext(data)}"
     path.write_bytes(data)
     path = preparer.shrink_image(path)
     model_id = reply.get("model_id") or model or provider
-    log.info("slot %s: %s picture generated via %s (%d bytes) -> %s",
-             slot.slot, size or "default-size", model_id, len(data), path)
+    log.info("slot %s: %s %s picture generated via %s (%d bytes) -> %s",
+             slot.slot, orientation, size or "default-size", model_id, len(data), path)
     return str(path), model_id
 
 
@@ -443,11 +477,12 @@ def generate_pictures(
     failure the platforms take the vertical file and the day is not held up.
     """
     vertical, model_id = generate_picture(
-        cfg, router_cfg, slot, prompt, day, slot.image_size or cfg.image_size)
+        cfg, router_cfg, slot, prompt, day,
+        slot.image_size or cfg.image_size, "vertical")
     try:
         wide, _ = generate_picture(
             cfg, router_cfg, slot, prompt, day,
-            slot.image_size_wide or cfg.image_size_wide, suffix="-wide")
+            slot.image_size_wide or cfg.image_size_wide, "horizontal", suffix="-wide")
     except DaypicError as exc:
         log.warning("slot %s: horizontal rendition failed, platforms will take the vertical one: %s",
                     slot.slot, exc)

@@ -289,6 +289,11 @@ Gotchas:
   operator action on the web page, not a deploy;
 - the style is random but never repeats within the slot's current month (checked
   against `daypic_item`); when the list runs out, any style goes;
+- **the orientation must be in the prompt, not only in `params.size`**: codex-oauth
+  drops the requested size (the first issue went out with a landscape picture in
+  telegram because of it — see `../../AGENTS/ENV.md`). `ORIENTATIONS` prepends one
+  sentence per rendition, and the saved PNG is measured afterwards: a mismatch logs
+  «asked for a vertical frame, got 1536x1024» and still publishes;
 - a failed generation retries on the next 15-minute timer run, at most
   `DAYPIC_MAX_ATTEMPTS` (4) per day — generation costs money and a broken day must end.
   Only the vertical picture gates the issue: a failed horizontal one logs, and the

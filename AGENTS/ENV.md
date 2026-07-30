@@ -49,6 +49,15 @@ The `posinus` group is what grants access to the crawler database. Clients run w
 - Router Bearer token: `AUTH_TOKEN` in `/opt/model-router-mcp/.env` (root-readable via sudo).
   The crawler reads it as `POSINUS_ROUTER_AUTH_TOKEN`, the pipeline as `ROUTER_AUTH_TOKEN`.
   `pipeline/deploy/install.sh` copies it in automatically. Never commit it.
+- The `codex-oauth` provider DROPS the requested image size (learned 2026-07-30). The
+  router passes `params.size` into the `image_generation` tool correctly — router
+  `request_logs` 8618 asked `1024x1536` — and the picture came back 1536x1024 anyway,
+  as did every other portrait request through this provider. The model driving the
+  Codex `/responses` call picks the canvas itself and it reads the PROMPT: the same
+  request with «Вертикальный портретный кадр, ориентация 2:3» in the prompt text
+  returned a real 1024x1536. So any caller that cares about orientation must say it in
+  words (`daypic.ORIENTATIONS` does); `params.size` alone is not enough. Fixing this
+  inside model-router-mcp is still open.
 - Codex OAuth for the router's `codex-oauth` provider (image generation): `CODEX_AUTH_PATH`
   in the router's `.env` points at `/var/lib/model-router/home/.codex/auth.json` (owner
   `modelrouter`, 0600). Since 2026-07-29 this is a SEPARATE login session, its own

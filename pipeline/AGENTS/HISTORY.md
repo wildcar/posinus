@@ -10,6 +10,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 - Files: docs only here (pipeline/docs/services.md, pipeline/AGENTS/STATE.md, ../AGENTS/ENV.md); code already in `a8f295a`.
 - Next: the owner runs the handed-over repair block for 3143 (permission policy blocks agent sudo-writes under /var/lib/posinus), then the publisher's next run sends the photo and the wildcar-org build picks up the lighter page.
 
+## 2026-07-30 · The vertical picture was never vertical
+- What: the orientation now travels in the PROMPT as well as in `params.size` (`ORIENTATIONS`, one sentence prepended per rendition), and the saved PNG is measured — a mismatch logs «asked for a vertical frame, got 1536x1024» and still publishes. 2 tests added, 246 pass.
+- Why: the owner's report — today's telegram post carries a horizontal picture and no vertical file exists. Both renditions came back 1536x1024: the router asked codex-oauth for `1024x1536` (request_logs 8618) and the provider ignored it, as it did on every earlier portrait request. A direct test with the frame stated in words returned a real 1024x1536, so the words are the working channel.
+- Files: pipeline/daypic.py, pipeline/tests/test_daypic.py, pipeline/{AGENTS/SPEC.md,docs/services.md}, AGENTS/ENV.md
+- Next: today's issue (2026-07-30) stays as published — regenerating it would repost to all four platforms; the owner decides whether to redo telegram by hand. Fixing `size` inside model-router-mcp is still open.
+
 ## 2026-07-29 · The first real issue is out (and pictures learned to lose weight)
 - What: the first «Картина дня» went out end-to-end on prod at 22:23–22:28 UTC through the run-now request: JSON prompt+description, both renditions via gpt-image-2, wildcar.org https://wildcar.org/kartina/2026-07-30/, telegram https://t.me/posinus/525, Эгея https://wildcar.ru/all/kartina-dnya-30-iyulya-2026/ — VK's upload server answered with an empty `photo` (transient; retried by the timer up to PUB_MAX_ATTEMPTS). The owner's parallel change rode into commit `a8f295a` via `git add -A`: `preparer.shrink_image` (ffmpeg → JPEG ≤1600px when heavier than 400 KB, lenient on failure), wired into the preparer's downloads and daypic's generations; it re-encoded both 3 MB PNGs to ~0.5 MB JPGs on the first issue.
 - Why: the manual run was the owner's real button press at 01:23 MSK; the shrink is the owner's own work, recorded here so `a8f295a`'s message is not the whole story.

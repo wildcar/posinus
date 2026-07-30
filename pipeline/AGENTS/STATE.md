@@ -240,7 +240,10 @@ a publish-ready retelling, and posts them to the platforms.
   t.me/posinus/525 and wildcar.ru all ok; VK's upload server returned an empty `photo`
   once (transient — the timer retries up to PUB_MAX_ATTEMPTS, then best-effort). Both
   renditions were re-encoded by the owner's `preparer.shrink_image` (ffmpeg, rode into
-  `a8f295a`) from ~3 MB PNG to ~0.5 MB JPG. A dev
+  `a8f295a`) from ~3 MB PNG to ~0.5 MB JPG — and both came out 1536x1024, so telegram
+  got a horizontal picture: codex-oauth ignores `params.size`. Since 2026-07-30 the
+  orientation is stated in the prompt as well (`ORIENTATIONS`) and the result is
+  measured; the 2026-07-30 issue itself was left published as it went out. A dev
   dry run through the live router already returned a valid JSON pair (prompt +
   description, random style, real July-30 holidays).
 
