@@ -269,7 +269,12 @@ a publish-ready retelling, and posts them to the platforms.
   attempts are being burned, and newer news reach VK fine. The best-effort give-up
   worked exactly as designed; no repair, the `error` rows in `publication` are just
   history. New items are shrunk at preparation time (`shrink_image`), and nothing
-  else in the media tree exceeds Telegram's cap.
+  else in the media tree exceeds Telegram's cap. The ~20 MB wildcar.org page was
+  DELETED instead (owner, 2026-07-30): the `(3143, wildcar_org)` publication row
+  removed so the next publish cannot resurrect it, the page dir gone, index + RSS
+  regenerated via the publisher's own builders, rebuild verified live (404, no
+  references). wildcar.ru and VK copies stay; the two 10 MB PNGs in
+  `media/3143/` are left for retention to purge on schedule.
 
 - VK live: publisher posts to @positivenus with a classic user admin token; the community
   (214/27) and VK ID `vk2.a`/1051 dead ends are documented in `docs/services.md`
