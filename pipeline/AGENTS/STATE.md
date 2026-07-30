@@ -262,16 +262,14 @@ a publish-ready retelling, and posts them to the platforms.
 ## Open questions
 
 - Long-term model choice; deepseek-chat is only the test model (swap via env file).
-- News 3143: telegram gave up (8 attempts) on a 10.7 MB PNG prepared before
-  `shrink_image` existed; the other three platforms are ok and the item is finalized
-  best-effort. The repair is handed to the owner as one runnable block (permission
-  policy blocks agent writes under `/var/lib/posinus`): re-encode the two PNGs in the
-  media and wildcar-org trees, repoint the `illustration` rows, reset the telegram
-  attempts, set the item back to `prepared`, start the publisher. See HISTORY
-  2026-07-30. The rest of the media tree is under Telegram's cap; new items are
-  shrunk at preparation time.
-
 ## Resolved
+
+- News 3143 stays unpublished on telegram, and 6775 on VK — the owner's call
+  (2026-07-30): both are already finalized best-effort and out of the queue, no
+  attempts are being burned, and newer news reach VK fine. The best-effort give-up
+  worked exactly as designed; no repair, the `error` rows in `publication` are just
+  history. New items are shrunk at preparation time (`shrink_image`), and nothing
+  else in the media tree exceeds Telegram's cap.
 
 - VK live: publisher posts to @positivenus with a classic user admin token; the community
   (214/27) and VK ID `vk2.a`/1051 dead ends are documented in `docs/services.md`
