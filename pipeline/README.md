@@ -39,6 +39,7 @@ python3 -m unittest discover -s tests        # unit tests (no network, no DB)
 python3 evaluator.py --backfill --dry-run    # re-verdict old scored news, print only
 python3 preparer.py --dry-run --news-id N    # prepare one selected news, print only
 python3 preparer.py --ignore-image URL       # blacklist an image (e.g. a source's logo)
+python3 preparer.py --review-images          # vision-check queued pictures, drop the junk
 python3 publisher.py --dry-run --news-id N   # build the posts, send nothing
 sudo bash deploy/install.sh                  # host install: user, config, systemd timers
 ```

@@ -127,6 +127,11 @@ class PreparerConfig:
     # image_model lets the router pick within the provider.
     image_provider: str = "codex-oauth"
     image_model: str = ""
+    # Downloaded pictures are shown to a vision model that weeds out what the
+    # URL blacklist and the size filters cannot see: source logos, banners,
+    # badges. Same off-switch convention as the pair above.
+    image_check_provider: str = "codex-oauth"
+    image_check_model: str = ""
 
     @classmethod
     def from_env(cls, env: dict[str, str] = os.environ) -> "PreparerConfig":
@@ -137,6 +142,8 @@ class PreparerConfig:
         cfg.user_agent = env.get("PREPARER_USER_AGENT", cfg.user_agent)
         cfg.image_provider = env.get("IMAGE_PROVIDER", cfg.image_provider)
         cfg.image_model = env.get("IMAGE_MODEL", cfg.image_model)
+        cfg.image_check_provider = env.get("IMAGE_CHECK_PROVIDER", cfg.image_check_provider)
+        cfg.image_check_model = env.get("IMAGE_CHECK_MODEL", cfg.image_check_model)
         return cfg
 
 
@@ -370,6 +377,133 @@ def download_illustrations(
         path = shrink_image(path)
         saved.append({"path": str(path), "caption": candidate["caption"], "source_url": url})
     return saved
+
+
+# ------------------------------------------------- illustration vision check
+
+
+IMAGE_CHECK_PROMPT = (
+    "На изображении - кандидат в иллюстрации к новости «{title}».\n"
+    "Реши, годится ли оно как иллюстрация: нужна фотография или содержательная "
+    "картинка по теме. Не годится служебная и оформительская графика: логотип, "
+    "баннер, плашка, кнопка, значок, реклама, водяной знак, заглушка, шапка "
+    "сайта, картинка из одного текста.\n"
+    "Верни один JSON-объект и больше ничего: "
+    '{{"verdict": "keep" | "drop", "reason": "<коротко почему>"}}'
+)
+# Bigger files are not sent to the model and stay unchecked. The MCP
+# streamable-HTTP transport resets connections on messages over 4 MB (news
+# 7464's 3.7 MB banner GIF hit exactly that), and base64 costs 4/3: 2.5 MB of
+# raw bytes is the biggest picture whose request still fits. Junk graphics are
+# small anyway; a file this heavy is almost certainly a real photograph.
+IMAGE_CHECK_MAX_BYTES = 2_500_000
+
+EXT_MIME = {".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp",
+            ".gif": "image/gif", ".avif": "image/avif"}
+
+
+def review_illustrations(
+    cfg: PreparerConfig, router_cfg: "evaluator.Config", news_id: int,
+    title: str, images: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Show every downloaded picture to a vision model and drop the junk.
+
+    The `ignored_image` blacklist catches a source's logo only the second time,
+    after an operator has seen it published; this catches it the first time, by
+    looking. One `chat` call per picture (files differ in MIME type, and the
+    tool takes one `image_mime` per call). Lenient like every image extra here:
+    a router failure or an unusable reply keeps the picture — the check can only
+    make things better than before it existed. Only an explicit "drop" verdict
+    removes a picture, together with its file."""
+    kept: list[dict[str, str]] = []
+    for image in images:
+        path = Path(image["path"])
+        mime = EXT_MIME.get(path.suffix)
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            log.warning("news %s: cannot read %s for the vision check: %s", news_id, path, exc)
+            kept.append(image)
+            continue
+        if mime is None or len(data) > IMAGE_CHECK_MAX_BYTES:
+            kept.append(image)
+            continue
+        arguments: dict[str, Any] = {
+            "external_user_id": router_cfg.router_user or router_cfg.selector_name,
+            "text": IMAGE_CHECK_PROMPT.format(title=title),
+            "images_b64": [base64.b64encode(data).decode()],
+            "image_mime": mime,
+            "params": {"reasoning_effort": "low"},
+        }
+        if cfg.image_check_provider:
+            arguments["provider"] = cfg.image_check_provider
+        if cfg.image_check_model:
+            arguments["model_id"] = cfg.image_check_model
+        try:
+            reply = evaluator.call_tool(router_cfg.router_url, "chat", arguments,
+                                        token=router_cfg.router_token or None)
+            text = reply.get("text") if isinstance(reply, dict) else None
+            payload = evaluator.extract_json_object(text or "")
+        except (evaluator.McpError, evaluator.EvaluationInvalid,
+                urllib.error.URLError, OSError) as exc:
+            log.warning("news %s: vision check failed for %s, keeping it: %s",
+                        news_id, image["source_url"], exc)
+            kept.append(image)
+            continue
+        if payload.get("verdict") == "drop":
+            log.info("news %s: vision check dropped %s: %s",
+                     news_id, image["source_url"], payload.get("reason", ""))
+            path.unlink(missing_ok=True)
+            continue
+        kept.append(image)
+    return kept
+
+
+def review_prepared_images(cfg: PreparerConfig, router_cfg: "evaluator.Config",
+                           counters: dict | None = None) -> int:
+    """Vision-check the pictures of items prepared before the check existed.
+
+    Sweeps illustrations of prepared, not yet published, not operator-edited
+    items — the same protection rules as --ignore-image: what went out went
+    out, and a human's choice of pictures is not re-reviewed by a machine.
+    Generated pictures are skipped too: the pipeline made them itself, from a
+    prompt that already forbids text and logos. Dropped pictures lose their
+    row and their file."""
+    con = open_own_db(cfg.own_db)
+    try:
+        rows = con.execute(
+            "SELECT i.id, i.news_id, i.file_path, i.caption, i.source_url, p.retold_title "
+            "FROM illustration i JOIN prepared_item p ON p.news_id = i.news_id "
+            "WHERE p.status = 'prepared' AND p.edited_at IS NULL "
+            "AND i.source_url NOT LIKE 'generated://%' ORDER BY i.news_id, i.position"
+        ).fetchall()
+        by_news: dict[int, list[dict[str, str]]] = {}
+        titles: dict[int, str] = {}
+        for row in rows:
+            path = Path(row["file_path"])
+            if not path.exists():  # the media tree may have moved; same fallback as the publisher
+                path = Path(cfg.media_dir) / str(row["news_id"]) / path.name
+            by_news.setdefault(row["news_id"], []).append(
+                {"id": str(row["id"]), "path": str(path),
+                 "caption": row["caption"] or "", "source_url": row["source_url"] or ""})
+            titles[row["news_id"]] = row["retold_title"] or ""
+        checked, dropped = 0, 0
+        for news_id, images in by_news.items():
+            kept = review_illustrations(cfg, router_cfg, news_id, titles[news_id], images)
+            checked += len(images)
+            kept_ids = {image["id"] for image in kept}
+            for image in images:
+                if image["id"] not in kept_ids:
+                    con.execute("DELETE FROM illustration WHERE id = ?", (int(image["id"]),))
+                    dropped += 1
+            con.commit()
+        log.info("review finished: %d pictures of %d prepared items checked, %d dropped",
+                 checked, len(by_news), dropped)
+        if counters is not None:
+            counters.update(checked=checked, dropped=dropped)
+        return 0
+    finally:
+        con.close()
 
 
 # ---------------------------------------------------- generated illustration
@@ -726,8 +860,13 @@ def prepare_one(cfg: PreparerConfig, router_cfg: "evaluator.Config", news: sqlit
                 candidate["caption"] = next(translated)
 
     generated = False
+    dropped = 0
     if not dry_run:
         images = download_illustrations(cfg, news["news_id"], candidates)
+        if images and cfg.image_check_provider:
+            reviewed = review_illustrations(cfg, router_cfg, news["news_id"], title, images)
+            dropped = len(images) - len(reviewed)
+            images = reviewed
         if not images and cfg.image_provider:
             entry = generate_illustration(cfg, router_cfg, news["news_id"], title, paragraphs)
             if entry is not None:
@@ -741,7 +880,7 @@ def prepare_one(cfg: PreparerConfig, router_cfg: "evaluator.Config", news: sqlit
     source_url = news["primary_url"] or ""
     body_md = build_markdown(title, paragraphs, source_url, source_name_from_url(source_url) if source_url else "")
     return {"title": title, "paragraphs": paragraphs, "model_id": model_id, "images": images,
-            "body_md": body_md, "generated": generated}
+            "body_md": body_md, "generated": generated, "images_dropped": dropped}
 
 
 def add_ignored_image(cfg: PreparerConfig, url: str, note: str, counters: dict | None = None) -> int:
@@ -810,7 +949,7 @@ def run(cfg: PreparerConfig, router_cfg: "evaluator.Config", limit: int, dry_run
             queue = [n for n in selected if n["news_id"] not in done][:limit]
         log.info("selected %d, prepared %d, queue %d (limit %d)", len(selected), len(done), len(queue), limit)
 
-        prepared, failed, generated = 0, 0, 0
+        prepared, failed, generated, dropped = 0, 0, 0, 0
         for news in queue:
             try:
                 result = prepare_one(cfg, router_cfg, news, dry_run, ignored)
@@ -831,9 +970,12 @@ def run(cfg: PreparerConfig, router_cfg: "evaluator.Config", limit: int, dry_run
                          news["news_id"], result["title"], len(result["images"]))
             prepared += 1
             generated += 1 if result.get("generated") else 0
-        log.info("finished: %d prepared (%d with a generated picture), %d failed", prepared, generated, failed)
+            dropped += result.get("images_dropped", 0)
+        log.info("finished: %d prepared (%d with a generated picture, %d pictures dropped by the vision check), %d failed",
+                 prepared, generated, dropped, failed)
         if counters is not None:
-            counters.update(queue=len(selected), prepared=prepared, failed=failed, images_generated=generated)
+            counters.update(queue=len(selected), prepared=prepared, failed=failed,
+                            images_generated=generated, images_dropped=dropped)
         return 0 if failed == 0 else 1
     finally:
         news_con.close()
@@ -849,6 +991,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="blacklist this image (by URL without query), purge it from "
                              "unpublished prepared items, and exit")
     parser.add_argument("--note", default="", help="short reason stored with --ignore-image")
+    parser.add_argument("--review-images", action="store_true",
+                        help="vision-check the pictures of prepared, unpublished, unedited "
+                             "items and drop the junk, then exit")
     parser.add_argument("--verbose", action="store_true", help="debug logging")
     args = parser.parse_args(argv)
 
@@ -876,6 +1021,13 @@ def main(argv: list[str] | None = None) -> int:
     if not router_cfg.router_token:
         log.error("ROUTER_AUTH_TOKEN is not set")
         return 2
+    if args.review_images:  # an operator action, like --ignore-image, but with the model
+        if not cfg.image_check_provider:
+            log.error("IMAGE_CHECK_PROVIDER is empty: the vision check is switched off")
+            return 2
+        with runlog.record("review-images", cfg.own_db,
+                           {"image_check_provider": cfg.image_check_provider}) as counters:
+            return review_prepared_images(cfg, router_cfg, counters)
     if args.dry_run:  # a dry run is not something the machine did; it leaves no row
         return run(cfg, router_cfg, limit=args.limit, dry_run=True, only=args.news_id)
     settings = {
@@ -884,6 +1036,7 @@ def main(argv: list[str] | None = None) -> int:
         "batch": args.limit,
         "media_dir": cfg.media_dir,
         "image_provider": cfg.image_provider,
+        "image_check_provider": cfg.image_check_provider,
     }
     with runlog.record("preparer", cfg.own_db, settings) as counters:
         return run(cfg, router_cfg, limit=args.limit, dry_run=False, only=args.news_id, counters=counters)

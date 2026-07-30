@@ -518,6 +518,163 @@ class GenerateIllustrationTests(unittest.TestCase):
         self.assertIn("логотипов", prompt)
 
 
+class ReviewIllustrationsTests(unittest.TestCase):
+    def _router_cfg(self):
+        cfg = evaluator.Config()
+        cfg.router_user = "news-preparer"
+        return cfg
+
+    def _image(self, tmp, name, data=b"\xff\xd8" + b"x" * 4000):
+        path = Path(tmp) / name
+        path.write_bytes(data)
+        return {"path": str(path), "caption": "", "source_url": f"https://s.test/{name}"}
+
+    def test_drop_verdict_removes_the_picture_and_its_file(self):
+        replies = [{"text": '{"verdict": "drop", "reason": "логотип"}'},
+                   {"text": '{"verdict": "keep", "reason": "фотография"}'}]
+        calls = []
+
+        def fake_call_tool(url, tool, arguments, token=None, timeout=300.0):
+            calls.append((tool, arguments))
+            return replies.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            logo = self._image(tmp, "1.jpg")
+            photo = self._image(tmp, "2.png", b"\x89PNG" + b"y" * 4000)
+            cfg = preparer.PreparerConfig(media_dir=tmp)
+            with mock.patch.object(evaluator, "call_tool", fake_call_tool):
+                kept = preparer.review_illustrations(cfg, self._router_cfg(), 9, "Заголовок", [logo, photo])
+            self.assertEqual(kept, [photo])
+            self.assertFalse(Path(logo["path"]).exists())
+            self.assertTrue(Path(photo["path"]).exists())
+        self.assertEqual([tool for tool, _ in calls], ["chat", "chat"])
+        first = calls[0][1]
+        self.assertEqual(first["provider"], "codex-oauth")
+        self.assertEqual(first["image_mime"], "image/jpeg")
+        self.assertEqual(calls[1][1]["image_mime"], "image/png")
+        self.assertEqual(first["external_user_id"], "news-preparer")
+        self.assertIn("Заголовок", first["text"])
+        self.assertTrue(first["images_b64"][0])
+
+    def test_failures_keep_the_picture(self):
+        replies = [
+            evaluator.McpError("router down"),   # transport failure
+            {"text": "тут нет никакого JSON"},   # unparseable reply
+            {"text": '{"reason": "без вердикта"}'},  # JSON without a verdict
+        ]
+
+        def fake_call_tool(url, tool, arguments, token=None, timeout=300.0):
+            reply = replies.pop(0)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = preparer.PreparerConfig(media_dir=tmp)
+            with mock.patch.object(evaluator, "call_tool", fake_call_tool):
+                for name in ("1.jpg", "2.jpg", "3.jpg"):
+                    image = self._image(tmp, name)
+                    kept = preparer.review_illustrations(cfg, self._router_cfg(), 9, "Т", [image])
+                    self.assertEqual(kept, [image])
+                    self.assertTrue(Path(image["path"]).exists())
+
+    def test_unknown_type_and_oversize_are_kept_without_a_call(self):
+        def fail_call_tool(url, tool, arguments, token=None, timeout=300.0):
+            raise AssertionError("the router must not be called")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            unknown = self._image(tmp, "1.img")
+            heavy = self._image(tmp, "2.jpg")
+            cfg = preparer.PreparerConfig(media_dir=tmp)
+            with mock.patch.object(evaluator, "call_tool", fail_call_tool), \
+                 mock.patch.object(preparer, "IMAGE_CHECK_MAX_BYTES", 10):
+                kept = preparer.review_illustrations(cfg, self._router_cfg(), 9, "Т", [unknown, heavy])
+            self.assertEqual(kept, [unknown, heavy])
+
+
+class ReviewPreparedImagesTests(unittest.TestCase):
+    """The --review-images sweep: prepared queue only, published/edited/generated stay."""
+
+    def _saved_image(self, media_dir: str, news_id: int, name: str, source_url: str,
+                     data: bytes) -> dict[str, str]:
+        path = Path(media_dir) / str(news_id) / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return {"path": str(path), "caption": "", "source_url": source_url}
+
+    def test_sweep_drops_junk_only_from_the_queue(self):
+        import base64
+        calls = []
+
+        def fake_call_tool(url, tool, arguments, token=None, timeout=300.0):
+            data = base64.b64decode(arguments["images_b64"][0])
+            calls.append(data)
+            verdict = "drop" if data.startswith(b"logo") else "keep"
+            return {"text": '{"verdict": "%s", "reason": "тест"}' % verdict}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = preparer.PreparerConfig(own_db=str(Path(tmp) / "own.sqlite3"), media_dir=tmp)
+            con = open_own_db(cfg.own_db)
+            for news_id, status, edited in ((1, "prepared", None), (2, "published", None),
+                                            (3, "prepared", "2026-07-28T00:00:00+00:00")):
+                save_prepared(con, news_id, "Заголовок", "md", "m", [
+                    self._saved_image(tmp, news_id, "1.png", f"https://s.test/logo{news_id}.png", b"logo-bytes"),
+                    self._saved_image(tmp, news_id, "2.jpg", f"https://s.test/photo{news_id}.jpg", b"photo-bytes"),
+                ])
+                con.execute("UPDATE prepared_item SET status = ?, edited_at = ? WHERE news_id = ?",
+                            (status, edited, news_id))
+            save_prepared(con, 4, "Заголовок", "md", "m", [
+                self._saved_image(tmp, 4, "1.png", "generated://gpt-image-2", b"logo-bytes"),
+            ])
+            con.commit()
+            con.close()
+
+            router_cfg = evaluator.Config()
+            router_cfg.router_user = "news-preparer"
+            with mock.patch.object(evaluator, "call_tool", fake_call_tool):
+                counters: dict = {}
+                self.assertEqual(preparer.review_prepared_images(cfg, router_cfg, counters), 0)
+
+            # Only news 1 (queued) and news 4 would qualify, and 4 is generated:
+            # exactly the two pictures of news 1 were shown to the model.
+            self.assertEqual(sorted(calls), [b"logo-bytes", b"photo-bytes"])
+            self.assertEqual(counters, {"checked": 2, "dropped": 1})
+            con = open_own_db(cfg.own_db)
+            remaining = {row["source_url"] for row in con.execute("SELECT source_url FROM illustration")}
+            con.close()
+            self.assertEqual(remaining, {
+                "https://s.test/photo1.jpg",                             # junk of news 1 is gone
+                "https://s.test/logo2.png", "https://s.test/photo2.jpg",  # published: untouched
+                "https://s.test/logo3.png", "https://s.test/photo3.jpg",  # edited: untouched
+                "generated://gpt-image-2",                                # our own picture: not re-judged
+            })
+            self.assertFalse((Path(tmp) / "1" / "1.png").exists())
+            self.assertTrue((Path(tmp) / "1" / "2.jpg").exists())
+            self.assertTrue((Path(tmp) / "2" / "1.png").exists())
+            self.assertTrue((Path(tmp) / "3" / "1.png").exists())
+
+    def test_finds_the_file_via_media_dir_when_the_stored_path_is_stale(self):
+        def fake_call_tool(url, tool, arguments, token=None, timeout=300.0):
+            return {"text": '{"verdict": "drop", "reason": "логотип"}'}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = preparer.PreparerConfig(own_db=str(Path(tmp) / "own.sqlite3"), media_dir=tmp)
+            real = Path(tmp) / "5" / "1.png"
+            real.parent.mkdir(parents=True)
+            real.write_bytes(b"logo-bytes")
+            con = open_own_db(cfg.own_db)
+            save_prepared(con, 5, "Заголовок", "md", "m",
+                          [{"path": "/var/lib/old-tree/5/1.png", "caption": "",
+                            "source_url": "https://s.test/logo.png"}])
+            con.close()
+
+            router_cfg = evaluator.Config()
+            with mock.patch.object(evaluator, "call_tool", fake_call_tool):
+                preparer.review_prepared_images(cfg, router_cfg)
+
+            self.assertFalse(real.exists())
+
+
 class PrepareOneGenerationTests(unittest.TestCase):
     NEWS = {"news_id": 9, "primary_url": "https://s.test/a",
             "title": "T", "body_text": "B.", "language": "en"}
@@ -564,6 +721,38 @@ class PrepareOneGenerationTests(unittest.TestCase):
         self.assertEqual(result["images"], [])
         self.assertFalse(result["generated"])
         gen.assert_called_once()
+
+    def test_all_pictures_dropped_by_the_vision_check_get_one_generated(self):
+        downloaded = [{"path": "/m/9/1.jpg", "caption": "", "source_url": "https://s.test/logo.jpg"}]
+        entry = {"path": "/m/9/1.png", "caption": "", "source_url": "generated://gpt-image-2"}
+        with mock.patch.object(preparer, "review_illustrations", return_value=[]) as review, \
+             mock.patch.object(preparer, "allowed_by_robots", return_value=True), \
+             mock.patch.object(preparer, "fetch", return_value=("https://s.test/a", "text/html", b"")), \
+             mock.patch.object(preparer, "extract_illustrations", return_value=[]), \
+             mock.patch.object(preparer, "download_illustrations", return_value=downloaded), \
+             mock.patch.object(preparer, "generate_illustration", return_value=entry), \
+             mock.patch.object(evaluator, "chat", return_value=self.RETOLD):
+            result = preparer.prepare_one(preparer.PreparerConfig(fetch_delay=0), mock.Mock(),
+                                          self.NEWS, dry_run=False)
+        review.assert_called_once()
+        self.assertEqual(review.call_args.args[3], "Т")  # the retold title reaches the prompt
+        self.assertEqual(result["images"], [entry])
+        self.assertTrue(result["generated"])
+        self.assertEqual(result["images_dropped"], 1)
+
+    def test_empty_check_provider_turns_the_vision_check_off(self):
+        downloaded = [{"path": "/m/9/1.jpg", "caption": "", "source_url": "https://s.test/1.jpg"}]
+        cfg = preparer.PreparerConfig(fetch_delay=0, image_check_provider="")
+        with mock.patch.object(preparer, "review_illustrations") as review, \
+             mock.patch.object(preparer, "allowed_by_robots", return_value=True), \
+             mock.patch.object(preparer, "fetch", return_value=("https://s.test/a", "text/html", b"")), \
+             mock.patch.object(preparer, "extract_illustrations", return_value=[]), \
+             mock.patch.object(preparer, "download_illustrations", return_value=downloaded), \
+             mock.patch.object(evaluator, "chat", return_value=self.RETOLD):
+            result = preparer.prepare_one(cfg, mock.Mock(), self.NEWS, dry_run=False)
+        review.assert_not_called()
+        self.assertEqual(result["images"], downloaded)
+        self.assertEqual(result["images_dropped"], 0)
 
 
 class RouterIdentityTests(unittest.TestCase):

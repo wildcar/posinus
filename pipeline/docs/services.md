@@ -88,8 +88,20 @@ sudo -u posinus-pipeline bash -c 'set -a; . /etc/posinus/pipeline.env; set +a; \
   python3 /opt/posinus/pipeline/preparer.py --ignore-image URL --note "why"'
 ```
 
+Every downloaded picture is shown to a vision model (the router's `chat` tool with the
+image attached, provider `IMAGE_CHECK_PROVIDER`, default `codex-oauth`) which answers
+`keep` or `drop`: the `ignored_image` blacklist matches by URL and catches a source's
+logo only after an operator has seen it published, while the model catches it the first
+time by looking. A `drop` verdict deletes the picture with its file; a router failure or
+an unusable reply keeps it, so the check can only improve on the old behavior. Files
+without a known MIME or over 2.5 MB are kept unchecked (the MCP transport resets
+connections on messages over 4 MB, and base64 adds a third). `preparer.py
+--review-images` runs the same check over the already prepared, not yet published,
+not operator-edited queue — for items prepared before the check existed; generated
+pictures are skipped.
+
 A news item that still has zero pictures after download (none in the article, or all of
-them blacklisted/filtered) gets one generated from the retelling: the router's
+them blacklisted/filtered/dropped by the vision check) gets one generated from the retelling: the router's
 `generate_image` tool, provider `IMAGE_PROVIDER` (default `codex-oauth`; empty turns the
 feature off, `IMAGE_MODEL` pins a model). The file is stored as a normal illustration
 with `source_url = generated://<model_id>`, so provenance stays visible in the DB. A
@@ -106,6 +118,8 @@ Config (in `/etc/posinus/pipeline.env`):
   calls, so the router does not bill them to `news-evaluator`.
 - `IMAGE_PROVIDER` (default `codex-oauth`), `IMAGE_MODEL` (empty → router picks) — image
   generation for items with zero pictures.
+- `IMAGE_CHECK_PROVIDER` (default `codex-oauth`), `IMAGE_CHECK_MODEL` (empty → router
+  picks) — the vision check of downloaded pictures; empty provider turns it off.
 
 ## publisher.py
 
