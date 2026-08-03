@@ -23,7 +23,7 @@ crawler ──> evaluator ──> preparer ──> publisher
 |---------|--------|--------------|---------|------------------|
 | evaluator | `evaluator.py` | `posinus-evaluator.timer` | every 10 min | yes |
 | preparer  | `preparer.py`  | `posinus-preparer.timer`  | every 15 min | yes |
-| publisher | `publisher.py` | `posinus-publisher.timer` | every 30 min | no |
+| publisher | `publisher.py` | `posinus-publisher.timer` | on the slots (09–23 MSK, every 2 h) + :15/:45 for retries | no |
 
 ## Shared storage (evaluator-owned DB)
 
@@ -183,20 +183,27 @@ Pacing and robustness (config):
 
 - `PUB_BATCH` (default 1) — max **new** items started per run. Retries of already-public
   items are not limited by this.
-- `PUB_MIN_INTERVAL_MINUTES` (default 120, **60 on prod** since 2026-07-25) — a **new** item
-  is published at most this often, measured from the last successful post to any platform.
-  Finishing an already-public item on its remaining platforms is not throttled (it is the
-  same news). Prod runs 60 because the prepared backlog reached 118 items.
+- `PUB_SLOTS` (default `09:00,11:00,13:00,15:00,17:00,19:00,21:00,23:00`, in
+  `PUB_WINDOW_TZ`) — the slot grid a **new** item appears on, since 2026-08-03. Each slot
+  takes exactly one fresh item, runs until the next slot (the last until midnight), and a
+  run that missed the exact minute still posts inside the slot. The timer fires exactly on
+  these times, so keep the unit and the variable in step. Empty or unparsable slots fall
+  back to the interval below.
+- `PUB_MIN_INTERVAL_MINUTES` (default 120) — the fallback pacing when the grid is off: a
+  **new** item is published at most this often, measured from the last successful post to
+  any platform. Finishing an already-public item on its remaining platforms is never
+  throttled (it is the same news).
 - `MEDIA_DIR` — where the preparer put the images; the publisher uses it to find an
   illustration whose stored absolute path no longer exists.
 - `PUB_MAX_ATTEMPTS` (default 8) — a failing platform is retried this many times, then
   given up on; the item is finalized «Опубликовано» best-effort with whatever platforms
   succeeded. This is why a broken platform can never block the rest of the queue.
 
-- `PUB_WINDOW_START` / `PUB_WINDOW_END` / `PUB_WINDOW_TZ` (default `08:00`, `22:00`,
-  `Europe/Moscow`) — a **new** item only appears inside this local window; a post at 03:40 is
-  lost reach. A start later than the end wraps past midnight; an empty start switches the
-  window off. Retries of an already-public item ignore the window.
+- `PUB_WINDOW_START` / `PUB_WINDOW_END` / `PUB_WINDOW_TZ` (default `09:00`, `23:00`,
+  `Europe/Moscow`) — the fallback window when the grid is off: a **new** item only appears
+  inside these local times; a post at 03:40 is lost reach. A start later than the end wraps
+  past midnight; an empty start switches the window off. Retries of an already-public item
+  ignore the window, and notify uses it for the silent-day check either way.
 - `REQUESTS_DIR` (default `/var/lib/posinus/pipeline/requests`) — the request mailbox, see
   below.
 
@@ -377,7 +384,7 @@ restart, no redeploy.
 
 ## Tuning
 
-- Faster or slower publishing: `PUB_MIN_INTERVAL_MINUTES` (cadence of new posts).
-- Drain a backlog quickly: lower `PUB_MIN_INTERVAL_MINUTES` temporarily.
+- More or fewer issues per day: `PUB_SLOTS` (and retime the timer's OnCalendar to match).
+- Drain a backlog quickly: blank `PUB_SLOTS` and lower `PUB_MIN_INTERVAL_MINUTES` temporarily.
 - Silence a persistently failing platform sooner: lower `PUB_MAX_ATTEMPTS`, or blank its
   secret to disable it.

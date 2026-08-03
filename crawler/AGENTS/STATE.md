@@ -54,6 +54,9 @@ Operate a single-host multilingual news crawler whose source list improves from 
   read the plan without a single fallback warning.
 - «Эфир» exists since 2026-07-25: queue with expected exit times, published feed with links,
   platform cards; and the dashboard shows «Сейчас», «Требует внимания» and the 30-day source mix.
+  Since 2026-08-03 the expected times follow the publisher's slot grid (the `slots` entry of its
+  run config, «09:00,…,23:00 Europe/Moscow»); the interval+window forecast stays as the fallback
+  for older config rows.
   All of it reads the pipeline DB and degrades to one line when that DB is unavailable. The queue
   is still shown in the publisher's real order (preparation time) with «сила» beside it — the
   reordering itself needs the contract extension that is next.

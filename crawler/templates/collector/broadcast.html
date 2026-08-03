@@ -36,7 +36,7 @@
 
 {% elif tab == "queue" %}
 <div class="card">
-  <p>В очереди {{ queue|length }}{% if config.window %}, окно выхода {{ config.window }}{% endif %}{% if config.min_interval_minutes %}, не чаще одного поста в {{ config.min_interval_minutes }} минут{% endif %}.</p>
+  <p>В очереди {{ queue|length }}{% if config.slots %}, выпуски по сетке {{ config.slots }}{% else %}{% if config.window %}, окно выхода {{ config.window }}{% endif %}{% if config.min_interval_minutes %}, не чаще одного поста в {{ config.min_interval_minutes }} минут{% endif %}{% endif %}.</p>
   <p class="muted">Порядок задаёт сила новости: половина её - лучшая сильная сторона, остальное позитивность и интересность. Ваши правки идут поверх и всегда главнее.</p>
 </div>
 <table>

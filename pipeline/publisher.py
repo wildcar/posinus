@@ -6,10 +6,11 @@ For every news item the preparer marked «Подготовлено» (`prepared_
 succeed, marks it «Опубликовано». Runs fully automatically by a timer. No model
 calls: the title, paragraphs and images are already prepared.
 
-Pacing: at most one NEW item starts per `min_interval_minutes` (default 120), so
-posts trickle into the public channel/site instead of flooding it, and a new item
-only starts inside the publication window (default 08:00–22:00 Europe/Moscow) —
-a post at 03:40 is lost reach. A platform
+Pacing: NEW items go out on a fixed slot grid (`slots`, default 09:00–23:00
+every two hours Europe/Moscow): each slot takes exactly one fresh item, so the
+channel reads like a schedule rather than a trickle of random timestamps. An
+empty `slots` falls back to the older pacing — at most one new item per
+`min_interval_minutes` inside the publication window. A platform
 that keeps failing is retried up to `max_attempts` times and then given up on;
 the item is finalized «Опубликовано» best-effort with whatever platforms
 succeeded, so a broken platform (e.g. a bad VK token) never blocks the queue.
@@ -163,15 +164,21 @@ class PublisherConfig:
     vk_token: str = ""
     vk_group_id: str = ""
     vk_api_version: str = "5.199"
-    # Pacing: at most one NEW item per interval; give up on a failing platform
-    # after this many attempts so it can't block the queue forever.
+    # Pacing: NEW items appear on the slot grid — fixed local times in
+    # `window_tz`, one fresh item per slot. While the grid is set it replaces
+    # both the interval and the window; empty or unparsable slots fall back to
+    # one new item per `min_interval_minutes` inside the publication window.
+    # A failing platform is given up on after `max_attempts` so it can't block
+    # the queue forever.
+    slots: str = "09:00,11:00,13:00,15:00,17:00,19:00,21:00,23:00"
     min_interval_minutes: int = 120
     max_attempts: int = 8
     expire_after_days: int = EXPIRE_AFTER_DAYS
-    # Publication window: a new item appears only between these local times.
-    # An empty start or end switches the window off entirely.
-    window_start: str = "08:00"
-    window_end: str = "22:00"
+    # Publication window (used by the slot-grid fallback and by notify): a new
+    # item appears only between these local times. An empty start or end
+    # switches the window off entirely.
+    window_start: str = "09:00"
+    window_end: str = "23:00"
     window_tz: str = "Europe/Moscow"
     # Request mailbox: the web UI drops files here, systemd .path units pick
     # them up. Also holds the `pause` file, see read_pause.
@@ -200,6 +207,7 @@ class PublisherConfig:
         cfg.vk_token = env.get("VK_ACCESS_TOKEN", cfg.vk_token)
         cfg.vk_group_id = env.get("VK_GROUP_ID", cfg.vk_group_id)
         cfg.vk_api_version = env.get("VK_API_VERSION", cfg.vk_api_version)
+        cfg.slots = env.get("PUB_SLOTS", cfg.slots).strip()
         cfg.min_interval_minutes = int(env.get("PUB_MIN_INTERVAL_MINUTES", cfg.min_interval_minutes))
         cfg.max_attempts = int(env.get("PUB_MAX_ATTEMPTS", cfg.max_attempts))
         cfg.expire_after_days = int(env.get("PUB_EXPIRE_AFTER_DAYS", cfg.expire_after_days))
@@ -324,6 +332,46 @@ def window_state(cfg: PublisherConfig, now: datetime) -> tuple[bool, datetime | 
     if opens <= local:
         opens += timedelta(days=1)
     return False, opens.astimezone(timezone.utc)
+
+
+def _parse_slots(raw: str) -> list[dt_time]:
+    """`09:00,11:00,…` → sorted unique times; one bad entry disables the grid."""
+    times = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        moment = _parse_hhmm(part)
+        if moment is None:
+            return []
+        times.add(moment)
+    return sorted(times)
+
+
+def slot_state(cfg: PublisherConfig, now: datetime, last_ok: datetime | None) -> tuple[bool, bool, str]:
+    """May a NEW item start right now under the slot grid, and what to log.
+
+    Slots are fixed local times in `cfg.window_tz`. A slot runs from its time
+    until the next one (the last until midnight) and takes exactly one fresh
+    item: a success at or after the slot time marks it served, so a run that
+    missed the exact minute still posts inside the slot rather than skipping
+    the issue. Between midnight and the first slot the grid is closed.
+    Returns (new item allowed, grid open at all, note for the run log).
+    """
+    grid = _parse_slots(cfg.slots)
+    if not grid:
+        return False, False, "no slots"
+    zone = _window_zone(cfg.window_tz)
+    local = now.astimezone(zone)
+    today = [local.replace(hour=s.hour, minute=s.minute, second=0, microsecond=0) for s in grid]
+    current = max((s for s in today if s <= local), default=None)
+    if current is None:
+        return False, False, f"slots closed, first at {today[0].strftime('%H:%M')}"
+    if last_ok is not None and last_ok.astimezone(zone) >= current:
+        upcoming = next((s for s in today if s > local), None)
+        when = upcoming.strftime("%H:%M") if upcoming else f"{today[0].strftime('%H:%M')} tomorrow"
+        return False, True, f"slot {current.strftime('%H:%M')} served, next {when}"
+    return True, True, f"slot {current.strftime('%H:%M')} open"
 
 
 @dataclass
@@ -1384,16 +1432,22 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None,
         stale = set(expire_stale(own, waiting, plan, now, cfg.expire_after_days, dry_run))
         prepared = order_queue([row for row in waiting if row["news_id"] not in stale], plan, now)
         last_ok = last_success_at(own)
-        throttled_new = False
+        last_ok_at = None
         if last_ok:
             try:
-                throttled_new = (now - datetime.fromisoformat(last_ok)) < timedelta(minutes=cfg.min_interval_minutes)
+                last_ok_at = datetime.fromisoformat(last_ok)
             except ValueError:
-                throttled_new = False
-        if window_open:
-            new_state = "throttled" if throttled_new else "allowed"
+                last_ok_at = None
+        if _parse_slots(cfg.slots):
+            allow_new, grid_open, new_state = slot_state(cfg, now, last_ok_at)
         else:
-            new_state = f"window closed, opens {opens_at.isoformat()}" if opens_at else "window closed"
+            throttled_new = (last_ok_at is not None
+                             and (now - last_ok_at) < timedelta(minutes=cfg.min_interval_minutes))
+            allow_new, grid_open = window_open and not throttled_new, window_open
+            if window_open:
+                new_state = "throttled" if throttled_new else "allowed"
+            else:
+                new_state = f"window closed, opens {opens_at.isoformat()}" if opens_at else "window closed"
         log.info("prepared %d, platforms [%s], last post %s, new items %s%s",
                  len(prepared), ", ".join(platforms), last_ok or "never",
                  new_state, " (dry-run)" if dry_run else "")
@@ -1422,7 +1476,7 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None,
             # A brand-new item (nothing posted yet) is rate-limited and waits for
             # the window; an item already public somewhere is finished regardless
             # (it is the same news, and a half-published item is worse than a late one).
-            if not appeared and only is None and (throttled_new or not window_open or new_posted >= limit):
+            if not appeared and only is None and (not allow_new or new_posted >= limit):
                 continue
 
             item = build_item(own, row, cfg.media_dir)
@@ -1440,7 +1494,7 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None,
 
             if not appeared:
                 new_posted += 1
-                throttled_new = True  # at most one fresh appearance per run and window
+                allow_new = False  # at most one fresh appearance per run and slot
 
             if dry_run:
                 continue
@@ -1461,7 +1515,7 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None,
                  published, incomplete, " (dry-run, nothing sent)" if dry_run else "")
         if counters is not None:
             counters.update(queue=len(prepared), published=published, incomplete=incomplete,
-                            new_posted=new_posted, expired=len(stale), window_open=window_open)
+                            new_posted=new_posted, expired=len(stale), window_open=grid_open)
         return 0
     finally:
         own.close()
@@ -1488,6 +1542,7 @@ def main(argv: list[str] | None = None) -> int:
     settings = {
         "platforms": cfg.enabled_platforms(),
         "batch": args.limit,
+        "slots": f"{cfg.slots} {cfg.window_tz}" if _parse_slots(cfg.slots) else "",
         "min_interval_minutes": cfg.min_interval_minutes,
         "window": f"{cfg.window_start}-{cfg.window_end} {cfg.window_tz}",
     }

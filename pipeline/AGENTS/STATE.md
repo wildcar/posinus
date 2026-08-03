@@ -45,8 +45,10 @@ a publish-ready retelling, and posts them to the platforms.
 - `publisher.py` posts prepared news, fully automatically by timer, to Telegram @posinus,
   wildcar.ru (Эгея) and the VK community wall @positivenus; each platform enables only when
   its secret is set. Renders each format from the stored markdown; idempotent per
-  `(news_id, platform)`. Paces NEW posts to at most one per `PUB_MIN_INTERVAL_MINUTES`
-  (default 120); a failing platform is retried up to `PUB_MAX_ATTEMPTS` (8), then given up
+  `(news_id, platform)`. Since 2026-08-03 NEW posts go out on the `PUB_SLOTS` grid —
+  09:00–23:00 Moscow every 2 h, one fresh item per slot, a late run still posts inside its
+  slot; an emptied `PUB_SLOTS` falls back to `PUB_MIN_INTERVAL_MINUTES` inside the window.
+  A failing platform is retried up to `PUB_MAX_ATTEMPTS` (8), then given up
   on so it can't block the queue. LIVE on prod: Telegram + wildcar.ru + VK all working.
 - VK works end-to-end now: a classic `vk1.` USER token of a group admin (obtained via the
   grandfathered Kate Mobile app_id) sits in the env with `VK_GROUP_ID=233237778`; post
@@ -101,9 +103,10 @@ a publish-ready retelling, and posts them to the platforms.
 - Since 2026-07-25 the publisher has two safety catches, both from step 1 of
   `../docs/ui-concept.md`. The stop cock: a `pause` file in `REQUESTS_DIR`
   (`/var/lib/posinus/pipeline/requests`) holds every send, expires by itself and fails towards
-  «paused» when unreadable; the crawler UI writes it. The publication window: a new item only
-  appears between `PUB_WINDOW_START` and `PUB_WINDOW_END` in `PUB_WINDOW_TZ` (08:00–22:00
-  Europe/Moscow), while retries of an already-public item ignore it. 92 tests pass. LIVE on prod
+  «paused» when unreadable; the crawler UI writes it. The publication window (since
+  2026-08-03 the fallback for an emptied `PUB_SLOTS`, defaults 09:00–23:00): a new item only
+  appears between `PUB_WINDOW_START` and `PUB_WINDOW_END` in `PUB_WINDOW_TZ`
+  (Europe/Moscow), while retries of an already-public item ignore it. 92 tests pass. LIVE on prod
   since 2026-07-25 20:44 UTC (commit `2978f31`, `install.sh` run by the owner) and verified there
   end to end: the mailbox is `drwxrws--- posinus-pipeline:posinus`, the web user `posinus` can
   write into it and the pipeline user reads and removes; a `run-publisher` file started the

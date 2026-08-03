@@ -11,7 +11,7 @@ import tempfile
 import unittest
 import urllib.parse
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 from zoneinfo import ZoneInfo
@@ -526,15 +526,17 @@ class RunLoopTests(unittest.TestCase):
         self.own_path = str(Path(self.tmp.name) / "own.sqlite3")
         own = open_own_db(self.own_path)
         own.execute(
+            # prepared_at must stay fresh: a fixed date will cross PUB_EXPIRE_AFTER_DAYS
             "INSERT INTO prepared_item (news_id, status, retold_title, retold_body_md, prepared_at) "
-            "VALUES (1, 'prepared', 'T', ?, '2026-07-23T10:00:00')",
-            ("# T\n\npara one\n\npara two\n\nИсточник: [site.test](https://site.test/a)",),
+            "VALUES (1, 'prepared', 'T', ?, ?)",
+            ("# T\n\npara one\n\npara two\n\nИсточник: [site.test](https://site.test/a)",
+             (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(timespec="seconds")),
         )
         own.commit()
         own.close()
         # telegram + site enabled, vk off
         # window off: these tests must behave the same whatever time they run at
-        self.cfg = PublisherConfig(own_db=self.own_path, window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="tok", site_password="pw")
+        self.cfg = PublisherConfig(own_db=self.own_path, slots="", window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="tok", site_password="pw")
         self._orig = dict(publisher.ADAPTERS)
 
     def tearDown(self):
@@ -604,11 +606,12 @@ class ThrottleAndRetryTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _prepare(self, con, news_id):
+        # fresh and ordered by id: a fixed date would cross PUB_EXPIRE_AFTER_DAYS
         con.execute(
             "INSERT INTO prepared_item (news_id, status, retold_title, retold_body_md, prepared_at) "
             "VALUES (?, 'prepared', 'T', ?, ?)",
             (news_id, f"# T\n\nтекст\n\nИсточник: [s.test](https://s.test/{news_id})",
-             f"2026-07-23T{news_id:02d}:00:00"),
+             (datetime.now(timezone.utc) - timedelta(hours=24 - news_id)).isoformat(timespec="seconds")),
         )
 
     @staticmethod
@@ -630,7 +633,7 @@ class ThrottleAndRetryTests(unittest.TestCase):
         con.close()
         calls = []
         publisher.ADAPTERS["telegram"] = lambda c, i, d: (calls.append(i.news_id), "u")[1]
-        publisher.run(PublisherConfig(own_db=self.own_path, window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="t"), limit=1, dry_run=False, only=None)
+        publisher.run(PublisherConfig(own_db=self.own_path, slots="", window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="t"), limit=1, dry_run=False, only=None)
         self.assertEqual(calls, [])  # last post 5 min ago (< 120) -> new item held back
 
     def test_new_item_allowed_when_last_post_old(self):
@@ -641,7 +644,7 @@ class ThrottleAndRetryTests(unittest.TestCase):
         con.close()
         calls = []
         publisher.ADAPTERS["telegram"] = lambda c, i, d: (calls.append(i.news_id), "u")[1]
-        publisher.run(PublisherConfig(own_db=self.own_path, window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="t"), limit=1, dry_run=False, only=None)
+        publisher.run(PublisherConfig(own_db=self.own_path, slots="", window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="t"), limit=1, dry_run=False, only=None)
         self.assertEqual(calls, [1])  # last post 3h ago (> 120) -> allowed
 
     def test_only_one_new_item_per_run(self):
@@ -652,7 +655,7 @@ class ThrottleAndRetryTests(unittest.TestCase):
         con.close()
         calls = []
         publisher.ADAPTERS["telegram"] = lambda c, i, d: (calls.append(i.news_id), "u")[1]
-        publisher.run(PublisherConfig(own_db=self.own_path, window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="t"), limit=1, dry_run=False, only=None)
+        publisher.run(PublisherConfig(own_db=self.own_path, slots="", window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="t"), limit=1, dry_run=False, only=None)
         self.assertEqual(calls, [1])  # only the first (oldest) new item; the second waits
 
     def test_failing_platform_gives_up_and_does_not_block_others(self):
@@ -669,7 +672,7 @@ class ThrottleAndRetryTests(unittest.TestCase):
         calls = []
         publisher.ADAPTERS["telegram"] = lambda c, i, d: (calls.append(("tg", i.news_id)), "u")[1]
         publisher.ADAPTERS["site"] = lambda c, i, d: (calls.append(("site", i.news_id)), "u")[1]
-        cfg = PublisherConfig(own_db=self.own_path, window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="t", site_password="p", max_attempts=8)
+        cfg = PublisherConfig(own_db=self.own_path, slots="", window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="t", site_password="p", max_attempts=8)
         publisher.run(cfg, limit=1, dry_run=False, only=None)
         con = open_own_db(self.own_path)
         # item 1 gave up on the exhausted platform and was finalized, not retried
@@ -687,7 +690,7 @@ class ThrottleAndRetryTests(unittest.TestCase):
         con.close()
         calls = []
         publisher.ADAPTERS["telegram"] = lambda c, i, d: (calls.append(i.news_id), "u")[1]
-        publisher.run(PublisherConfig(own_db=self.own_path, window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="t"), limit=1, dry_run=False, only=1)
+        publisher.run(PublisherConfig(own_db=self.own_path, slots="", window_start="", requests_dir=str(Path(self.own_path).parent), tg_token="t"), limit=1, dry_run=False, only=1)
         self.assertEqual(calls, [1])  # explicit --news-id bypasses the rate limit
 
 
@@ -701,9 +704,11 @@ class PauseAndWindowTests(unittest.TestCase):
         self.requests_dir.mkdir()
         con = open_own_db(self.own_path)
         con.execute(
+            # prepared_at must stay fresh: a fixed date will cross PUB_EXPIRE_AFTER_DAYS
             "INSERT INTO prepared_item (news_id, status, retold_title, retold_body_md, prepared_at) "
-            "VALUES (1, 'prepared', 'T', ?, '2026-07-23T10:00:00')",
-            ("# T\n\nтекст\n\nИсточник: [s.test](https://s.test/1)",),
+            "VALUES (1, 'prepared', 'T', ?, ?)",
+            ("# T\n\nтекст\n\nИсточник: [s.test](https://s.test/1)",
+             (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(timespec="seconds")),
         )
         con.commit()
         con.close()
@@ -715,7 +720,7 @@ class PauseAndWindowTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _cfg(self, **kw):
-        base = dict(own_db=self.own_path, tg_token="t", window_start="",
+        base = dict(own_db=self.own_path, tg_token="t", slots="", window_start="",
                     requests_dir=str(self.requests_dir))
         base.update(kw)
         return PublisherConfig(**base)
@@ -790,6 +795,115 @@ class PauseAndWindowTests(unittest.TestCase):
         off = PublisherConfig(window_start="", window_end="22:00")
         self.assertEqual(off_state := publisher.window_state(off, datetime(2026, 7, 25, 2, 0, tzinfo=timezone.utc)), (True, None))
         self.assertEqual(off_state, (True, None))
+
+
+class SlotGridTests(unittest.TestCase):
+    """The slot grid: fixed local times, one fresh item per slot."""
+
+    CFG = PublisherConfig(window_tz="Europe/Moscow")  # default slots 09:00–23:00
+
+    @staticmethod
+    def _utc(hour, minute=0, day=3):
+        return datetime(2026, 8, day, hour, minute, tzinfo=timezone.utc)
+
+    def test_parse_slots(self):
+        self.assertEqual(publisher._parse_slots("09:00, 23:00"),
+                         [dt_time(9, 0), dt_time(23, 0)])
+        self.assertEqual(publisher._parse_slots("23:00,09:00,09:00"),
+                         [dt_time(9, 0), dt_time(23, 0)])
+        self.assertEqual(publisher._parse_slots(""), [])
+        self.assertEqual(publisher._parse_slots("09:00,кабанчик"), [])
+
+    def test_slot_opens_at_its_exact_time(self):
+        allowed, grid_open, note = publisher.slot_state(self.CFG, self._utc(6, 0), None)  # 09:00 MSK
+        self.assertEqual((allowed, grid_open, note), (True, True, "slot 09:00 open"))
+
+    def test_slot_takes_exactly_one_item(self):
+        # posted at 09:05 MSK: slot 09:00 is served until 11:00
+        allowed, grid_open, note = publisher.slot_state(self.CFG, self._utc(7, 0), self._utc(6, 5))
+        self.assertEqual((allowed, grid_open), (False, True))
+        self.assertEqual(note, "slot 09:00 served, next 11:00")
+        # 11:00 MSK: a fresh slot
+        self.assertTrue(publisher.slot_state(self.CFG, self._utc(8, 0), self._utc(6, 5))[0])
+
+    def test_missed_minute_still_posts_inside_the_slot(self):
+        # 09:47 MSK, nothing posted since yesterday: the 09:00 issue still goes out
+        self.assertTrue(publisher.slot_state(self.CFG, self._utc(6, 47), self._utc(17, 0, day=2))[0])
+
+    def test_grid_closed_between_midnight_and_the_first_slot(self):
+        allowed, grid_open, note = publisher.slot_state(self.CFG, self._utc(3, 0), None)  # 06:00 MSK
+        self.assertEqual((allowed, grid_open), (False, False))
+        self.assertIn("09:00", note)
+
+    def test_last_slot_ends_at_midnight(self):
+        # 23:59 MSK with the 23:00 issue out: served, next is tomorrow
+        allowed, _, note = publisher.slot_state(self.CFG, self._utc(20, 59), self._utc(20, 1))
+        self.assertFalse(allowed)
+        self.assertEqual(note, "slot 23:00 served, next 09:00 tomorrow")
+        # 23:59 MSK with the last post in the 21:00 slot: 23:00 still unserved
+        self.assertTrue(publisher.slot_state(self.CFG, self._utc(20, 59), self._utc(18, 1))[0])
+        # 00:30 MSK: closed until 09:00
+        self.assertFalse(publisher.slot_state(self.CFG, self._utc(21, 30), self._utc(20, 1))[1])
+
+
+class SlotGridRunTests(unittest.TestCase):
+    """run() under the grid: new items obey the slot, retries do not."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.own_path = str(Path(self.tmp.name) / "own.sqlite3")
+        con = open_own_db(self.own_path)
+        for news_id in (1, 2):
+            con.execute(
+                "INSERT INTO prepared_item (news_id, status, retold_title, retold_body_md, prepared_at) "
+                "VALUES (?, 'prepared', 'T', ?, ?)",
+                (news_id, f"# T\n\nтекст\n\nИсточник: [s.test](https://s.test/{news_id})",
+                 (datetime.now(timezone.utc) - timedelta(hours=24 - news_id)).isoformat(timespec="seconds")),
+            )
+        con.commit()
+        con.close()
+        self._orig = dict(publisher.ADAPTERS)
+
+    def tearDown(self):
+        publisher.ADAPTERS.clear()
+        publisher.ADAPTERS.update(self._orig)
+        self.tmp.cleanup()
+
+    def _cfg(self, **kw):
+        base = dict(own_db=self.own_path, tg_token="t",
+                    requests_dir=str(Path(self.own_path).parent))
+        base.update(kw)
+        return PublisherConfig(**base)
+
+    def _run(self, state, cfg=None, limit=2):
+        calls: list[int] = []
+        publisher.ADAPTERS["telegram"] = lambda c, i, d: (calls.append(i.news_id), "u")[1]
+        with mock.patch.object(publisher, "slot_state", return_value=state):
+            publisher.run(cfg or self._cfg(), limit=limit, dry_run=False, only=None)
+        return calls
+
+    def test_served_slot_holds_new_items(self):
+        self.assertEqual(self._run((False, True, "slot 09:00 served, next 11:00")), [])
+
+    def test_open_slot_posts_exactly_one_item(self):
+        self.assertEqual(self._run((True, True, "slot 09:00 open")), [1])
+
+    def test_closed_grid_does_not_hold_an_already_public_item(self):
+        con = open_own_db(self.own_path)
+        con.execute("INSERT INTO publication (news_id, platform, status, url, attempts, updated_at) "
+                    "VALUES (1, 'site', 'ok', 'u', 1, '2026-07-23T10:00:00+00:00')")
+        con.commit()
+        con.close()
+        cfg = self._cfg(site_password="p")
+        # item 1 is public on the site already, so telegram finishes it at 03:00 too
+        self.assertEqual(self._run((False, False, "slots closed, first at 09:00"), cfg), [1])
+
+    def test_empty_slots_fall_back_to_the_interval(self):
+        # the grid is off and the window is off: the interval alone paces new items
+        calls: list[int] = []
+        publisher.ADAPTERS["telegram"] = lambda c, i, d: (calls.append(i.news_id), "u")[1]
+        publisher.run(self._cfg(slots="", window_start=""), limit=1, dry_run=False, only=None)
+        self.assertEqual(calls, [1])
 
 
 class QueueOrderTests(unittest.TestCase):

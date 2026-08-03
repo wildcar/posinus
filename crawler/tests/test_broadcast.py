@@ -110,6 +110,32 @@ def test_expected_time_waits_for_the_window(operator, source, make_news, pipelin
 
 
 @pytest.mark.django_db
+def test_expected_time_follows_the_slot_grid(operator, source, make_news, pipeline):
+    from zoneinfo import ZoneInfo
+
+    first = make_news("Grid one", source, day=10, seed="g1")
+    second = make_news("Grid two", source, day=10, seed="g2")
+    for item, when in ((first, "2026-07-24T09:00:00+00:00"), (second, "2026-07-24T10:00:00+00:00")):
+        pipeline(
+            "INSERT INTO prepared_item (news_id, status, retold_title, prepared_at) VALUES (?, 'prepared', 'T', ?)",
+            (item.pk, when),
+        )
+    pipeline(
+        "INSERT INTO service_run (service, status, started_at, config) VALUES ('publisher', 'ok', ?, ?)",
+        (timezone.now().isoformat(),
+         '{"slots": "09:00,11:00,13:00,15:00,17:00,19:00,21:00,23:00 Europe/Moscow", "min_interval_minutes": 60, "window": ""}'),
+    )
+
+    items, _ = broadcast.queue()
+
+    assert items[0].expected_at < items[1].expected_at
+    # the first item may go «now» inside the open slot; the second always waits
+    # for a fresh slot, so it sits exactly on the grid
+    local = items[1].expected_at.astimezone(ZoneInfo("Europe/Moscow"))
+    assert local.minute == 0 and local.hour in (9, 11, 13, 15, 17, 19, 21, 23)
+
+
+@pytest.mark.django_db
 def test_published_feed_links_every_platform(operator, source, make_news, pipeline):
     item = make_news("Published one", source, day=10, seed="p1")
     pipeline(

@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-08-03 · Issues go out on a slot grid: 09:00–23:00 Moscow, every two hours
+- What: `PUB_SLOTS` (default `09:00,…,23:00` in `PUB_WINDOW_TZ`) replaces the interval and the window for NEW items — one fresh item per slot, a slot counts as served by the last successful post, a run that missed the exact minute still posts inside its slot; empty slots fall back to the old interval+window pacing (window defaults moved to 09:00–23:00). The timer now fires exactly on the slots plus :15/:45 for retries; the run config records `slots` and the crawler's «Эфир» forecasts on the grid (its own HISTORY entry). Also defused a test time bomb: hardcoded `prepared_at='2026-07-23'` crossed `PUB_EXPIRE_AFTER_DAYS` and broke 8 publisher tests on main — dates are relative now. 264 pipeline + 140 crawler tests pass.
+- Why: owner's call — releases must sit on exact times, first at 09:00, last at 23:00 MSK; the drifting 30-min timer with a 60-min interval scattered posts over random minutes (05:22, 06:55, 18:15…).
+- Files: pipeline/publisher.py, pipeline/deploy/posinus-publisher.timer, pipeline/deploy/pipeline.env.example, pipeline/tests/test_publisher.py, pipeline/{AGENTS/SPEC.md,docs/services.md}, /etc/posinus/pipeline.env
+- Next: the owner runs `sudo bash /opt/posinus/pipeline/deploy/install.sh` to install the retimed timer; until then the old 30-min timer serves the grid with up to half an hour of lag.
+
 ## 2026-07-30 · The «4 MB cap» was a trailing slash: router URL is /mcp/ now
 - What: `router_url` defaults to `http://127.0.0.1:8088/mcp/` (evaluator, crawler settings, both env examples, `/etc/posinus/pipeline.env`); the vision-check retry is reverted and the size gate relaxed from 2.5 MB to a sanity 8 MB. Live-verified: the 3.7 MB GIF (5 MB as base64) that used to reset passed 4 of 4 through `/mcp/`. 254 pipeline + 138 crawler tests pass.
 - Why: the owner root-caused the sweep's flaky ECONNRESETs — FastMCP answers `/mcp` with a 307 to `/mcp/` without reading the request body first, so any megabyte-scale POST dies on the redirect; small bodies fit the socket buffer, which is exactly the observed size-correlated flakiness. There never was a 4 MB message cap.

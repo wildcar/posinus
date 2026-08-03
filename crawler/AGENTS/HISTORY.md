@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-08-03 · «Эфир» forecasts on the publisher's slot grid
+- What: `_next_slots` reads the `slots` entry the publisher now records in its run config («09:00,… Europe/Moscow») and puts each queued item on its own future slot — served and missed slots skipped, the currently open one shows «now»; the interval+window forecast stays as the fallback for older config rows. The queue header names the grid instead of the interval. 1 test added, 140 pass.
+- Why: the publisher's pacing moved from «not more often than N minutes» to fixed issue times (owner's call; the pipeline HISTORY entry of the same date), and the screen must promise the minutes the machine will actually hit.
+- Files: crawler/collector/services/broadcast.py, crawler/templates/collector/broadcast.html, crawler/tests/test_broadcast.py
+- Next: —
+
 ## 2026-07-29 · The daily picture grows a second orientation and a caption
 - What: migration `0013` — `image_size_wide` on `exchange_daypic_slot` (vertical goes to telegram, horizontal to the sites and VK) and a refresh of the unedited 0012 seed texts: the prompt no longer fixes the orientation and the system prompt now asks for a description of the day too (the pipeline requests JSON {prompt, description}). The page edits both sizes, the styles label says «случайно, без повторов в течение месяца», the gallery shows the caption and links the horizontal file, `wildcar_org` joins the platform titles. 138 tests pass.
 - Why: owner's call — one picture cannot serve telegram and the sites at once, and a picture without «какие сегодня праздники» under it says nothing.

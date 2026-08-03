@@ -177,7 +177,15 @@ def publisher_settings() -> dict:
 
 
 def _next_slots(count: int, last_ok: datetime | None, config: dict) -> list[datetime]:
-    """When the next `count` items would go out, at one per interval inside the window."""
+    """When the next `count` items would go out, one per slot of the grid.
+
+    The publisher records its slot grid («09:00,…,23:00 Europe/Moscow») in the
+    run config; older runs carry only the interval and the window, so that
+    pacing stays as the fallback forecast.
+    """
+    grid = _parse_slot_grid(str(config.get("slots") or ""))
+    if grid:
+        return _grid_slots(count, last_ok, *grid)
     interval = timedelta(minutes=int(config.get("min_interval_minutes") or 120))
     window = str(config.get("window") or "")
     start_hour, end_hour, zone = _parse_window(window)
@@ -188,6 +196,50 @@ def _next_slots(count: int, last_ok: datetime | None, config: dict) -> list[date
         moment = _inside_window(moment, start_hour, end_hour, zone)
         slots.append(moment)
         moment = moment + interval
+    return slots
+
+
+def _parse_slot_grid(slots: str):
+    """«09:00,11:00,… Europe/Moscow» → (local times, zone); None when unusable."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        times_raw, zone_name = slots.rsplit(" ", 1)
+        zone = ZoneInfo(zone_name.strip())
+        times = sorted(
+            {tuple(int(part) for part in chunk.strip().split(":", 1)) for chunk in times_raw.split(",") if chunk.strip()}
+        )
+    except (ValueError, AttributeError, ZoneInfoNotFoundError):
+        return None
+    if not times or any(len(moment) != 2 for moment in times):
+        return None
+    return times, zone
+
+
+def _grid_slots(count: int, last_ok: datetime | None, times: list[tuple[int, int]], zone) -> list[datetime]:
+    """The next `count` grid slots: one item per slot, served slots skipped.
+
+    A slot runs from its time until the next one (the last until midnight) —
+    the same rule as the publisher's slot_state. A slot the queue missed is
+    gone; the currently open one shows «now».
+    """
+    now = datetime.now(timezone.utc)
+    local_now = now.astimezone(zone)
+    last_local = last_ok.astimezone(zone) if last_ok else None
+    slots: list[datetime] = []
+    day = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    horizon = local_now + timedelta(days=60)
+    while len(slots) < count and day < horizon:
+        moments = [day.replace(hour=hour, minute=minute) for hour, minute in times]
+        for start, end in zip(moments, moments[1:] + [day + timedelta(days=1)]):
+            if end <= local_now:
+                continue
+            if last_local is not None and last_local >= start:
+                continue
+            slots.append(max(start, local_now).astimezone(timezone.utc))
+            if len(slots) == count:
+                break
+        day += timedelta(days=1)
     return slots
 
 
