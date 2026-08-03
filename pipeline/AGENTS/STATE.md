@@ -50,6 +50,11 @@ a publish-ready retelling, and posts them to the platforms.
   slot; an emptied `PUB_SLOTS` falls back to `PUB_MIN_INTERVAL_MINUTES` inside the window.
   A failing platform is retried up to `PUB_MAX_ATTEMPTS` (8), then given up
   on so it can't block the queue. LIVE on prod: Telegram + wildcar.ru + VK all working.
+  The grid is LIVE at `84c08c4` (2026-08-03 19:22 UTC, `update-ubuntu.sh`) and verified by
+  a dry run through the real config: «slot 21:00 served, next 23:00». The RETIMED TIMER
+  (fires exactly on the slots + :15/:45 for retries) waits for the owner to run
+  `sudo bash /opt/posinus/pipeline/deploy/install.sh`; until then the old 30-min timer
+  serves the grid with up to half an hour of lag after each slot.
 - VK works end-to-end now: a classic `vk1.` USER token of a group admin (obtained via the
   grandfathered Kate Mobile app_id) sits in the env with `VK_GROUP_ID=233237778`; post
   wall-233237778_2 landed through the pipeline. `vk_call` targets `api.vk.ru`, live on prod since 2026-07-25.
