@@ -6,6 +6,16 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 ## Now
 
+- The 2026-08-03…07 flow outage is fixed and LIVE at `942c1f6` (deployed 2026-08-07 19:52 UTC,
+  `update-ubuntu.sh`, backup `pre-update-20260807T195154Z.sqlite3`). The single worker had been
+  grinding giant auto-discovered probation sources (good.is: 5.4 h, 9809 pages, 0 saved) while
+  all 65 active sources sat due since Aug 3 — nothing was collected, so nothing was published
+  after Aug 6 23:45 MSK. Now: actives lease first (probation keeps every fifth turn), a
+  probation run is capped at 40 fetched pages / 10 minutes, the daily pass auto-pauses probation
+  sources with ≥10 runs / ≥150 fetched / 0 saved, the discovery blocklist covers
+  reference/commerce/web-infrastructure domains, and `pauseblockedsources` retired 16 such
+  sources on prod. Verified live: first post-deploy lease went to the oldest-due active source
+  (The Guardian).
 - MVP code and repository harness are present in the development checkout and deployed to the Ubuntu production host.
 - The crawler now lives in `crawler/` inside the merged `posinus` repository, next to `pipeline/`; the GitHub remote is `https://github.com/wildcar/posinus`.
 - The posinus rename is LIVE on prod since 2026-07-25: one checkout at `/opt/posinus`, `/etc/posinus/crawler.env`, `/var/lib/posinus/posinus.sqlite3`, `POSINUS_*` variables, `posinus-web`/`posinus-worker` under user `posinus`. Verified after the migration: web and worker active, `/login/` 200, static 200, SQLite integrity ok. Pre-migration backup kept at `/var/lib/posinus/backups/pre-posinus-20260725T075954Z.sqlite3`.

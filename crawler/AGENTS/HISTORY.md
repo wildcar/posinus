@@ -2,6 +2,13 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-08-07 · The crawl queue learns priorities; the news flow returns
+- What: actives lease before probation (probation keeps every fifth turn), probation runs capped at 40 fetched pages / 10 minutes, daily pass auto-pauses fruitless probation (≥10 runs, ≥150 fetched, 0 saved), blocklist gains reference/commerce/web-infrastructure domains, and `pauseblockedsources` retired 16 blocklisted probation sources on prod. 146 tests pass.
+- Why: since Aug 3 the oldest-due-first queue fed the worker only giant probation sites (good.is: 5.4 h, 9809 pages, 0 saved — the 20-article cap counts *saved*), all 65 actives sat due for 4 days, collection stopped and the last issue went out Aug 6 23:45 MSK.
+- Files: crawler/collector/services/{crawler,maintenance}.py, crawler/collector/management/commands/pauseblockedsources.py, crawler/tests/{test_worker,test_maintenance}.py, crawler/AGENTS/SPEC.md
+- Prod: LIVE at `942c1f6` (2026-08-07 19:52 UTC, `update-ubuntu.sh`); first post-deploy lease went to the oldest-due active source.
+- Next: watch the evaluator/preparer refill and the 09:00 MSK slot go out; consider retiring the never-run Aug 3 megasite discoveries early if they burn their budgets for nothing.
+
 ## 2026-08-03 · «Эфир» forecasts on the publisher's slot grid
 - What: `_next_slots` reads the `slots` entry the publisher now records in its run config («09:00,… Europe/Moscow») and puts each queued item on its own future slot — served and missed slots skipped, the currently open one shows «now»; the interval+window forecast stays as the fallback for older config rows. The queue header names the grid instead of the interval. 1 test added, 140 pass.
 - Why: the publisher's pacing moved from «not more often than N minutes» to fixed issue times (owner's call; the pipeline HISTORY entry of the same date), and the screen must promise the minutes the machine will actually hit.
