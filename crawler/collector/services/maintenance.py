@@ -16,16 +16,18 @@ logger = logging.getLogger(__name__)
 
 
 # Domains that are never useful as crawl sources: social networks, messengers,
-# video platforms, app stores, and link shorteners. Positive articles routinely
-# carry share/app links to these, and auto-discovery kept turning them into dead
-# probation sources. Entries match the domain itself and any subdomain, so
-# "viber.com" also blocks "invite.viber.com"; use specific store subdomains
+# video platforms, app stores, link shorteners, and reference/commerce/web
+# infrastructure. Positive articles routinely carry share, citation and app
+# links to these, and auto-discovery kept turning them into dead probation
+# sources. Entries match the domain itself and any subdomain, so "viber.com"
+# also blocks "invite.viber.com"; use specific store subdomains
 # (apps.apple.com) so the parent brand (apple.com) stays allowed.
 BLOCKED_DISCOVERY_DOMAINS = frozenset({
     # social networks
     "vk.com", "vk.ru", "ok.ru", "odnoklassniki.ru", "facebook.com", "fb.com",
     "instagram.com", "twitter.com", "x.com", "tiktok.com", "pinterest.com",
     "linkedin.com", "reddit.com", "tumblr.com", "dzen.ru", "livejournal.com",
+    "bsky.app",
     # messengers
     "t.me", "telegram.me", "telegram.org", "tgclick.com", "viber.com",
     "whatsapp.com", "wa.me", "max.ru",
@@ -37,6 +39,12 @@ BLOCKED_DISCOVERY_DOMAINS = frozenset({
     "galaxystore.samsung.com", "apps.rustore.ru",
     # link shorteners
     "bit.ly", "goo.gl", "t.co", "tinyurl.com", "cutt.ly", "clck.ru",
+    # reference, commerce and web infrastructure: articles cite or embed these,
+    # but none of them publishes news of its own
+    "wikipedia.org", "wikimedia.org", "doi.org", "jstor.org",
+    "creativecommons.org", "cookiedatabase.org", "addtoany.com",
+    "getpocket.com", "patreon.com", "aweber.com", "canva.com", "paypal.com",
+    "ticketmaster.com", "podcasts.apple.com",
 })
 
 
@@ -60,12 +68,32 @@ def latest_reviews():
     return ReviewEvent.objects.filter(id__in=latest_ids)
 
 
+# A probation source that saves nothing produces no reviews, so the yield rule
+# below can never pause it — it would sit in the crawl queue forever. Ten
+# finished runs over at least this many fetched pages with zero saved articles
+# is enough evidence that the site never publishes today-dated news.
+FRUITLESS_PROBATION_RUNS = 10
+FRUITLESS_PROBATION_FETCHED = 150
+
+
 def evaluate_sources():
     now = timezone.now()
     since = now - timedelta(days=30)
     latest = list(latest_reviews().filter(created_at__gte=since, decision__in=[ReviewEvent.Decision.POSITIVE, ReviewEvent.Decision.NOT_POSITIVE]))
     decisions = {event.news_item_id: event.decision for event in latest}
     for source in Source.objects.filter(status__in=[Source.Status.ACTIVE, Source.Status.PROBATION, Source.Status.PROBATION_WAITING]):
+        if source.status == Source.Status.PROBATION:
+            sample = source.crawl_runs.filter(
+                finished_at__isnull=False,
+                started_at__gte=source.probation_started_at or source.created_at,
+            ).aggregate(runs=Count("id"), fetched=Sum("fetched_count"), saved=Sum("saved_count"))
+            if ((sample["runs"] or 0) >= FRUITLESS_PROBATION_RUNS
+                    and (sample["fetched"] or 0) >= FRUITLESS_PROBATION_FETCHED
+                    and not (sample["saved"] or 0)):
+                _change_status(source, Source.Status.PAUSED_LOW_YIELD,
+                               "Автопауза: пробный источник не сохранил ни одной новости",
+                               {"runs": sample["runs"], "fetched": sample["fetched"]})
+                continue
         item_ids = set(source.occurrences.filter(news_item_id__in=decisions).values_list("news_item_id", flat=True))
         total = len(item_ids)
         positives = sum(decisions[item_id] == ReviewEvent.Decision.POSITIVE for item_id in item_ids)

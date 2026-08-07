@@ -19,9 +19,12 @@ from collector.services.maintenance import (
 
 def test_discovery_blocklist_matches_domains_and_subdomains():
     for blocked in ["vk.com", "invite.viber.com", "t.me", "apps.apple.com",
-                    "www.rustore.ru", "youtu.be", "sub.ok.ru"]:
+                    "www.rustore.ru", "youtu.be", "sub.ok.ru",
+                    "en.wikipedia.org", "dx.doi.org", "www.canva.com",
+                    "podcasts.apple.com", "bsky.app", "www.paypal.com"]:
         assert is_blocked_discovery_domain(blocked), blocked
-    for allowed in ["apple.com", "goodnewsnetwork.org", "ria.ru", "bbc.com", ""]:
+    for allowed in ["apple.com", "goodnewsnetwork.org", "ria.ru", "bbc.com",
+                    "www.nature.com", ""]:
         assert not is_blocked_discovery_domain(allowed), allowed
 
 
@@ -59,6 +62,42 @@ def test_skipped_reviews_do_not_pause_source():
     evaluate_sources()
     source.refresh_from_db()
     assert source.status == Source.Status.ACTIVE
+
+
+@pytest.mark.django_db
+def test_fruitless_probation_source_is_paused():
+    """A probation source that saves nothing gets no reviews, so the yield rule
+    can never pause it — it used to sit in the crawl queue forever."""
+    from collector.models import CrawlRun
+
+    def probation_source(domain, runs, fetched_each, saved_last):
+        source = Source.objects.create(
+            name=domain, base_url=f"https://{domain}/", domain=domain,
+            status=Source.Status.PROBATION, is_auto_discovered=True,
+            probation_started_at=timezone.now() - timedelta(days=7),
+        )
+        for number in range(runs):
+            CrawlRun.objects.create(
+                source=source, finished_at=timezone.now(),
+                fetched_count=fetched_each,
+                saved_count=saved_last if number == runs - 1 else 0,
+            )
+        return source
+
+    fruitless = probation_source("dead.example", runs=10, fetched_each=20, saved_last=0)
+    young = probation_source("young.example", runs=9, fetched_each=20, saved_last=0)
+    barely_sampled = probation_source("thin.example", runs=10, fetched_each=10, saved_last=0)
+    yielding = probation_source("alive.example", runs=10, fetched_each=20, saved_last=1)
+
+    evaluate_sources()
+
+    for source, expected in [(fruitless, Source.Status.PAUSED_LOW_YIELD),
+                             (young, Source.Status.PROBATION),
+                             (barely_sampled, Source.Status.PROBATION),
+                             (yielding, Source.Status.PROBATION)]:
+        source.refresh_from_db()
+        assert source.status == expected, source.domain
+    assert OperatorEvent.objects.filter(event_type="source_status", source=fruitless).exists()
 
 
 @pytest.mark.django_db

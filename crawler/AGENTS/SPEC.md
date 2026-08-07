@@ -42,7 +42,7 @@ External selector <- exchange views -> append-only review events-+
 ### Storage and duplicate handling
 
 - ✅ Configure WAL, foreign keys, 30-second busy timeout, and normal synchronization on Django connections.
-- ✅ Allow one worker via OS file lock; lease due sources and recover expired leases.
+- ✅ Allow one worker via OS file lock; lease due sources and recover expired leases. Active sources are leased before probation ones regardless of how long a probation source has been due; probation gets every fifth lease while actives are also due, so neither class can starve the other.
 - ✅ On Ubuntu, store production SQLite state in `/var/lib/posinus`, shared by the local `posinus` group through a setgid directory, default ACLs, an explicit `0660` database mode, and `umask 0007`; every database client must run on the same host and belong to that group.
 - ✅ Group exact normalized-body SHA-256 duplicates.
 - ✅ Group near duplicates of the same language within 48 hours using SimHash and title similarity; translations remain separate.
@@ -65,8 +65,10 @@ External selector <- exchange views -> append-only review events-+
 
 ### Source policy
 
-- ✅ Discover candidate domains only from external links of positively reviewed items, excluding a blocklist of social networks, messengers, video platforms, app stores, and link shorteners.
+- ✅ Discover candidate domains only from external links of positively reviewed items, excluding a blocklist of social networks, messengers, video platforms, app stores, link shorteners, and reference/commerce/web-infrastructure domains.
 - ✅ Automatically accepted sources enter probation, limited to 20 saved articles.
+- ✅ A probation crawl is budgeted per run: at most 40 fetched article pages and 10 minutes of wall clock, whichever comes first. The 20-saved-articles cap never fires on a site that publishes nothing dated today, and an unbudgeted probation run used to walk a giant site whole for hours.
+- ✅ A probation source with at least 10 finished runs over at least 150 fetched pages and zero saved articles is paused as low-yield by the daily pass. Such a source produces no reviews, so the review-based yield rule could never reach it.
 - ✅ Promote after at least ten final reviews, at least 80% extraction success, and positive yield of at least 2%.
 - ✅ Pause an active source below 2% yield after at least 50 final reviews in a rolling 30-day window.
 - ✅ Ignore skipped/missing reviews and allow the operator to restart probation.

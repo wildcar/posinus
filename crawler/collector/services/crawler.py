@@ -16,6 +16,19 @@ from .ingest import ingest_article
 
 logger = logging.getLogger(__name__)
 
+# A probation crawl exists to sample whether a site publishes today-dated news,
+# not to mirror it. The 20-saved-articles cap never triggers on a site that
+# saves nothing, so a giant discovered domain used to be walked whole — five
+# hours and ten thousand pages for zero articles. Budget the sample instead.
+PROBATION_PAGE_BUDGET = 40
+PROBATION_TIME_BUDGET = timedelta(minutes=10)
+
+# Curated active sources are the product; probation sources are an experiment.
+# Without a priority the experiment starved the product for four days (2026-08),
+# and with a strict priority the product would starve the experiment forever.
+# Probation gets every fifth lease while actives are also due.
+ACTIVE_LEASES_PER_PROBATION = 4
+
 
 def ensure_runtime(source):
     state, _ = SourceRuntimeState.objects.get_or_create(source=source)
@@ -30,16 +43,29 @@ def published_today(value) -> bool:
     return timezone.localdate(value) == timezone.localdate()
 
 
+def _last_runs_all_active():
+    recent = list(CrawlRun.objects.order_by("-id")
+                  .values_list("source__status", flat=True)[:ACTIVE_LEASES_PER_PROBATION])
+    return (len(recent) == ACTIVE_LEASES_PER_PROBATION
+            and all(status == Source.Status.ACTIVE for status in recent))
+
+
 @retry_sqlite()
 @transaction.atomic
 def lease_next_source(owner=None, lease_minutes=20):
     now = timezone.now()
     owner = owner or f"{socket.gethostname()}:{uuid.uuid4()}"
-    candidate = (SourceRuntimeState.objects.select_related("source")
-                 .filter(next_run_at__lte=now)
-                 .filter(Q(lease_until__isnull=True) | Q(lease_until__lt=now))
-                 .filter(source__status__in=[Source.Status.ACTIVE, Source.Status.PROBATION])
-                 .order_by("next_run_at").first())
+
+    def oldest_due(*statuses):
+        return (SourceRuntimeState.objects.select_related("source")
+                .filter(next_run_at__lte=now)
+                .filter(Q(lease_until__isnull=True) | Q(lease_until__lt=now))
+                .filter(source__status__in=statuses)
+                .order_by("next_run_at").first())
+
+    candidate = oldest_due(Source.Status.PROBATION) if _last_runs_all_active() else None
+    if candidate is None:
+        candidate = oldest_due(Source.Status.ACTIVE) or oldest_due(Source.Status.PROBATION)
     if not candidate:
         return None
     updated = SourceRuntimeState.objects.filter(pk=candidate.pk).filter(Q(lease_until__isnull=True) | Q(lease_until__lt=now)).update(
@@ -74,6 +100,7 @@ def _initial_endpoint(source):
 def crawl_source(source: Source):
     run = CrawlRun.objects.create(source=source)
     errors = []
+    budget_exhausted = ""
     try:
         if _probation_limit_reached(source):
             run.status = CrawlRun.Status.SUCCESS
@@ -82,8 +109,14 @@ def crawl_source(source: Source):
         if not endpoints:
             endpoints = [_initial_endpoint(source)]
         seen = set()
-        article_limit = 20 if source.status == Source.Status.PROBATION else 200
+        probation = source.status == Source.Status.PROBATION
+        article_limit = 20 if probation else 200
+        deadline = timezone.now() + PROBATION_TIME_BUDGET
         for endpoint in endpoints:
+            if probation and timezone.now() >= deadline:
+                budget_exhausted = budget_exhausted or "time"
+            if budget_exhausted:
+                break
             try:
                 result = fetch_url(endpoint.url, etag=endpoint.etag, last_modified=endpoint.last_modified, delay=source.download_delay_seconds)
                 endpoint.etag = result.headers.get("ETag", endpoint.etag)
@@ -106,6 +139,13 @@ def crawl_source(source: Source):
                     except Exception as exc:
                         errors.append({"url": endpoint.url, "reason": f"nested sitemap: {exc}"})
                 for url, hinted_date in candidates:
+                    if probation:
+                        if run.fetched_count >= PROBATION_PAGE_BUDGET:
+                            budget_exhausted = "pages"
+                            break
+                        if timezone.now() >= deadline:
+                            budget_exhausted = "time"
+                            break
                     if run.saved_count >= article_limit or not url or url in seen or not url_matches(source, url):
                         continue
                     seen.add(url)
@@ -144,6 +184,8 @@ def crawl_source(source: Source):
         errors.append({"reason": str(exc)[:500]})
     finally:
         run.details = {"errors": errors[:100]}
+        if budget_exhausted:
+            run.details["budget_exhausted"] = budget_exhausted
         run.finished_at = timezone.now()
         run.save()
         finish_lease(source, run)
