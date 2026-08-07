@@ -101,6 +101,25 @@ def test_fruitless_probation_source_is_paused():
 
 
 @pytest.mark.django_db
+def test_pauseblockedsources_pauses_only_blocklisted_probation():
+    """Sources accepted before their domain entered the blocklist keep
+    occupying the crawl queue; the command retires them."""
+    from django.core.management import call_command
+
+    blocked = Source.objects.create(name="canva", base_url="https://www.canva.com/", domain="www.canva.com", status=Source.Status.PROBATION, is_auto_discovered=True)
+    normal = Source.objects.create(name="news", base_url="https://news.example/", domain="news.example", status=Source.Status.PROBATION, is_auto_discovered=True)
+    blocked_active = Source.objects.create(name="wiki", base_url="https://en.wikipedia.org/", domain="en.wikipedia.org")
+
+    call_command("pauseblockedsources")
+
+    blocked.refresh_from_db(); normal.refresh_from_db(); blocked_active.refresh_from_db()
+    assert blocked.status == Source.Status.PAUSED_MANUAL
+    assert normal.status == Source.Status.PROBATION
+    assert blocked_active.status == Source.Status.ACTIVE  # active sources are the operator's call
+    assert OperatorEvent.objects.filter(event_type="source_status", source=blocked).exists()
+
+
+@pytest.mark.django_db
 def test_retention_keeps_tombstone():
     source = Source.objects.create(name="Old", base_url="https://old.example/", domain="old.example")
     item, _, _ = ingest_article(source=source, url="https://old.example/1", title="Old news", body="Old news body. " * 30)
