@@ -31,6 +31,17 @@ a publish-ready retelling, and posts them to the platforms.
   `Источник: [имя](url)`) plus downloaded illustrations, in the pipeline-owned SQLite +
   media dir. Canonical form is `prepared_item.retold_body_md`; no HTML page anymore. LIVE
   on prod (every 15 min).
+- Since 2026-08-08 the retelling call also returns content tags (3–6 short Russian
+  tags, lenient parse, `prepared_item.tags` comma-separated; NULL for items prepared
+  before). The publisher appends the constant news tags «позитивная», «новость»,
+  «позитивная новость» at send time and puts the merged list into the tag-capable
+  platforms: Эгея's tags field (after the `EGEYA_TAGS` base «добрые новости») and the
+  wildcar.org page front matter (rendered by the Material `tags` plugin, enabled in
+  wildcar-site commit `87ff101`). The daypic wildcar.org page carries its Эгея tags
+  (`DAYPIC_SITE_TAGS`, «картина дня») the same way. Эгея notes now mirror the
+  wildcar.org page: ALL pictures are uploaded — lead first, then text, then the rest,
+  each with its caption on the next Neasden line (that renders as a caption inside
+  the picture block — verified against the Neasden source, extension `picture.php`).
 - Since 2026-07-26 the router sees two callers: scoring sends `external_user_id` =
   `SELECTOR_NAME` (overridable with `ROUTER_USER_ID`), retelling sends `news-preparer`
   (`PREPARER_ROUTER_USER_ID`). Before that both were `news-evaluator`, so the router billed

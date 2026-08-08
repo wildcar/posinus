@@ -137,14 +137,62 @@ class VkAndSiteTextTests(unittest.TestCase):
         self.assertIn("Источник: https://s.test/a", msg)
 
     def test_site_text_neasden_markup(self):
-        text = build_site_text("pic.jpg", ["a", "b"], "https://s.test/a", "s.test")
+        text = build_site_text([("pic.jpg", "")], ["a", "b"], "https://s.test/a", "s.test")
         self.assertTrue(text.startswith("pic.jpg\n\n"))
         self.assertIn("Источник: ((https://s.test/a s.test))", text)
 
     def test_site_text_without_image(self):
-        text = build_site_text("", ["a"], "https://s.test/a", "s.test")
+        text = build_site_text([], ["a"], "https://s.test/a", "s.test")
         self.assertFalse(text.startswith("\n"))
         self.assertTrue(text.startswith("a"))
+
+    def test_site_text_mirrors_the_wildcar_page(self):
+        """Lead picture, paragraphs, the rest of the pictures; a caption sits on
+        the very next line — that is how Neasden draws it inside the block."""
+        text = build_site_text(
+            [("1.jpg", "Первая подпись"), ("2.jpg", ""), ("3.jpg", "Третья")],
+            ["a", "b"], "https://s.test/a", "s.test")
+        self.assertEqual(
+            text,
+            "1.jpg\nПервая подпись\n\na\n\nb\n\n2.jpg\n\n3.jpg\nТретья\n\n"
+            "Источник: ((https://s.test/a s.test))")
+
+
+class TagTests(unittest.TestCase):
+    def test_split_tags(self):
+        self.assertEqual(publisher.split_tags("добрые новости, экология , ,"),
+                         ["добрые новости", "экология"])
+        self.assertEqual(publisher.split_tags(None), [])
+        self.assertEqual(publisher.split_tags(""), [])
+
+    def test_merge_tags_first_occurrence_wins(self):
+        merged = publisher.merge_tags(["экология", "Новость"],
+                                      publisher.NEWS_TAGS)
+        self.assertEqual(merged, ["экология", "Новость", "позитивная", "позитивная новость"])
+
+    def test_front_matter_quotes_tags(self):
+        fm = publisher.build_front_matter(["позитивная новость", "эко"])
+        self.assertTrue(fm.startswith("---\ntags:\n"))
+        self.assertIn('  - "позитивная новость"', fm)
+        self.assertTrue(fm.endswith("---\n\n"))
+        self.assertEqual(publisher.build_front_matter([]), "")
+
+    def test_build_item_merges_stored_tags_with_news_tags(self):
+        con = open_own_db(":memory:")
+        con.execute("INSERT INTO prepared_item (news_id, status, retold_title, retold_body_md, tags) "
+                    "VALUES (1, 'prepared', 'T', '# Т' || char(10) || 'текст', 'экология, новость')")
+        row = con.execute(publisher.PREPARED_SQL).fetchone()
+        item = publisher.build_item(con, row)
+        self.assertEqual(item.tags, ["экология", "новость", "позитивная", "позитивная новость"])
+        con.close()
+
+    def test_wildcar_page_starts_with_the_front_matter(self):
+        entry = publisher.WildcarEntry(
+            news_id=1, title="Т", paragraphs=["Абзац."], source_url="", source_name="",
+            images=[], published_at=datetime(2026, 8, 8, tzinfo=timezone.utc),
+            tags=["позитивная"])
+        page = publisher.build_wildcar_page(entry, ZoneInfo("Europe/Moscow"))
+        self.assertTrue(page.startswith('---\ntags:\n  - "позитивная"\n---\n\n# Т'))
 
 
 class MultipartTests(unittest.TestCase):
@@ -391,6 +439,61 @@ class TelegramSendTests(unittest.TestCase):
         text = urllib.parse.parse_qs(sent["data"].decode("utf-8"))["text"][0]
         self.assertEqual(text.count("п" * 700), 2)  # 2 of 4 paragraphs fit in 1500
         self.assertIn('href="https://wildcar.org/news/7169/"', text)
+
+
+class SitePublishTests(unittest.TestCase):
+    """publish_site against a fake Эгея session: every picture is uploaded and
+    the note carries the merged tags, mirroring the wildcar.org page."""
+
+    FORM_PAGE = ('<div class="form-note"><input id="token" value="tok"/>'
+                 '<input id="old-stamp" value="1"/></div>')
+
+    class FakeSession:
+        def __init__(self, *args, **kwargs):
+            self.uploads = []
+            self.forms = []
+
+        def get(self, url, headers=None, max_redirects=5):
+            return publisher._Response(200, {}, SitePublishTests.FORM_PAGE.encode(), url)
+
+        def post_form(self, url, fields, headers=None):
+            self.forms.append((url, fields))
+            if "note-process" in url:
+                return publisher._Response(302, {"Location": "/all/zametka/"}, b"", url)
+            return publisher._Response(200, {}, b"", url)
+
+        def post_multipart(self, url, fields, files, headers=None):
+            self.uploads.append(files["file"][0])
+            name = f"srv-{len(self.uploads)}.jpg"
+            body = json.dumps({"success": True, "data": {"new-name": name}}).encode()
+            return publisher._Response(200, {}, body, url)
+
+    def test_uploads_every_picture_and_sends_merged_tags(self):
+        cfg = PublisherConfig(site_password="pw")
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for name in ("1.jpg", "2.jpg"):
+                path = Path(tmp) / name
+                path.write_bytes(b"\xff\xd8img")
+                paths.append(str(path))
+            item = PreparedNews(
+                news_id=5, title="Т", paragraphs=["Абзац."], lead_image=paths[0],
+                source_url="https://s.test/a", source_name="s.test",
+                images=[(paths[0], "Подпись"), (paths[1], "")],
+                tags=["экология", "позитивная", "новость", "позитивная новость"],
+            )
+            session = self.FakeSession()
+            with mock.patch.object(publisher, "Session", lambda *a, **k: session):
+                url = publisher.publish_site(cfg, item, dry_run=False)
+        self.assertEqual(url, "https://wildcar.ru/all/zametka/")
+        self.assertEqual(session.uploads, ["1.jpg", "2.jpg"])
+        form = next(fields for u, fields in session.forms if "note-process" in u)
+        self.assertEqual(form["tags"],
+                         "добрые новости, экология, позитивная, новость, позитивная новость")
+        self.assertIn("srv-1.jpg\nПодпись", form["text"])
+        self.assertIn("srv-2.jpg", form["text"])
+        # the fake page carries no "Неопубликовано", so no note-publish round
+        self.assertTrue(form["text"].index("Абзац.") < form["text"].index("srv-2.jpg"))
 
 
 class LockedForFirstWrites:

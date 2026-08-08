@@ -13,12 +13,13 @@ Three stdlib-only scripts (Python 3.12):
   `--backfill` re-verdicts already-scored news from stored scores. The `default`
   profile is strict (few items pass) — see `AGENTS/SPEC.md`, section «Пороговая модель».
 - `preparer.py` — for each selected news, extracts illustrations with captions from the
-  article, asks the model for a fresh lively Russian retelling, and stores it as a
-  markdown document in the pipeline's own SQLite plus a media dir.
+  article, asks the model for a fresh lively Russian retelling plus content tags, and
+  stores it as a markdown document in the pipeline's own SQLite plus a media dir.
 - `publisher.py` — posts each prepared news to the wildcar.org news section (a static
   MkDocs site on the same host, rebuilt by a systemd unit; carries the Дзен-ready RSS
-  feed), Telegram (@posinus, photo + caption capped for the Дзен autopublisher, with a
-  full-text link to wildcar.org when truncated), the wildcar.ru site (Эгея), and a VK
+  feed; page tags in the front matter), Telegram (@posinus, photo + caption capped for
+  the Дзен autopublisher, with a full-text link to wildcar.org when truncated), the
+  wildcar.ru site (Эгея — all pictures with captions, tagged), and a VK
   community wall, fully automatically by timer. Each platform turns on only when its
   secret is set in the env file; idempotent per platform, marks «Опубликовано» when all
   enabled platforms succeed.

@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-08-08 · News get tags, and wildcar.ru gets every picture
+- What: the retelling call also returns 3–6 Russian content tags (lenient, `prepared_item.tags`, comma-separated, NULL for older items); the publisher appends the constant «позитивная», «новость», «позитивная новость» at send time and delivers the merged list to Эгея's tags field (after the `EGEYA_TAGS` base) and the wildcar.org page front matter (Material `tags` plugin, enabled in wildcar-site `87ff101`); the daypic page carries «картина дня» the same way. Эгея notes now mirror the wildcar.org page: ALL pictures uploaded, lead → text → the rest, captions on the next Neasden line (caption-inside-picture, per the Neasden source). 278 tests pass.
+- Why: owner's request — tags on the platforms that have a field for them, and wildcar.ru should carry the full picture set like wildcar.org does.
+- Files: pipeline/{preparer,publisher,daypic}.py, pipeline/tests/{test_preparer,test_publisher,test_daypic}.py, pipeline/{AGENTS/SPEC.md,docs/services.md,README.md,deploy/pipeline.env.example}; wildcar-site: mkdocs.yml (+ recorded awesome-nav/requirements)
+- Next: deploy, then check the first published item: tags visible on wildcar.ru and wildcar.org, all pictures on the Эгея note.
+
 ## 2026-08-03 · Issues go out on a slot grid: 09:00–23:00 Moscow, every two hours
 - What: `PUB_SLOTS` (default `09:00,…,23:00` in `PUB_WINDOW_TZ`) replaces the interval and the window for NEW items — one fresh item per slot, a slot counts as served by the last successful post, a run that missed the exact minute still posts inside its slot; empty slots fall back to the old interval+window pacing (window defaults moved to 09:00–23:00). The timer now fires exactly on the slots plus :15/:45 for retries; the run config records `slots` and the crawler's «Эфир» forecasts on the grid (its own HISTORY entry). Also defused a test time bomb: hardcoded `prepared_at='2026-07-23'` crossed `PUB_EXPIRE_AFTER_DAYS` and broke 8 publisher tests on main — dates are relative now. 264 pipeline + 140 crawler tests pass.
 - Why: owner's call — releases must sit on exact times, first at 09:00, last at 23:00 MSK; the drifting 30-min timer with a 60-min interval scattered posts over random minutes (05:22, 06:55, 18:15…).

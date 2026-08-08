@@ -314,6 +314,7 @@ class WildcarOrgTests(unittest.TestCase):
 
         self.assertEqual(url, "https://wildcar.org/kartina/2026-07-29/")
         page = (self.content / "kartina" / "2026-07-29" / "index.md").read_text(encoding="utf-8")
+        self.assertTrue(page.startswith('---\ntags:\n  - "картина дня"\n---\n'))
         self.assertIn("# Картина дня · 29 июля 2026", page)
         self.assertIn("![](2026-07-29-day-wide.png)", page)
         self.assertIn("Сегодня праздник.", page)

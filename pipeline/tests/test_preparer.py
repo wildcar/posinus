@@ -189,6 +189,26 @@ class OwnDbTests(unittest.TestCase):
         self.assertIn("# Заголовок", row["retold_body_md"])
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM illustration WHERE news_id=5").fetchone()[0], 1)
 
+    def test_tags_stored_comma_separated_and_nullable(self):
+        save_prepared(self.con, 5, "t", "md", "m", [], ["экология", "добрые дела"])
+        row = self.con.execute("SELECT tags FROM prepared_item WHERE news_id=5").fetchone()
+        self.assertEqual(row["tags"], "экология, добрые дела")
+        save_prepared(self.con, 6, "t", "md", "m", [])
+        row = self.con.execute("SELECT tags FROM prepared_item WHERE news_id=6").fetchone()
+        self.assertIsNone(row["tags"])
+
+    def test_migration_adds_tags_to_an_older_db(self):
+        con = sqlite3.connect(":memory:")
+        con.row_factory = sqlite3.Row
+        con.execute("CREATE TABLE prepared_item (news_id INTEGER PRIMARY KEY, status TEXT NOT NULL, "
+                    "retold_title TEXT, retold_body_md TEXT, model_id TEXT, prepared_at TEXT, "
+                    "published_at TEXT, error TEXT, edited_at TEXT, edited_by TEXT, "
+                    "images_purged_at TEXT, expired_at TEXT)")
+        preparer.migrate_own_db(con)
+        columns = {row["name"] for row in con.execute("PRAGMA table_info(prepared_item)")}
+        self.assertIn("tags", columns)
+        con.close()
+
     def test_resave_replaces_illustrations(self):
         save_prepared(self.con, 5, "t", "md", "m", [{"path": "/a", "caption": "", "source_url": ""}])
         save_prepared(self.con, 5, "t", "md", "m", [{"path": "/b", "caption": "", "source_url": ""},
@@ -401,6 +421,22 @@ class ParseCaptionsTests(unittest.TestCase):
         self.assertIsNone(preparer.parse_captions({"captions": ["лишняя"]}, 0))
 
 
+class ParseTagsTests(unittest.TestCase):
+    def test_valid_tags_cleaned_and_deduped(self):
+        payload = {"tags": ["#экология", " добрые  дела ", "Экология", "спорт, рекорд"]}
+        self.assertEqual(preparer.parse_tags(payload),
+                         ["экология", "добрые дела", "спорт рекорд"])
+
+    def test_unusable_reply_returns_empty(self):
+        self.assertEqual(preparer.parse_tags({}), [])
+        self.assertEqual(preparer.parse_tags({"tags": "строкой"}), [])
+        self.assertEqual(preparer.parse_tags({"tags": [1, "", "  "]}), [])
+
+    def test_tag_count_is_capped(self):
+        payload = {"tags": [f"тег{i}" for i in range(20)]}
+        self.assertEqual(len(preparer.parse_tags(payload)), preparer.MAX_TAGS)
+
+
 class RetellCaptionsTests(unittest.TestCase):
     NEWS = {"news_id": 1, "title": "T", "body_text": "Body.", "language": "en"}
 
@@ -412,7 +448,7 @@ class RetellCaptionsTests(unittest.TestCase):
                     "model_id": "m"}
 
         with mock.patch.object(evaluator, "chat", fake_chat):
-            title, paras, captions, model_id = preparer.retell(mock.Mock(), self.NEWS, ["First cap"])
+            title, paras, captions, tags, model_id = preparer.retell(mock.Mock(), self.NEWS, ["First cap"])
         self.assertEqual(captions, ["Первая"])
         self.assertEqual((title, paras, model_id), ("Т", ["А."], "m"))
 
@@ -421,7 +457,7 @@ class RetellCaptionsTests(unittest.TestCase):
             return {"text": '{"title": "Т", "body": ["А."]}', "model_id": "m"}
 
         with mock.patch.object(evaluator, "chat", fake_chat):
-            title, paras, captions, _ = preparer.retell(mock.Mock(), self.NEWS, ["First cap"])
+            title, paras, captions, _, _ = preparer.retell(mock.Mock(), self.NEWS, ["First cap"])
         self.assertIsNone(captions)  # the originals are kept downstream
         self.assertEqual(title, "Т")
 
@@ -432,6 +468,24 @@ class RetellCaptionsTests(unittest.TestCase):
 
         with mock.patch.object(evaluator, "chat", fake_chat):
             preparer.retell(mock.Mock(), self.NEWS, [])
+
+    def test_tags_ride_in_the_same_call(self):
+        def fake_chat(cfg, messages):
+            return {"text": '{"title": "Т", "body": ["А."], "tags": ["экология", "море"]}',
+                    "model_id": "m"}
+
+        with mock.patch.object(evaluator, "chat", fake_chat):
+            _, _, _, tags, _ = preparer.retell(mock.Mock(), self.NEWS, [])
+        self.assertEqual(tags, ["экология", "море"])
+
+    def test_missing_tags_do_not_fail_the_retelling(self):
+        def fake_chat(cfg, messages):
+            return {"text": '{"title": "Т", "body": ["А."]}', "model_id": "m"}
+
+        with mock.patch.object(evaluator, "chat", fake_chat):
+            title, _, _, tags, _ = preparer.retell(mock.Mock(), self.NEWS, [])
+        self.assertEqual(tags, [])
+        self.assertEqual(title, "Т")
 
 
 class PrepareOneCaptionTests(unittest.TestCase):

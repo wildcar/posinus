@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS prepared_item (
     status TEXT NOT NULL,
     retold_title TEXT,
     retold_body_md TEXT,
+    tags TEXT,            -- the model's content tags, comma-separated (Эгея's field format)
     model_id TEXT,
     prepared_at TEXT,
     published_at TEXT,
@@ -619,11 +620,17 @@ RETELL_SYSTEM = (
     "- Заголовок короткий и цепляющий, без кликбейта. Тело от двух до четырёх абзацев.\n"
     "- Если в сообщении есть блок «Подписи к иллюстрациям», переведи каждую подпись на русский "
     "в том же порядке: коротко, без точки в конце, без выдумок.\n"
+    "- Подбери к новости от трёх до шести тегов: коротких, по-русски, в нижнем регистре, "
+    "без решёток.\n"
     "Формат ответа. Верни один JSON-объект и больше ничего: "
-    '{"title": "<заголовок>", "body": ["<абзац>", "<абзац>", ...]}. '
+    '{"title": "<заголовок>", "body": ["<абзац>", "<абзац>", ...], '
+    '"tags": ["<тег>", ...]}. '
     'Если были подписи, добавь поле "captions": ["<подпись>", ...] - ровно столько же, '
     "сколько было в блоке, в том же порядке."
 )
+
+# More than this is noise, not classification; the prompt asks for 3-6.
+MAX_TAGS = 8
 
 
 def build_retell_user_message(title: str, body: str, language: str, captions: list[str] | None = None) -> str:
@@ -670,14 +677,38 @@ def parse_captions(payload: dict[str, Any], expected: int) -> list[str] | None:
     return [" ".join(c.split()) for c in captions]
 
 
+def parse_tags(payload: dict[str, Any]) -> list[str]:
+    """The model's content tags, or [] when the field is unusable.
+
+    Lenient like the captions: a bad tags array must not fail the retelling or
+    cost a second call — the item simply goes out with the constant tags the
+    publisher adds on its own. Commas are stripped because a comma-separated
+    string is how the tags are stored and how Эгея's tags field reads them."""
+    tags = payload.get("tags")
+    if not isinstance(tags, list):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for tag in tags:
+        if not isinstance(tag, str):
+            continue
+        cleaned = " ".join(tag.replace("#", " ").replace(",", " ").split())
+        if not cleaned or cleaned.casefold() in seen:
+            continue
+        seen.add(cleaned.casefold())
+        result.append(cleaned)
+    return result[:MAX_TAGS]
+
+
 def retell(
     router_cfg: "evaluator.Config", news: sqlite3.Row, captions: list[str] | None = None
-) -> tuple[str, list[str], list[str] | None, str]:
+) -> tuple[str, list[str], list[str] | None, list[str], str]:
     """Ask the model for a Russian retelling; one retry on invalid JSON.
 
     `captions` are the original (usually English) illustration captions; they
     ride along in the same call and come back translated as the third element,
-    or None when the model did not cooperate."""
+    or None when the model did not cooperate. The fourth element is the model's
+    content tags ([] when unusable)."""
     messages = [
         {"role": "system", "content": RETELL_SYSTEM},
         {"role": "user", "content": build_retell_user_message(
@@ -699,7 +730,10 @@ def retell(
         captions_ru = parse_captions(payload, len(captions or []))
         if captions and captions_ru is None:
             log.warning("news %s: captions missing or mismatched in the reply, keeping the originals", news["news_id"])
-        return title, paragraphs, captions_ru, reply.get("model_id") or router_cfg.model_id
+        tags = parse_tags(payload)
+        if not tags:
+            log.warning("news %s: no usable tags in the reply", news["news_id"])
+        return title, paragraphs, captions_ru, tags, reply.get("model_id") or router_cfg.model_id
     raise evaluator.EvaluationInvalid(last_error)
 
 
@@ -765,6 +799,12 @@ def migrate_own_db(con: sqlite3.Connection) -> None:
         con.execute("ALTER TABLE prepared_item ADD COLUMN edited_by TEXT")
         con.commit()
     columns = {row["name"] for row in con.execute("PRAGMA table_info(prepared_item)")}
+    if columns and "tags" not in columns:
+        # Items prepared before tags existed keep NULL here; the publisher still
+        # sends them out with the constant tags it adds itself.
+        con.execute("ALTER TABLE prepared_item ADD COLUMN tags TEXT")
+        con.commit()
+    columns = {row["name"] for row in con.execute("PRAGMA table_info(prepared_item)")}
     if not columns or "retold_body_md" in columns:
         return
     con.execute("ALTER TABLE prepared_item ADD COLUMN retold_body_md TEXT")
@@ -828,18 +868,18 @@ def prepared_ids(con: sqlite3.Connection) -> set[int]:
 
 def save_prepared(
     con: sqlite3.Connection, news_id: int, title: str, body_md: str,
-    model_id: str, images: list[dict[str, str]],
+    model_id: str, images: list[dict[str, str]], tags: list[str] | None = None,
 ) -> None:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with con:
         con.execute("DELETE FROM illustration WHERE news_id = ?", (news_id,))
         con.execute(
-            "INSERT INTO prepared_item (news_id, status, retold_title, retold_body_md, model_id, prepared_at) "
-            "VALUES (?, 'prepared', ?, ?, ?, ?) "
+            "INSERT INTO prepared_item (news_id, status, retold_title, retold_body_md, tags, model_id, prepared_at) "
+            "VALUES (?, 'prepared', ?, ?, ?, ?, ?) "
             "ON CONFLICT(news_id) DO UPDATE SET status='prepared', retold_title=excluded.retold_title, "
-            "retold_body_md=excluded.retold_body_md, model_id=excluded.model_id, "
+            "retold_body_md=excluded.retold_body_md, tags=excluded.tags, model_id=excluded.model_id, "
             "prepared_at=excluded.prepared_at, error=NULL",
-            (news_id, title, body_md, model_id, now),
+            (news_id, title, body_md, ", ".join(tags) if tags else None, model_id, now),
         )
         con.executemany(
             "INSERT INTO illustration (news_id, position, file_path, caption, source_url, downloaded_at) "
@@ -878,7 +918,7 @@ def prepare_one(cfg: PreparerConfig, router_cfg: "evaluator.Config", news: sqlit
             log.warning("news %s: article fetch failed: %s", news["news_id"], exc)
 
     captions_in = [c["caption"] for c in candidates if c["caption"].strip()]
-    title, paragraphs, captions_ru, model_id = retell(router_cfg, news, captions_in)
+    title, paragraphs, captions_ru, tags, model_id = retell(router_cfg, news, captions_in)
     if captions_ru is not None:
         translated = iter(captions_ru)
         for candidate in candidates:
@@ -906,7 +946,7 @@ def prepare_one(cfg: PreparerConfig, router_cfg: "evaluator.Config", news: sqlit
     source_url = news["primary_url"] or ""
     body_md = build_markdown(title, paragraphs, source_url, source_name_from_url(source_url) if source_url else "")
     return {"title": title, "paragraphs": paragraphs, "model_id": model_id, "images": images,
-            "body_md": body_md, "generated": generated, "images_dropped": dropped}
+            "body_md": body_md, "tags": tags, "generated": generated, "images_dropped": dropped}
 
 
 def add_ignored_image(cfg: PreparerConfig, url: str, note: str, counters: dict | None = None) -> int:
@@ -986,12 +1026,13 @@ def run(cfg: PreparerConfig, router_cfg: "evaluator.Config", limit: int, dry_run
                     record_error(own_con, news["news_id"], str(exc))
                 continue
             if dry_run:
-                log.info("news %s [dry-run]: '%s', %d paragraphs, %d images",
-                         news["news_id"], result["title"], len(result["paragraphs"]), len(result["images"]))
+                log.info("news %s [dry-run]: '%s', %d paragraphs, %d images, tags [%s]",
+                         news["news_id"], result["title"], len(result["paragraphs"]),
+                         len(result["images"]), ", ".join(result.get("tags") or []))
                 print(result["body_md"])
             else:
                 save_prepared(own_con, news["news_id"], result["title"], result["body_md"],
-                              result["model_id"], result["images"])
+                              result["model_id"], result["images"], result.get("tags"))
                 log.info("news %s: prepared '%s' (%d images)",
                          news["news_id"], result["title"], len(result["images"]))
             prepared += 1

@@ -630,13 +630,15 @@ def wildcar_section_url(cfg: DaypicConfig, pub_cfg: "publisher.PublisherConfig")
     return f"{pub_cfg.wildcar_base}/{cfg.wildcar_section}/"
 
 
-def build_wildcar_page(title: str, image_name: str, caption: str) -> str:
+def build_wildcar_page(title: str, image_name: str, caption: str, tags: list[str] | None = None) -> str:
     parts = [f"# {title}"]
     if image_name:
         parts.append(f"![]({urllib.parse.quote(image_name)})")
     if caption:
         parts.append(caption)
-    return "\n\n".join(parts) + "\n"
+    # The same tags Эгея gets (DAYPIC_SITE_TAGS, «картина дня»), as front
+    # matter for the Material tags plugin.
+    return publisher.build_front_matter(tags or []) + "\n\n".join(parts) + "\n"
 
 
 def build_wildcar_index(entries: list[tuple[str, str, str]]) -> str:
@@ -687,7 +689,8 @@ def publish_wildcar_org(
         image_name = Path(item.lead_image).name
         shutil.copyfile(item.lead_image, page_dir / image_name)
     (page_dir / "index.md").write_text(
-        build_wildcar_page(item.title, image_name, "\n\n".join(item.paragraphs)),
+        build_wildcar_page(item.title, image_name, "\n\n".join(item.paragraphs),
+                           publisher.split_tags(cfg.site_tags)),
         encoding="utf-8",
     )
     entries = [(slug, row["day"], item.title)] + _wildcar_published_issues(con, exclude_id=row["id"])

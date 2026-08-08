@@ -20,15 +20,19 @@ Platforms (each turns on only when its secrets are present in the config):
 - wildcar_org: the news section of the static wildcar.org site (MkDocs). The
   publisher writes the page and its pictures into a content directory, touches
   a rebuild marker for the site-build unit and waits until the page is live.
-  It also regenerates the section index and the Dzen RSS feed (`rss.xml`) —
-  the long game for dzen.ru, which polls the feed itself once connected.
+  The page carries the item's tags in its YAML front matter (rendered by the
+  Material tags plugin). It also regenerates the section index and the Dzen
+  RSS feed (`rss.xml`) — the long game for dzen.ru, which polls the feed
+  itself once connected.
 - telegram: sendPhoto + HTML caption to the channel (@posinus). The caption is
   capped by TG_TEXT_LIMIT (default 1500, and by Telegram's own 1024 for photo
   captions): dzen.ru currently mirrors the channel through its телеграм
   autopublisher, which drops longer posts. A truncated post carries a link to
   the full text on wildcar.org.
-- site: wildcar.ru on the Эгея engine (login, new-note form, image upload,
-  note-process, note-publish) with Neasden markup.
+- site: wildcar.ru on the Эгея engine (login, new-note form, upload of EVERY
+  picture, note-process, note-publish) with Neasden markup. The note mirrors
+  the wildcar.org page — lead picture, text, remaining pictures with captions —
+  and its tags field carries EGEYA_TAGS plus the item's tags.
 - vk: a community wall post (photo upload + wall.post from the group).
 
 Idempotency: each (news_id, platform) send is recorded in the `publication`
@@ -100,11 +104,17 @@ _own_db_path: str | None = None   # set by open_own_db, read by _unrecorded_mark
 EXPIRE_AFTER_DAYS = 10
 
 PREPARED_SQL = """
-SELECT news_id, retold_title, retold_body_md, prepared_at
+SELECT news_id, retold_title, retold_body_md, tags, prepared_at
 FROM prepared_item
 WHERE status = 'prepared'
 ORDER BY prepared_at ASC, news_id ASC
 """
+
+# Every news post carries these on the tag-capable platforms (wildcar.ru,
+# wildcar.org), after the model's content tags. Added here rather than stored
+# by the preparer: it is a publishing rule, and it covers items prepared
+# before tags existed.
+NEWS_TAGS = ("позитивная", "новость", "позитивная новость")
 
 # The order to take them in, from the crawler DB: «сила» of each news item plus
 # whatever the operator changed by hand. Preparation time is the fallback and the
@@ -383,9 +393,12 @@ class PreparedNews:
     source_url: str
     source_name: str
     # Every illustration with an existing file, as (path, caption) in position
-    # order. Telegram/VK/Эгея still take only the lead; wildcar.org (and hence
-    # the Dzen feed) carries them all.
+    # order. Telegram and VK still take only the lead; wildcar.org (and hence
+    # the Dzen feed) and Эгея carry them all.
     images: list[tuple[str, str]] = field(default_factory=list)
+    # The model's content tags plus NEWS_TAGS, for the platforms with a tag
+    # field (Эгея's tags input, the wildcar.org front matter).
+    tags: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------- content builders
@@ -394,6 +407,25 @@ class PreparedNews:
 def source_name_from_url(url: str) -> str:
     host = urllib.parse.urlsplit(url).netloc
     return host[4:] if host.startswith("www.") else host
+
+
+def split_tags(raw: str | None) -> list[str]:
+    """Tags out of a stored comma-separated string (Эгея's field format)."""
+    return [part.strip() for part in (raw or "").split(",") if part.strip()]
+
+
+def merge_tags(*groups) -> list[str]:
+    """One flat tag list; the first occurrence wins, case-insensitively."""
+    result: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for tag in group:
+            cleaned = " ".join(tag.split())
+            if not cleaned or cleaned.casefold() in seen:
+                continue
+            seen.add(cleaned.casefold())
+            result.append(cleaned)
+    return result
 
 
 _SOURCE_LINE_RE = re.compile(r"^Источник:\s*\[([^\]]*)\]\(([^)]+)\)\s*$")
@@ -487,13 +519,24 @@ def build_vk_message(title: str, paragraphs: list[str], source_url: str, source_
 
 
 def build_site_text(
-    image_filename: str, paragraphs: list[str], source_url: str, source_name: str
+    images: list[tuple[str, str]], paragraphs: list[str], source_url: str, source_name: str
 ) -> str:
-    """Neasden markup: image filename line, paragraphs, ((url name)) source line."""
+    """Neasden markup, mirroring the wildcar.org page: the lead picture, the
+    paragraphs, the remaining pictures, a ((url name)) source line.
+
+    `images` are (uploaded filename, caption). A caption goes on the line right
+    under its picture — no blank line between them, which is how Neasden puts
+    the text inside the picture block as its caption."""
+
+    def picture(filename: str, caption: str) -> str:
+        return f"{filename}\n{caption}" if caption else filename
+
     blocks: list[str] = []
-    if image_filename:
-        blocks.append(image_filename)
+    if images:
+        blocks.append(picture(*images[0]))
     blocks.append("\n\n".join(paragraphs))
+    for filename, caption in images[1:]:
+        blocks.append(picture(filename, caption))
     if source_url:
         blocks.append(f"Источник: (({source_url} {source_name or source_name_from_url(source_url)}))")
     return "\n\n".join(b for b in blocks if b)
@@ -737,6 +780,21 @@ class WildcarEntry:
     source_name: str
     images: list[tuple[str, str]]      # (filename, caption)
     published_at: datetime
+    tags: list[str] = field(default_factory=list)
+
+
+def build_front_matter(tags: list[str]) -> str:
+    """YAML front matter carrying the page tags, or nothing when there are none.
+
+    Material's built-in `tags` plugin (enabled in the site repository's
+    mkdocs.yml) renders these as chips on the page. json.dumps quotes each tag
+    in a YAML-compatible way, whatever characters the model put in it."""
+    if not tags:
+        return ""
+    lines = ["---", "tags:"]
+    lines += [f"  - {json.dumps(tag, ensure_ascii=False)}" for tag in tags]
+    lines += ["---", ""]
+    return "\n".join(lines) + "\n"
 
 
 def wildcar_section_dir(cfg: PublisherConfig) -> Path:
@@ -773,8 +831,9 @@ def _image_block(filename: str, caption: str) -> str:
 
 
 def build_wildcar_page(entry: WildcarEntry, zone: ZoneInfo) -> str:
-    """The news page: title, lead picture, full text, the rest of the pictures,
-    a date-and-source line. MkDocs takes the H1 as the page title."""
+    """The news page: tags in the front matter, title, lead picture, full text,
+    the rest of the pictures, a date-and-source line. MkDocs takes the H1 as
+    the page title."""
     parts = [f"# {entry.title}"]
     if entry.images:
         parts.append(_image_block(*entry.images[0]))
@@ -786,7 +845,7 @@ def build_wildcar_page(entry: WildcarEntry, zone: ZoneInfo) -> str:
         name = entry.source_name or source_name_from_url(entry.source_url)
         tail += f" · Источник: [{name}]({entry.source_url})"
     parts.append(f"*{tail}*")
-    return "\n\n".join(parts) + "\n"
+    return build_front_matter(entry.tags) + "\n\n".join(parts) + "\n"
 
 
 def build_wildcar_index(entries: list[WildcarEntry], zone: ZoneInfo) -> str:
@@ -925,10 +984,10 @@ def publish_wildcar_org(cfg: PublisherConfig, item: PreparedNews, dry_run: bool)
         page = build_wildcar_page(
             WildcarEntry(item.news_id, item.title, item.paragraphs, item.source_url,
                          item.source_name, [(Path(p).name, c) for p, c in item.images],
-                         datetime.now(timezone.utc)),
+                         datetime.now(timezone.utc), item.tags),
             _window_zone(cfg.window_tz))
-        log.info("news %s wildcar_org [dry-run]: %s, %d images, %d chars",
-                 item.news_id, page_url, len(item.images), len(page))
+        log.info("news %s wildcar_org [dry-run]: %s, %d images, tags [%s], %d chars",
+                 item.news_id, page_url, len(item.images), ", ".join(item.tags), len(page))
         return "(dry-run)"
 
     zone = _window_zone(cfg.window_tz)
@@ -937,6 +996,7 @@ def publish_wildcar_org(cfg: PublisherConfig, item: PreparedNews, dry_run: bool)
         source_url=item.source_url, source_name=item.source_name,
         images=[(Path(path).name, caption) for path, caption in item.images],
         published_at=datetime.now(timezone.utc),
+        tags=item.tags,
     )
     page_dir = wildcar_page_dir(cfg, item.news_id)
     page_dir.mkdir(parents=True, exist_ok=True)
@@ -1028,10 +1088,16 @@ def publish_vk(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
 
 
 def publish_site(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
-    """Post to wildcar.ru (Эгея): login, upload image, submit and publish the note."""
+    """Post to wildcar.ru (Эгея): login, upload every picture, submit and
+    publish the note. The note mirrors the wildcar.org page — lead picture,
+    text, the remaining pictures with captions — and carries the platform's
+    base tags plus the item's own in the tags field."""
+    tags = merge_tags(split_tags(cfg.site_tags), item.tags)
     if dry_run:
-        text = build_site_text("<image>", item.paragraphs, item.source_url, item.source_name)
-        log.info("news %s site [dry-run]: title='%s', %d chars", item.news_id, item.title, len(text))
+        text = build_site_text([(Path(path).name, caption) for path, caption in item.images],
+                               item.paragraphs, item.source_url, item.source_name)
+        log.info("news %s site [dry-run]: title='%s', %d images, tags [%s], %d chars",
+                 item.news_id, item.title, len(item.images), ", ".join(tags), len(text))
         return "(dry-run)"
 
     base = cfg.site_base
@@ -1051,13 +1117,13 @@ def publish_site(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str
     old_stamp = input_val(page.text, "old-stamp")
     old_hash = input_val(page.text, "old-tags-hash") or EGEYA_EMPTY_TAGS_HASH
 
-    filename = ""
-    if item.lead_image:
-        image = Path(item.lead_image).read_bytes()
+    uploaded: list[tuple[str, str]] = []
+    for path, caption in item.images:
+        image = Path(path).read_bytes()
         upload = session.post_multipart(
             base + f"/@ajax/file-upload/?entity=note&entity-id=new&token={urllib.parse.quote(token)}",
             fields={"token": token},
-            files={"file": (Path(item.lead_image).name, image, guess_mime(item.lead_image))},
+            files={"file": (Path(path).name, image, guess_mime(path))},
             headers={"X-CSRF-Token": token, "Referer": base + "/new/"},
         )
         try:
@@ -1067,14 +1133,14 @@ def publish_site(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str
         if not (reply.get("success") or reply.get("ok")):
             raise PublishError(f"site: image upload failed (status {upload.status})")
         data = reply.get("data", {})
-        filename = data.get("new-name") or data.get("name") or Path(item.lead_image).name
+        uploaded.append((data.get("new-name") or data.get("name") or Path(path).name, caption))
 
-    text = build_site_text(filename, item.paragraphs, item.source_url, item.source_name)
+    text = build_site_text(uploaded, item.paragraphs, item.source_url, item.source_name)
     form = {
         "note-timestamp": "0", "note-id": "new", "formatter-id": "neasden",
         "is-note-published": "true", "old-tags-hash": old_hash, "old-stamp": old_stamp,
         "action": "write", "token": token, "browser-offset": "0",
-        "title": item.title, "text": text, "tags": cfg.site_tags,
+        "title": item.title, "text": text, "tags": ", ".join(tags),
     }
     submit = session.post_form(
         base + "/@actions/note-process/", form,
@@ -1368,6 +1434,7 @@ def expire_stale(
 def build_item(own: sqlite3.Connection, row: sqlite3.Row, media_dir: str | None = None) -> PreparedNews:
     title, paragraphs, source_url, source_name = parse_markdown(row["retold_body_md"] or "")
     images = illustration_files(own, row["news_id"], media_dir)
+    stored_tags = row["tags"] if "tags" in row.keys() else None
     return PreparedNews(
         news_id=row["news_id"],
         title=title or (row["retold_title"] or ""),
@@ -1376,6 +1443,7 @@ def build_item(own: sqlite3.Connection, row: sqlite3.Row, media_dir: str | None 
         source_url=source_url,
         source_name=source_name,
         images=images,
+        tags=merge_tags(split_tags(stored_tags), NEWS_TAGS),
     )
 
 

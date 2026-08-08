@@ -69,6 +69,11 @@ retelling call as a «Подписи к иллюстрациям» block and com
 `captions` array; an unusable array keeps the originals and never fails the retelling —
 same leniency as the rubric, one paid call either way.
 
+The same call also asks for content tags (a `tags` array, 3–6 short Russian tags), stored
+comma-separated in `prepared_item.tags`. Same leniency again: an unusable array leaves
+the column NULL and the item still goes out — the publisher appends the constant news
+tags («позитивная», «новость», «позитивная новость») at send time either way.
+
 Every stored picture heavier than 400 KB — downloaded or generated, GIFs excepted so
 animation survives — is re-encoded on arrival by `shrink_image`: ffmpeg, JPEG capped at
 1600 px wide. Telegram refuses photos over 10 MB, and the wildcar.org pages were
@@ -136,9 +141,9 @@ timer runs harmlessly until at least one is configured):
 
 | Platform | How | Required config |
 |----------|-----|-----------------|
-| `wildcar_org` | writes the page + pictures into the content dir, regenerates the section index and the Dzen RSS feed, touches the rebuild marker, waits until the page is live (see below) | `WILDCAR_ORG_BASE_URL`; `WILDCAR_ORG_CONTENT_DIR`, `WILDCAR_ORG_SECTION`, `WILDCAR_ORG_WAIT_SECONDS` |
+| `wildcar_org` | writes the page (tags in its YAML front matter, rendered by the Material tags plugin) + pictures into the content dir, regenerates the section index and the Dzen RSS feed, touches the rebuild marker, waits until the page is live (see below) | `WILDCAR_ORG_BASE_URL`; `WILDCAR_ORG_CONTENT_DIR`, `WILDCAR_ORG_SECTION`, `WILDCAR_ORG_WAIT_SECONDS` |
 | `telegram` | `sendPhoto` + HTML caption to @posinus, capped at `TG_TEXT_LIMIT` (1500 — the Дзен autopublisher drops longer posts) and Telegram's own 1024 for photo captions, both counted on the VISIBLE text; a truncated caption links to the full text on wildcar.org | `TELEGRAM_BOT_TOKEN`; `TELEGRAM_CHAT_ID` (default `-1003795927410`), `TELEGRAM_CHANNEL_USERNAME`, `TG_TEXT_LIMIT` |
-| `site` | wildcar.ru on Эгея: login → image upload → `note-process` → `note-publish` → verify | `EGEYA_PASSWORD` (login `EGEYA_LOGIN`, default `wildcar`); `EGEYA_BASE_URL`, `EGEYA_TAGS` |
+| `site` | wildcar.ru on Эгея: login → upload of EVERY picture → `note-process` → `note-publish` → verify. The note mirrors the wildcar.org page (lead picture, text, the rest with captions on the line under the picture); the tags field carries `EGEYA_TAGS` plus the item's tags | `EGEYA_PASSWORD` (login `EGEYA_LOGIN`, default `wildcar`); `EGEYA_BASE_URL`, `EGEYA_TAGS` |
 | `vk` | community wall: photo upload + `wall.post` from the group | `VK_ACCESS_TOKEN` **and** `VK_GROUP_ID`; `VK_API_VERSION` |
 
 `wildcar_org` runs first in the platform order on purpose: a truncated telegram caption
