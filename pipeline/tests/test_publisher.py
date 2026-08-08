@@ -488,8 +488,9 @@ class SitePublishTests(unittest.TestCase):
         self.assertEqual(url, "https://wildcar.ru/all/zametka/")
         self.assertEqual(session.uploads, ["1.jpg", "2.jpg"])
         form = next(fields for u, fields in session.forms if "note-process" in u)
-        self.assertEqual(form["tags"],
-                         "добрые новости, экология, позитивная, новость, позитивная новость")
+        self.assertEqual(form["tags[]"],
+                         ["добрые новости", "экология", "позитивная", "новость",
+                          "позитивная новость"])
         self.assertIn("srv-1.jpg\nПодпись", form["text"])
         self.assertIn("srv-2.jpg", form["text"])
         # the fake page carries no "Неопубликовано", so no note-publish round

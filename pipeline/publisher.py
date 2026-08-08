@@ -665,11 +665,13 @@ class Session:
             seen += 1
         return resp
 
-    def post_form(self, url: str, fields: dict[str, str], headers: dict[str, str] | None = None) -> _Response:
+    def post_form(self, url: str, fields: dict[str, Any], headers: dict[str, str] | None = None) -> _Response:
+        # doseq: a list value becomes repeated parameters — how a multi-select
+        # (Эгея's tags[]) arrives from a real browser form.
         merged = {"Content-Type": "application/x-www-form-urlencoded"}
         if headers:
             merged.update(headers)
-        return self._do("POST", url, urllib.parse.urlencode(fields).encode("utf-8"), merged)
+        return self._do("POST", url, urllib.parse.urlencode(fields, doseq=True).encode("utf-8"), merged)
 
     def post_multipart(
         self, url: str, fields: dict[str, str], files: dict[str, tuple[str, bytes, str]],
@@ -1136,11 +1138,15 @@ def publish_site(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str
         uploaded.append((data.get("new-name") or data.get("name") or Path(path).name, caption))
 
     text = build_site_text(uploaded, item.paragraphs, item.source_url, item.source_name)
+    # The tags control on the note form is a multi-select named `tags[]` (its
+    # options carry the tag names as text), so the tags go as repeated
+    # parameters. A flat `tags=строка` field is silently ignored — which is
+    # why no note posted by the old code ever carried its tags.
     form = {
         "note-timestamp": "0", "note-id": "new", "formatter-id": "neasden",
         "is-note-published": "true", "old-tags-hash": old_hash, "old-stamp": old_stamp,
         "action": "write", "token": token, "browser-offset": "0",
-        "title": item.title, "text": text, "tags": ", ".join(tags),
+        "title": item.title, "text": text, "tags[]": tags,
     }
     submit = session.post_form(
         base + "/@actions/note-process/", form,
