@@ -158,11 +158,13 @@ class PublisherConfig:
     # Longest post (visible chars) the Дзен телеграм autopublisher carries over.
     # Telegram's own caption cap (1024) still applies on top for photo posts.
     tg_text_limit: int = 1500
-    # Site (Эгея, wildcar.ru)
+    # Site (Эгея, wildcar.ru). site_tags are optional base tags prepended to
+    # every note's own; empty by default — the owner asked for exactly the
+    # item tags, nothing extra. daypic overrides this with its own set.
     site_base: str = "https://wildcar.ru"
     site_login: str = "wildcar"
     site_password: str = ""
-    site_tags: str = "добрые новости"
+    site_tags: str = ""
     # wildcar.org (static MkDocs site) — news pages, section index and the Dzen
     # RSS feed. The base URL doubles as the on/off switch: empty = platform off.
     wildcar_base: str = ""

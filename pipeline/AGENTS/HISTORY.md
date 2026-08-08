@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-08-08 · «Добрые новости» уходит: the notes carry exactly the item tags
+- What: `PublisherConfig.site_tags` defaults to empty — the news note's tag field is now exactly the item tags (model + constant); `EGEYA_TAGS` stays as an optional base, daypic still overrides with «картина дня». 279 tests pass.
+- Why: the owner never asked for «добрые новости» — it was the hermes-era code default, invisible while the flat `tags` field was ignored and surfacing the moment tags[] started to save. Notes 8623 and 8515 carry it (posted before the change); deleting that tag in Эгея's admin strips it from both, owner's call.
+- Files: pipeline/publisher.py, pipeline/tests/test_publisher.py, pipeline/{AGENTS/SPEC.md,docs/services.md,deploy/pipeline.env.example}
+- Next: the queue's 2 items still carry NULL model tags (old preparer) — constants only until they drain; the first item prepared after the deploy shows model tags on both platforms.
+
 ## 2026-08-08 · News get tags, and wildcar.ru gets every picture
 - What: the retelling call also returns 3–6 Russian content tags (lenient, `prepared_item.tags`, comma-separated, NULL for older items); the publisher appends the constant «позитивная», «новость», «позитивная новость» at send time and delivers the merged list to Эгея's tags field (after the `EGEYA_TAGS` base) and the wildcar.org page front matter (Material `tags` plugin, enabled in wildcar-site `87ff101`); the daypic page carries «картина дня» the same way. Эгея notes now mirror the wildcar.org page: ALL pictures uploaded, lead → text → the rest, captions on the next Neasden line (caption-inside-picture, per the Neasden source). 278 tests pass.
 - Why: owner's request — tags on the platforms that have a field for them, and wildcar.ru should carry the full picture set like wildcar.org does.

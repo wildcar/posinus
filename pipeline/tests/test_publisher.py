@@ -170,6 +170,11 @@ class TagTests(unittest.TestCase):
                                       publisher.NEWS_TAGS)
         self.assertEqual(merged, ["экология", "Новость", "позитивная", "позитивная новость"])
 
+    def test_site_tags_default_is_empty(self):
+        # The owner asked for exactly the item tags on wildcar.ru — no
+        # «добрые новости» base unless EGEYA_TAGS is set on purpose.
+        self.assertEqual(PublisherConfig().site_tags, "")
+
     def test_front_matter_quotes_tags(self):
         fm = publisher.build_front_matter(["позитивная новость", "эко"])
         self.assertTrue(fm.startswith("---\ntags:\n"))
@@ -469,7 +474,9 @@ class SitePublishTests(unittest.TestCase):
             return publisher._Response(200, {}, body, url)
 
     def test_uploads_every_picture_and_sends_merged_tags(self):
-        cfg = PublisherConfig(site_password="pw")
+        # site_tags set explicitly: the default is empty (the owner asked for
+        # exactly the item tags), but a configured base must still go first
+        cfg = PublisherConfig(site_password="pw", site_tags="добрые новости")
         with tempfile.TemporaryDirectory() as tmp:
             paths = []
             for name in ("1.jpg", "2.jpg"):
