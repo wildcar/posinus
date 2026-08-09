@@ -362,7 +362,14 @@ def download_illustrations(
             log.warning("news %s: image download failed %s: %s", news_id, url, exc)
             continue
         media_type = content_type.split(";")[0].strip().lower()
-        if not media_type.startswith("image/") or not (MIN_IMAGE_BYTES <= len(body) <= MAX_IMAGE_BYTES):
+        # Only raster formats every platform accepts as a photo. SVG in
+        # particular passes an `image/*` test but fails the photo upload on
+        # telegram, Эгея and VK alike (news 8690/8710, 2026-08-09).
+        if media_type not in CONTENT_TYPE_EXT:
+            if media_type.startswith("image/"):
+                log.info("news %s: image %s has unsupported type %s, skipped", news_id, url, media_type)
+            continue
+        if not (MIN_IMAGE_BYTES <= len(body) <= MAX_IMAGE_BYTES):
             continue
         # Distinct URLs can still serve byte-identical files (CDN aliases);
         # a second copy of the same picture is never worth publishing.
@@ -372,7 +379,7 @@ def download_illustrations(
             continue
         seen_digests.add(digest)
         position = len(saved) + 1
-        filename = f"{position}{CONTENT_TYPE_EXT.get(media_type, '.img')}"
+        filename = f"{position}{CONTENT_TYPE_EXT[media_type]}"
         path = target_dir / filename
         path.write_bytes(body)
         path = shrink_image(path)
@@ -546,11 +553,12 @@ IMAGE_PROMPT_LEAD_CHARS = 600
 _IMAGE_MAGIC = ((b"\x89PNG", ".png"), (b"\xff\xd8", ".jpg"), (b"RIFF", ".webp"), (b"GIF8", ".gif"))
 
 
-def _sniff_image_ext(data: bytes) -> str:
+def _sniff_image_ext(data: bytes) -> str | None:
+    """Extension by magic bytes; None for anything the platforms reject as a photo."""
     for magic, ext in _IMAGE_MAGIC:
         if data.startswith(magic):
             return ext
-    return ".img"
+    return None
 
 
 def build_image_prompt(title: str, paragraphs: list[str]) -> str:
@@ -595,9 +603,13 @@ def generate_illustration(
     if len(data) < MIN_IMAGE_BYTES:
         log.warning("news %s: generated image is implausibly small (%d bytes), dropped", news_id, len(data))
         return None
+    ext = _sniff_image_ext(data)
+    if ext is None:
+        log.warning("news %s: generated image has an unrecognized format, dropped", news_id)
+        return None
     target_dir = Path(cfg.media_dir) / str(news_id)
     target_dir.mkdir(parents=True, exist_ok=True)
-    path = target_dir / f"1{_sniff_image_ext(data)}"
+    path = target_dir / f"1{ext}"
     path.write_bytes(data)
     path = shrink_image(path)
     model_id = reply.get("model_id") or cfg.image_model or cfg.image_provider

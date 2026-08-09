@@ -355,6 +355,27 @@ class DownloadDedupTests(unittest.TestCase):
         self.assertEqual([s["source_url"] for s in saved],
                          ["https://a.test/1.jpg", "https://a.test/2.jpg"])
 
+    def test_non_raster_image_types_are_skipped(self):
+        # image/svg+xml passes an `image/*` test but no platform takes it as a
+        # photo: telegram, Эгея and VK all failed on an SVG logo (news 8690).
+        bodies = {
+            "https://a.test/logo.svg": ("image/svg+xml", b"<svg>" + b"x" * 4000),
+            "https://a.test/real.jpg": ("image/jpeg", b"J" * 4000),
+        }
+
+        def fake_fetch(url, user_agent, timeout=0):
+            content_type, body = bodies[url]
+            return url, content_type, body
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = preparer.PreparerConfig(media_dir=tmp, fetch_delay=0)
+            candidates = [{"url": url, "caption": ""} for url in bodies]
+            with mock.patch.object(preparer, "allowed_by_robots", return_value=True), \
+                 mock.patch.object(preparer, "fetch", fake_fetch):
+                saved = preparer.download_illustrations(cfg, 9, candidates)
+        self.assertEqual([s["source_url"] for s in saved], ["https://a.test/real.jpg"])
+        self.assertEqual(Path(saved[0]["path"]).suffix, ".jpg")
+
 
 def _noise_png(path: Path, width: int = 2000, height: int = 1500) -> None:
     """A PNG of random noise: incompressible, so reliably over IMAGE_RECODE_BYTES."""
@@ -565,6 +586,18 @@ class GenerateIllustrationTests(unittest.TestCase):
                 for _ in range(4):
                     self.assertIsNone(
                         preparer.generate_illustration(cfg, self._router_cfg(), 42, "Т", ["А."]))
+
+    def test_unrecognized_format_is_dropped_and_no_file_written(self):
+        import base64
+        svg = b"<svg xmlns='http://www.w3.org/2000/svg'>" + b"x" * 4000 + b"</svg>"
+        reply = {"image_b64": [base64.b64encode(svg).decode()], "model_id": "m"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = preparer.PreparerConfig(media_dir=tmp)
+            with mock.patch.object(evaluator, "call_tool", lambda *a, **k: reply):
+                entry = preparer.generate_illustration(cfg, self._router_cfg(), 42, "Т", ["А."])
+            self.assertIsNone(entry)
+            self.assertFalse(list(Path(tmp).rglob("*")), "no file may be left behind")
 
     def test_prompt_caps_the_lead_and_carries_the_no_text_rule(self):
         prompt = preparer.build_image_prompt("Т", ["а" * 1000, "б" * 1000])
