@@ -28,6 +28,11 @@ Operate a single-host multilingual news crawler whose source list improves from 
 - News detail now has a model-backed Russian translation action. It saves the translated title, full text, short summary, actual model identifier, and generation time. Router address, token, provider, model, tier, temperature, token limit, and timeout are environment settings; the default model matches the pipeline's `deepseek-v4-pro`.
 - News detail now has an idempotent operator «Отправить в публикацию» action. It creates an append-only positive review and snapshots the configured evaluator's latest scores; occurrences retain source URLs for future weight fitting.
 - Retention deletes stored translations when it purges the original full text after 90 days.
+- `update-ubuntu.sh` stops the triggers (`TriggeredBy`: timers and `.path` units) of every
+  registered service, not just the services, since 2026-08-09 (`29de30a`). Before that a
+  pipeline timer could fire inside the ~90-second update window, open the crawler database
+  and trip the `lsof` guard, rolling the whole update back — which is why updates used to
+  need a second run. The guard stays as the backstop for a client the script does not own.
 - Production runs commit `c83cc8a` since 2026-07-25 21:06 UTC (updated with `update-ubuntu.sh`);
   migration `0008_selection_profile` applied, web and worker active, HTTPS `/login/` 200.
   Pre-update backup: `/var/lib/posinus/backups/pre-update-20260725T210644Z.sqlite3`.
