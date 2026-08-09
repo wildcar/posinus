@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-08-09 · Raster-only illustrations: an SVG logo jammed three platforms at once
+- What: downloads keep only `CONTENT_TYPE_EXT` raster types (SVG and other `image/*` exotica skipped, no more `.img` files); a generated picture with unknown magic bytes is dropped. Three moya-planeta.ru SVG logos blacklisted. 281 tests pass. LIVE at `1e53d03`.
+- Why: news 8690/8710 carried nothing but SVG logos — telegram, Эгея and VK all rejected the photo upload while wildcar_org (a file copy) published the logos; the vision check skips extensionless `.img`, so the exact junk it exists to drop slipped past unseen.
+- Files: pipeline/preparer.py, pipeline/tests/test_preparer.py, pipeline/AGENTS/SPEC.md
+- Next: — (both items repaired and out on all four platforms; wildcar.org pages rebuilt with the generated JPG)
+
 ## 2026-08-08 · «Добрые новости» уходит: the notes carry exactly the item tags
 - What: `PublisherConfig.site_tags` defaults to empty — the news note's tag field is now exactly the item tags (model + constant); `EGEYA_TAGS` stays as an optional base, daypic still overrides with «картина дня». 279 tests pass.
 - Why: the owner never asked for «добрые новости» — it was the hermes-era code default, invisible while the flat `tags` field was ignored and surfacing the moment tags[] started to save. Notes 8623 and 8515 carry it (posted before the change); deleting that tag in Эгея's admin strips it from both, owner's call.

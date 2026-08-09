@@ -66,6 +66,21 @@ a publish-ready retelling, and posts them to the platforms.
   tags. The 19:00 and 21:00 MSK notes (8623, 8515) went out with the base tag before
   the change; deleting the «добрые новости» tag in Эгея's admin would strip it from
   both at once, owner's call.
+- 2026-08-09: illustrations are raster-only (LIVE at `1e53d03`, shipped by
+  `git pull` in /opt/posinus between timer runs). News 8690/8710 (moya-planeta.ru)
+  were prepared with nothing but the site's SVG logos: the download filter took any
+  `image/*` (so `image/svg+xml` passed), unknown types were saved as `.img`, and the
+  vision check skips extensionless files — so the exact junk it hunts sailed through,
+  and no picture was generated because the items were not pictureless. Telegram
+  (IMAGE_PROCESS_FAILED), Эгея (upload ignored, status 200) and VK (empty `photo`)
+  all rejected the upload; wildcar_org, a file copy, published the logos. Fix:
+  downloads keep only `CONTENT_TYPE_EXT` types, a generated picture with unknown
+  magic bytes is dropped, 281 tests pass. Repair, all verified live: the three logo
+  URLs blacklisted (`--ignore-image`, 5 queue copies purged), `--review-images`
+  generated a picture for each emptied item, attempts reset — both went out to all
+  platforms (t.me/posinus/627-628, wall-233237778_177-178), and the wildcar.org
+  pages were rebuilt with the generated JPG by re-queueing just the wildcar_org rows
+  (stale `.img` files removed from the content dir; live pages verified, `.img` 404).
 - Since 2026-07-26 the router sees two callers: scoring sends `external_user_id` =
   `SELECTOR_NAME` (overridable with `ROUTER_USER_ID`), retelling sends `news-preparer`
   (`PREPARER_ROUTER_USER_ID`). Before that both were `news-evaluator`, so the router billed
