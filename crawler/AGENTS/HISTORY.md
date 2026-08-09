@@ -8,6 +8,7 @@ Newest first. Each entry is at most five lines using the format defined in `AGEN
 - Files: crawler/collector/{models.py,forms.py,views.py,migrations/0015_daypicslot_web_search.py}, crawler/templates/collector/daypic.html, crawler/tests/test_daypic_page.py, crawler/AGENTS/SPEC.md
 - Prod: LIVE at `d335c2c` (2026-08-09 18:03 UTC, `update-ubuntu.sh`, бэкап `pre-update-20260809T180343Z.sqlite3`); миграция `0015` применена, слот в базе прода читается конвейером.
 - Next: — (живая проверка вызова прошла со стороны конвейера, см. его HISTORY).
+- Хвост: миграция `0016` просит начинать плашку внизу картинки с даты («9 августа • …»), LIVE at `e5f8410`. Обе миграции правят промпт только если он совпадает с прежним сидом — правка оператора всегда сильнее.
 
 ## 2026-08-07 · The crawl queue learns priorities; the news flow returns
 - What: actives lease before probation (probation keeps every fifth turn), probation runs capped at 40 fetched pages / 10 minutes, daily pass auto-pauses fruitless probation (≥10 runs, ≥150 fetched, 0 saved), blocklist gains reference/commerce/web-infrastructure domains, and `pauseblockedsources` retired 16 blocklisted probation sources on prod. 146 tests pass.

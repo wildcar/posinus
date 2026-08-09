@@ -333,7 +333,10 @@ a publish-ready retelling, and posts them to the platforms.
   `web_search` timeline steps (router log 10431), real 9 August holidays (День
   строителя, Пантелеймон Кочанный, Международный день коренных народов) and a домовой
   in a builder's helmet hidden among the cabbages. Today's issue was already published
-  on the old prompt; the new one goes out with tomorrow's 08:00 MSK run.
+  on the old prompt; the new one goes out with tomorrow's 08:00 MSK run. Since
+  `e5f8410` (migration `0016`) the plate at the bottom opens with the date itself —
+  «9 августа • День строителя • …» — because the day used to live only in the post
+  title.
 
 ## Next
 

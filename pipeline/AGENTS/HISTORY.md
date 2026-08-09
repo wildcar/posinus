@@ -10,6 +10,7 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 - Files: crawler/collector/{models.py,forms.py,views.py,migrations/0015_daypicslot_web_search.py}, crawler/templates/collector/daypic.html, pipeline/daypic.py, обе SPEC, docs/contracts/database-contract.md
 - Verified: живьём в 18:14 UTC — gpt-5.5 с тремя шагами `web_search` в таймлайне (журнал роутера 10431), настоящие праздники 9 августа и домовой в каске среди капусты. Понадобились две правки роутера (model-router-mcp `42a8a01` и следом про system-сообщения): codex-oauth не принимал запрос из одних `messages`, а потом отвергал `system` — до этого каждый прогон молча падал в запасной шаблон.
 - Next: выпуск за сегодня уже вышел на старом промпте; новый уедет с прогоном завтра в 08:00 МСК.
+- Хвост: плашка внизу картинки теперь начинается с даты («9 августа • День строителя • …») — миграция `0016` и запасной шаблон, LIVE at `e5f8410`. Раньше день был виден только в подписи поста. Проверено двумя ручными отрисовками мимо конвейера (строк не оставили, никуда не опубликованы).
 
 ## 2026-08-09 · Raster-only illustrations: an SVG logo jammed three platforms at once
 - What: downloads keep only `CONTENT_TYPE_EXT` raster types (SVG and other `image/*` exotica skipped, no more `.img` files); a generated picture with unknown magic bytes is dropped. Three moya-planeta.ru SVG logos blacklisted. 281 tests pass. LIVE at `1e53d03`.
