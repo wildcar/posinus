@@ -26,6 +26,24 @@ pipeline units, timers and their gotchas; `docs/deployment.md` for the full inst
 The `posinus` group is what grants access to the crawler database. Clients run with
 `umask 0007` so the SQLite `-wal` and `-shm` sidecars stay group-accessible.
 
+`keeper` is deliberately NOT in that group: joining it would hand every keeper process
+read/write on the crawler database. Where a keeper-owned consumer needs one thing from
+the pipeline's state, it gets a narrow ACL instead. Live example (2026-08-09, so the
+owner's `@wildaiapi_bot` can pick the daily picture up at 08:00):
+
+```bash
+sudo setfacl -m u:keeper:--x /var/lib/posinus /var/lib/posinus/pipeline
+sudo setfacl -m u:keeper:r-x /var/lib/posinus/pipeline/daypic
+sudo setfacl -d -m u:keeper:r-- /var/lib/posinus/pipeline/daypic   # new files inherit it
+sudo setfacl -m u:keeper:r-- /var/lib/posinus/pipeline/daypic/*    # the ones already there
+```
+
+Traverse on the two parents lets keeper walk in without listing them; `posinus.sqlite3`
+stays unreadable. The other precedent for the same problem is a systemd unit taking the
+group for one process: `posinus-wildcar-org-build.service` runs `User=keeper` with
+`SupplementaryGroups=posinus`, which is broader and fine there because it writes the
+site content the pipeline produced.
+
 ## Tools
 
 - git; commit identity `wildcar <wildcar@mail.ru>`; GitHub push via `gh` (account `wildcar`).

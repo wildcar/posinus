@@ -338,6 +338,27 @@ a publish-ready retelling, and posts them to the platforms.
   «9 августа • День строителя • …» — because the day used to live only in the post
   title.
 
+- Since 2026-08-09 the daily picture has a PICKUP CONTRACT for outside consumers:
+  `<день>-<слот>.json` beside the pictures in `DAYPIC_DIR`, carrying the day, slot,
+  title, the day's description, the exact vertical and horizontal file names, style,
+  image model and generation time. Written last and renamed into place with
+  `os.replace`, and written before any platform — so its presence means «сегодня
+  готово», its absence «ещё нет», and a broken площадка cannot delay a consumer that
+  goes by the clock. It exists because the directory alone was a guess: the extension
+  is not fixed (`shrink_image` re-encodes a heavy PNG to JPEG and deletes the
+  original), a poller could catch a half-written file, and the description lives in
+  the pipeline's own DB, which nothing outside may read. LIVE at `d6915d6`, with 11
+  manifests backfilled for the pictures already on disk. The consumer is the owner's
+  `@wildaiapi_bot` (`~/repo/ort_bot`, runs as keeper): it picks the VERTICAL picture
+  up at 08:00 and broadcasts it to its subscribers — the owner's call on 2026-08-09,
+  taken instead of having the pipeline push through a second bot token. Access is a
+  narrow ACL rather than the `posinus` group: keeper got traverse on
+  `/var/lib/posinus` and `pipeline/`, read on `daypic/`, plus a default entry so new
+  files inherit it (verified with a probe written as posinus-pipeline); the crawler
+  DB stays closed to it. Left for the bot's side, in its own repository: read the
+  manifest, and switch off its own 01:00 picture-of-day so subscribers get one
+  picture a day instead of two.
+
 ## Next
 
 1. Prompt calibration and soft profiles («Россия» / «Международное»). The `default` profile

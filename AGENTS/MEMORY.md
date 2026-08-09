@@ -94,3 +94,11 @@ to time: merge duplicates, drop stale entries.
   apps, so the working token comes from the grandfathered Kate Mobile app_id (`2685278`) via
   the legacy implicit flow (non-expiring). Post with `owner_id=-<id>` plus `from_group=1`.
   Full recipe: `pipeline/docs/services.md`, «VK: the token type matters».
+- «Картина дня» reaches the owner's telegram bot `@wildaiapi_bot` (`~/repo/ort_bot`,
+  11 subscribers, no channel) by PULL, not push: the bot reads the pickup manifest in
+  `DAYPIC_DIR` at 08:00 and broadcasts the vertical picture itself (owner, 2026-08-09,
+  who chose this over the pipeline sending through a second bot token). Why: the bot
+  already owns its subscriber list and its own broadcast loop, so pushing would have
+  meant teaching the pipeline to read another project's user database across a
+  permission boundary. The bot's own picture-of-day generation is retired in favour of
+  this one — the owner handles that side in its repository.
