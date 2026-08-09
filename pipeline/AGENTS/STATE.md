@@ -296,8 +296,7 @@ a publish-ready retelling, and posts them to the platforms.
   migrations `0012`+`0013`, seeded `day` slot switched OFF) and are edited on the
   crawler's «Картина дня» page. Per issue the chat model returns JSON {prompt,
   description} built from the date and a RANDOM style that never repeats within the
-  slot's month (no web search at the router — the calendar comes from the model's
-  knowledge); the picture is drawn TWICE from that prompt (vertical 1024x1536 for
+  slot's month; the picture is drawn TWICE from that prompt (vertical 1024x1536 for
   telegram and the pickup file, horizontal 1536x1024 for the sites and VK; horizontal
   failure falls back to vertical) and posted with «<title> · <дата>» + description to
   wildcar.org (own `kartina` section, synced by the build script), telegram, Эгея and
@@ -321,6 +320,20 @@ a publish-ready retelling, and posts them to the platforms.
   measured; the 2026-07-30 issue itself was left published as it went out. A dev
   dry run through the live router already returned a valid JSON pair (prompt +
   description, random style, real July-30 holidays).
+
+- Since 2026-08-09 the daypic chat call is codex-oauth `gpt-5.5`, reasoning `medium`,
+  web search ON (owner's request; migration `0015` adds `chat_reasoning_effort` and
+  `chat_web_search` to the slot and sets them). The system prompt no longer forbids
+  search — it sends the model to look the date up in the web, Russian holidays first —
+  and the task now asks for a small cheerful visual surprise hidden in the frame. LIVE
+  at `d335c2c`. It took two router fixes to actually work (`model-router-mcp` `42a8a01`
+  and the system-message one after it): codex-oauth rejected a messages-only request
+  and then rejected the `system` item outright, so every run had been falling back to
+  the built-in template. Verified live at 18:14 UTC: gpt-5.5 answered with three
+  `web_search` timeline steps (router log 10431), real 9 August holidays (День
+  строителя, Пантелеймон Кочанный, Международный день коренных народов) and a домовой
+  in a builder's helmet hidden among the cabbages. Today's issue was already published
+  on the old prompt; the new one goes out with tomorrow's 08:00 MSK run.
 
 ## Next
 

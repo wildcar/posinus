@@ -2,6 +2,13 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-08-09 · Слот «Картины дня» получил уровень рассуждений и поиск в интернете
+- What: `DaypicSlot` вырос на два поля — `chat_reasoning_effort` и `chat_web_search` (миграция `0015`, поле и галочка на странице «Картина дня», копируются в новый слот); та же миграция переводит слот `day` на codex-oauth `gpt-5.5`/medium с поиском и обновляет промпты (искать день в вебе с приоритетом российских праздников, спрятать в кадре весёлый визуальный сюрприз). 148 тестов краулера.
+- Why: просьба владельца — картинка дня должна знать реальные события сегодняшнего числа; настройку исполняет конвейер, поэтому она живёт здесь, как и пороги отбора.
+- Files: crawler/collector/{models.py,forms.py,views.py,migrations/0015_daypicslot_web_search.py}, crawler/templates/collector/daypic.html, crawler/tests/test_daypic_page.py, crawler/AGENTS/SPEC.md
+- Prod: LIVE at `d335c2c` (2026-08-09 18:03 UTC, `update-ubuntu.sh`, бэкап `pre-update-20260809T180343Z.sqlite3`); миграция `0015` применена, слот в базе прода читается конвейером.
+- Next: — (живая проверка вызова прошла со стороны конвейера, см. его HISTORY).
+
 ## 2026-08-07 · The crawl queue learns priorities; the news flow returns
 - What: actives lease before probation (probation keeps every fifth turn), probation runs capped at 40 fetched pages / 10 minutes, daily pass auto-pauses fruitless probation (≥10 runs, ≥150 fetched, 0 saved), blocklist gains reference/commerce/web-infrastructure domains, and `pauseblockedsources` retired 16 blocklisted probation sources on prod. 146 tests pass.
 - Why: since Aug 3 the oldest-due-first queue fed the worker only giant probation sites (good.is: 5.4 h, 9809 pages, 0 saved — the 20-article cap counts *saved*), all 65 actives sat due for 4 days, collection stopped and the last issue went out Aug 6 23:45 MSK.

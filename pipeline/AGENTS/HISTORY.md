@@ -4,6 +4,13 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-08-09 · «Картина дня» ищет свой день в интернете: gpt-5.5, medium, поиск
+- What: слот получил `chat_reasoning_effort` и `chat_web_search` (миграция `0015`, поле и галочка на странице оператора), конвейер везёт их роутеру в `params`; слот `day` переведён на codex-oauth `gpt-5.5`/medium с поиском. Системный промпт больше не запрещает веб-поиск, а посылает искать праздники даты (приоритет российским), задание просит спрятать в кадре небольшой весёлый визуальный сюрприз. 285 тестов конвейера, 148 краулера. LIVE at `d335c2c`.
+- Why: просьба владельца — картинка дня должна знать реальные события сегодняшнего числа, а не только календарь из памяти модели.
+- Files: crawler/collector/{models.py,forms.py,views.py,migrations/0015_daypicslot_web_search.py}, crawler/templates/collector/daypic.html, pipeline/daypic.py, обе SPEC, docs/contracts/database-contract.md
+- Verified: живьём в 18:14 UTC — gpt-5.5 с тремя шагами `web_search` в таймлайне (журнал роутера 10431), настоящие праздники 9 августа и домовой в каске среди капусты. Понадобились две правки роутера (model-router-mcp `42a8a01` и следом про system-сообщения): codex-oauth не принимал запрос из одних `messages`, а потом отвергал `system` — до этого каждый прогон молча падал в запасной шаблон.
+- Next: выпуск за сегодня уже вышел на старом промпте; новый уедет с прогоном завтра в 08:00 МСК.
+
 ## 2026-08-09 · Raster-only illustrations: an SVG logo jammed three platforms at once
 - What: downloads keep only `CONTENT_TYPE_EXT` raster types (SVG and other `image/*` exotica skipped, no more `.img` files); a generated picture with unknown magic bytes is dropped. Three moya-planeta.ru SVG logos blacklisted. 281 tests pass. LIVE at `1e53d03`.
 - Why: news 8690/8710 carried nothing but SVG logos — telegram, Эгея and VK all rejected the photo upload while wildcar_org (a file copy) published the logos; the vision check skips extensionless `.img`, so the exact junk it exists to drop slipped past unseen.

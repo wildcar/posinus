@@ -129,6 +129,11 @@ Operate a single-host multilingual news crawler whose source list improves from 
   `day` slot is switched off, so nothing generates until the operator enables it.
   LIVE on prod at `a7352b5` (2026-07-29 21:42 UTC, `update-ubuntu.sh`): migration `0012`
   applied, web and worker active, `/daypic/` answers behind the login.
+  Since 2026-08-09 (migration `0015`, LIVE at `d335c2c`) the model hints also carry the
+  chat call's reasoning effort and a «Поиск в интернете» checkbox, and the `day` slot is
+  set to codex-oauth `gpt-5.5`/medium with search on: its prompts now send the model to
+  look the date up in the web (Russian holidays first) and ask for a small cheerful
+  visual surprise hidden in the picture.
 
 ## Next
 
