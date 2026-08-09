@@ -185,6 +185,9 @@ def purge_daypic(con: sqlite3.Connection, cfg: RetentionConfig, now: datetime,
     removed = freed = 0
     for row in rows:
         paths = [Path(raw) for raw in (row["file_path"], row["file_path_wide"]) if raw]
+        # The pickup manifest (daypic.write_manifest) lives beside the pictures
+        # and ages with them: left behind, it would promise files that are gone.
+        paths.append(paths[0].with_name(f"{row['day']}-{row['slot']}.json"))
         if dry_run:
             for path in paths:
                 log.info("daypic %s/%s: %s would go", row["day"], row["slot"], path)

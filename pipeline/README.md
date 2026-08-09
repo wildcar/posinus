@@ -30,7 +30,9 @@ that never repeats within the month, posted with a date-and-holidays caption to
 wildcar.org (its own `kartina` section), telegram, the Эгея site and VK through the
 publisher's adapters. The operator edits its prompt, styles and schedule on the
 crawler's «Картина дня» page; the vertical file lands in
-`/var/lib/posinus/pipeline/daypic/<date>-<slot>.<ext>` for external pickup.
+`/var/lib/posinus/pipeline/daypic/<date>-<slot>.<ext>` for external pickup, announced
+by a `<date>-<slot>.json` manifest written last — that file appearing is how an
+outside consumer knows today's issue is complete and what it is called.
 
 The model is configured in `/etc/posinus/pipeline.env` (never hard-coded;
 each event records the model that actually answered).

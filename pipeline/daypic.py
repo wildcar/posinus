@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import json
 import logging
 import os
 import random
@@ -637,6 +638,59 @@ def finalize(con: sqlite3.Connection, item_id: int) -> None:
     _with_lock_retries(con, action)
 
 
+# ----------------------------------------------------------- pickup manifest
+
+
+def manifest_path(cfg: DaypicConfig, day: str, slot: str) -> Path:
+    return Path(cfg.daypic_dir) / f"{day}-{slot}.json"
+
+
+def write_manifest(cfg: DaypicConfig, row: sqlite3.Row) -> str | None:
+    """Publish the issue for outside consumers; the path written, or None.
+
+    The picture files alone are not a contract an external reader can hold on
+    to. Their extension is not fixed (`shrink_image` re-encodes a heavy PNG to
+    JPEG and deletes the original, so `<day>-<slot>.png` can exist for a moment
+    and then be gone), a reader polling the directory can catch a half-written
+    file, and the day's description lives in this service's private database,
+    which nobody outside is allowed to read.
+
+    So the manifest is the signal: written last, renamed into place atomically,
+    and naming the files that are by then complete. Its presence means «сегодня
+    готово», its absence «ещё нет» — that is the whole handshake. The consumer
+    (the owner's @wildaiapi_bot picks the vertical one up at 08:00) reads
+    `<день>-<слот>.json` and needs nothing else.
+
+    Lenient like the rest of the module: a manifest that cannot be written is a
+    logged warning, never a lost issue."""
+    vertical = Path(row["file_path"] or "")
+    wide = Path(row["file_path_wide"]) if row["file_path_wide"] else None
+    payload = {
+        "day": row["day"],
+        "slot": row["slot"],
+        "title": row["title"],
+        "caption": row["caption"] or "",
+        "vertical": vertical.name,
+        "wide": wide.name if wide else None,
+        "style": row["style"],
+        "image_model": row["image_model_id"],
+        "generated_at": row["generated_at"],
+    }
+    path = manifest_path(cfg, row["day"], row["slot"])
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        log.warning("daypic %s/%s: cannot write the pickup manifest %s: %s",
+                    row["day"], row["slot"], path, exc)
+        tmp.unlink(missing_ok=True)
+        return None
+    log.info("daypic %s/%s: pickup manifest %s -> %s",
+             row["day"], row["slot"], path.name, payload["vertical"])
+    return str(path)
+
+
 # ------------------------------------------------- platform: wildcar.org
 
 
@@ -894,6 +948,9 @@ def run(cfg: DaypicConfig, router_cfg: "evaluator.Config", dry_run: bool,
                                  prompt, description, vertical, wide, prompt_model, image_model)
                 generated += 1
                 row = get_item(own, day, slot.slot)
+                # Before any platform: the outside consumer waits on the clock,
+                # not on our publishing, and a broken площадка must not delay it.
+                write_manifest(cfg, row)
 
             if dry_run:
                 continue

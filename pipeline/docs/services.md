@@ -310,11 +310,43 @@ per platform, idempotent like `publication`. The vertical file lands in `DAYPIC_
 horizontal one): a stable name the owner's bot (ort_bot, where this feature came from)
 can pick up on its own schedule.
 
+**The pickup contract is the manifest**, `<YYYY-MM-DD>-<slot>.json` in the same
+directory — that is what an outside consumer reads, not the directory listing:
+
+```json
+{
+  "day": "2026-08-10", "slot": "day",
+  "title": "Картина дня · 10 августа 2026",
+  "caption": "Сегодня День строителя …",
+  "vertical": "2026-08-10-day.jpg", "wide": "2026-08-10-day-wide.jpg",
+  "style": "low-poly", "image_model": "gpt-image-2",
+  "generated_at": "2026-08-10T05:06:12+00:00"
+}
+```
+
+`vertical` and `wide` are bare file names in that same directory (`wide` may be
+`null`). The manifest is written last and renamed into place with `os.replace`, so
+its presence means today's issue is complete and its absence means «not yet» — that
+is the whole handshake, and it is why a consumer should poll for the manifest rather
+than guess a file name. Guessing does not work: the extension is not fixed (a heavy
+PNG is re-encoded to JPEG and the original deleted, so `<day>-<slot>.png` can exist
+for a second and vanish), and the day's description lives in the pipeline's own
+database, which nothing outside the pipeline may read.
+
+Reading it needs group `posinus`: `/var/lib/posinus` and its `pipeline/` are
+`drwxrws---`, and the daypic directory grants the group `r-x` by ACL. The precedent
+for a keeper-owned consumer is `posinus-wildcar-org-build.service` — `User=keeper`
+plus `SupplementaryGroups=posinus`. That group also carries read/write on the crawler
+database, so a narrower ACL (traverse on the two parents, read on `daypic/`) is worth
+preferring for a consumer that only wants the picture.
+
 Gotchas:
 
-- the router has no web search, so the prompt model builds the day from its knowledge
-  of the calendar; the seeded system prompt says so explicitly. Editing the prompt is an
-  operator action on the web page, not a deploy;
+- the slot owns the chat call: provider, model, `chat_reasoning_effort` and
+  `chat_web_search`. With search on (the `day` slot runs codex-oauth `gpt-5.5`,
+  reasoning `medium`) the prompt scaffolding also tells the model in words to look
+  the date up, Russian holidays first. Editing any of it is an operator action on the
+  web page, not a deploy;
 - the style is random but never repeats within the slot's current month (checked
   against `daypic_item`); when the list runs out, any style goes;
 - **the orientation must be in the prompt, not only in `params.size`**: codex-oauth
@@ -337,8 +369,8 @@ Gotchas:
 - `--dry-run` prints the prompt and the description (one cheap chat call) and never
   spends an image call; `--slot day --ignore-time` checks a slot by hand without
   waiting for its hour;
-- files older than `DAYPIC_KEEP_DAYS` (90) — both renditions — are deleted by
-  retention.py; rows stay and the gallery says «файл удалён по сроку».
+- files older than `DAYPIC_KEEP_DAYS` (90) — both renditions and the manifest — are
+  deleted by retention.py; rows stay and the gallery says «файл удалён по сроку».
 
 ## notify.py
 

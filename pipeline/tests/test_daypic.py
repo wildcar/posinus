@@ -566,6 +566,46 @@ class RunTests(unittest.TestCase):
         self.assertEqual(items[0]["status"], "generated")
         self.assertTrue(Path(items[0]["file_path"]).exists())
 
+    def test_the_pickup_manifest_names_the_finished_files_and_the_caption(self):
+        self._run()
+        item = self._rows("SELECT * FROM daypic_item")[0]
+        path = Path(self.cfg.daypic_dir) / f"{DAY}-day.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["day"], DAY)
+        self.assertEqual(manifest["slot"], "day")
+        self.assertEqual(manifest["title"], "Картина дня · 29 июля 2026")
+        self.assertEqual(manifest["caption"], "Сегодня день дружбы.")
+        self.assertEqual(manifest["image_model"], "gpt-image-2")
+        # Bare file names, and both point at files that are on disk by now.
+        self.assertEqual(manifest["vertical"], Path(item["file_path"]).name)
+        self.assertEqual(manifest["wide"], Path(item["file_path_wide"]).name)
+        self.assertNotIn("/", manifest["vertical"])
+        self.assertTrue((path.parent / manifest["vertical"]).exists())
+        self.assertTrue((path.parent / manifest["wide"]).exists())
+
+    def test_the_manifest_is_written_even_when_every_platform_is_off(self):
+        # The outside consumer picks up by the clock; our publishing is not its gate.
+        self.pub_cfg.tg_token = ""
+        self._run()
+        self.assertTrue((Path(self.cfg.daypic_dir) / f"{DAY}-day.json").exists())
+
+    def test_a_failed_generation_leaves_no_manifest(self):
+        with mock.patch.object(daypic, "generate_pictures",
+                               side_effect=daypic.DaypicError("провал")):
+            self._run()
+        self.assertFalse((Path(self.cfg.daypic_dir) / f"{DAY}-day.json").exists())
+
+    def test_a_dry_run_leaves_no_manifest(self):
+        self._run(dry_run=True)
+        self.assertFalse((Path(self.cfg.daypic_dir) / f"{DAY}-day.json").exists())
+
+    def test_an_unwritable_manifest_does_not_lose_the_issue(self):
+        with mock.patch.object(daypic.Path, "write_text", side_effect=OSError("disk")):
+            code, counters = self._run()
+        self.assertEqual(code, 0)
+        self.assertEqual(counters["published"], 1)
+        self.assertFalse((Path(self.cfg.daypic_dir) / f"{DAY}-day.json").exists())
+
 
 class MigrateTests(unittest.TestCase):
     def test_a_first_deploy_schema_gains_the_new_columns(self):
@@ -632,6 +672,18 @@ class DaypicRetentionTests(unittest.TestCase):
             "SELECT day, file_purged_at FROM daypic_item")}
         self.assertEqual(len(rows), 2)
         self.assertTrue(rows[old_vertical.name[:10]])
+
+    def test_the_pickup_manifest_ages_with_its_pictures(self):
+        now = datetime(2026, 7, 29, tzinfo=timezone.utc)
+        old_day = (now - timedelta(days=120)).date().isoformat()
+        self._item(old_day)
+        manifest = self.pictures / f"{old_day}-day.json"
+        manifest.write_text("{}", encoding="utf-8")
+        con = daypic.open_own_db(self.own_db)
+        removed, _ = retention.purge_daypic(con, self.cfg, now, dry_run=False)
+        con.close()
+        self.assertEqual(removed, 3)
+        self.assertFalse(manifest.exists())
 
     def test_a_database_without_daypic_tables_is_fine(self):
         bare = str(Path(self.tmp.name) / "bare.sqlite3")
