@@ -105,6 +105,18 @@ for service in "${services[@]}"; do
     fi
 done
 
+# What starts those services on its own: timers and the .path mailboxes. Stopping
+# a service leaves its trigger armed, so a pipeline batch could start in the
+# middle of an update, open the crawler database and trip the guard below — that
+# is what made every second update fail with a rollback (2026-08-09). They are
+# stopped for the duration and restored with the services.
+active_triggers=()
+for service in "${services[@]}"; do
+    for trigger in $(systemctl show "$service" -p TriggeredBy --value); do
+        systemctl is-active --quiet "$trigger" && active_triggers+=("$trigger")
+    done
+done
+
 old_commit=$(git rev-parse HEAD)
 backup_path=""
 services_stopped=0
@@ -141,6 +153,11 @@ start_previous_services() {
     if (( ${#active_services[@]} > 0 )); then
         systemctl start "${active_services[@]}"
     fi
+    # Triggers last: a .path unit whose file is already waiting fires the moment
+    # it starts, and it should fire at a service that is back up.
+    if (( ${#active_triggers[@]} > 0 )); then
+        systemctl start "${active_triggers[@]}"
+    fi
 }
 
 rollback_on_failure() {
@@ -169,17 +186,27 @@ rollback_on_failure() {
 }
 trap rollback_on_failure EXIT
 
+# The flag goes up before the first stop, not after the last one: it is what
+# tells the rollback to put the units back, and an interruption between the two
+# stops must not leave the timers down.
+services_stopped=1
+# Triggers first, then the services they start: the other order leaves a window
+# in which a timer revives the service that was just stopped.
+if (( ${#active_triggers[@]} > 0 )); then
+    systemctl stop "${active_triggers[@]}"
+fi
 if (( ${#active_services[@]} > 0 )); then
     systemctl stop "${active_services[@]}"
 fi
-services_stopped=1
 
 open_db_files=()
 for path in "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"; do
     [[ -e $path ]] && open_db_files+=("$path")
 done
 if (( ${#open_db_files[@]} > 0 )) && lsof "${open_db_files[@]}"; then
-    echo "A database client is still running. Register its systemd unit in $EXTRA_SERVICES_FILE." >&2
+    echo "A database client is still running (see the table above). Register its systemd unit in" >&2
+    echo "$EXTRA_SERVICES_FILE if it is missing there; a run that had already started when this" >&2
+    echo "update began simply needs the update repeated." >&2
     exit 1
 fi
 
