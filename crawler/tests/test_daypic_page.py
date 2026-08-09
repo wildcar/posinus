@@ -72,6 +72,7 @@ def test_the_day_slot_asks_the_web_for_the_date_and_hides_a_surprise():
     assert "Веб-поиска у тебя нет" not in slot.system_prompt
     assert "интернете" in slot.system_prompt
     assert "сюрприз" in slot.prompt
+    assert "сначала дата" in slot.prompt  # migration 0016: the plate opens with the date
 
 
 @pytest.mark.django_db
