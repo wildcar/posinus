@@ -78,7 +78,8 @@ class DaypicSlotForm(forms.ModelForm):
         model = DaypicSlot
         fields = [
             "enabled", "title", "generate_at", "prompt", "system_prompt", "styles",
-            "chat_provider", "chat_model", "image_provider", "image_model",
+            "chat_provider", "chat_model", "chat_reasoning_effort", "chat_web_search",
+            "image_provider", "image_model",
             "image_size", "image_size_wide",
         ]
         labels = {
@@ -89,6 +90,8 @@ class DaypicSlotForm(forms.ModelForm):
             "styles": "Стили (по одному в строке; выбирается случайно, без повторов в течение месяца)",
             "chat_provider": "Провайдер чат-модели",
             "chat_model": "Чат-модель",
+            "chat_reasoning_effort": "Уровень рассуждений чат-модели",
+            "chat_web_search": "Поиск в интернете",
             "image_provider": "Провайдер генерации",
             "image_model": "Модель генерации",
             "image_size": "Размер вертикальной (telegram)",
@@ -102,6 +105,7 @@ class DaypicSlotForm(forms.ModelForm):
             "styles": forms.Textarea(attrs={"rows": 8}),
             "chat_provider": forms.TextInput(attrs={"placeholder": "пусто — deepseek (умолчание конвейера)"}),
             "chat_model": forms.TextInput(attrs={"placeholder": "пусто — deepseek-v4-pro (умолчание конвейера)"}),
+            "chat_reasoning_effort": forms.TextInput(attrs={"placeholder": "например medium; пусто — умолчание провайдера"}),
             "image_provider": forms.TextInput(attrs={"placeholder": "пусто — codex-oauth (умолчание конвейера)"}),
             "image_model": forms.TextInput(attrs={"placeholder": "пусто — выбирает роутер"}),
             "image_size": forms.TextInput(attrs={"placeholder": "1024x1536"}),

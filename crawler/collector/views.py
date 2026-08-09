@@ -796,7 +796,8 @@ def daypic_create(request):
     copied = {
         field: getattr(donor, field)
         for field in ("title", "generate_at", "prompt", "system_prompt", "styles",
-                      "chat_provider", "chat_model", "image_provider", "image_model",
+                      "chat_provider", "chat_model", "chat_reasoning_effort",
+                      "chat_web_search", "image_provider", "image_model",
                       "image_size", "image_size_wide")
     } if donor else {}
     DaypicSlot.objects.create(slot=key, enabled=False, **copied)

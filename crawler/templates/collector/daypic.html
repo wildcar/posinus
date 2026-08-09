@@ -45,6 +45,10 @@
       <div><label>{{ form.generate_at.label }}</label>{{ form.generate_at }}</div>
       <div><label>{{ form.chat_provider.label }}</label>{{ form.chat_provider }}</div>
       <div><label>{{ form.chat_model.label }}</label>{{ form.chat_model }}</div>
+      <div><label>{{ form.chat_reasoning_effort.label }}</label>{{ form.chat_reasoning_effort }}</div>
+      <div><label>{{ form.chat_web_search.label }}</label>
+        <label><input type="checkbox" name="{{ form.chat_web_search.html_name }}"
+          {% if form.chat_web_search.value %}checked{% endif %} style="width:auto"> разрешён</label></div>
       <div><label>{{ form.image_provider.label }}</label>{{ form.image_provider }}</div>
       <div><label>{{ form.image_model.label }}</label>{{ form.image_model }}</div>
       <div><label>{{ form.image_size.label }}</label>{{ form.image_size }}</div>
@@ -54,7 +58,8 @@
       <div class="wide"><label>{{ form.styles.label }}</label>{{ form.styles }}</div>
     </div>
     <p class="muted">Пустые поля модели оставляют выбор конфигу конвейера и роутеру.
-    Веб-поиска у модели нет: праздники она берёт из своих знаний календаря по переданной дате.</p>
+    С галочкой «Поиск в интернете» чат-модель ищет праздники и события переданной даты в вебе;
+    уровень рассуждений и поиск работают у провайдеров, которые это умеют (codex-oauth умеет).</p>
     <div class="actions"><button>Сохранить слот</button></div>
   </form>
 </div>

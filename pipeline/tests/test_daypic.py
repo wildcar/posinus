@@ -37,14 +37,15 @@ CHAT_REPLY = {
 
 SLOT_COLUMNS = (
     "slot", "enabled", "title", "generate_at", "prompt", "system_prompt", "styles",
-    "chat_provider", "chat_model", "image_provider", "image_model",
-    "image_size", "image_size_wide",
+    "chat_provider", "chat_model", "chat_reasoning_effort", "chat_web_search",
+    "image_provider", "image_model", "image_size", "image_size_wide",
 )
 
 CREATE_SLOT_TABLE = (
     "CREATE TABLE exchange_daypic_slot (slot TEXT PRIMARY KEY, enabled INTEGER, "
     "title TEXT, generate_at TEXT, prompt TEXT, system_prompt TEXT, styles TEXT, "
-    "chat_provider TEXT, chat_model TEXT, image_provider TEXT, image_model TEXT, "
+    "chat_provider TEXT, chat_model TEXT, chat_reasoning_effort TEXT, "
+    "chat_web_search INTEGER, image_provider TEXT, image_model TEXT, "
     "image_size TEXT, image_size_wide TEXT)"
 )
 
@@ -132,6 +133,39 @@ class PromptTests(unittest.TestCase):
             daypic.build_prompt(cfg, make_slot(chat_provider="codex-oauth", chat_model="gpt-6"),
                                 NOW.astimezone(MSK), "")
         self.assertEqual(seen, {"provider": "codex-oauth", "model": "gpt-6"})
+
+    def test_web_search_reaches_both_the_router_and_the_words(self):
+        """The tool is only half of it: the model also has to be told to use it."""
+        cfg = evaluator.Config()
+        seen = {}
+
+        def fake_chat(chat_cfg, messages):
+            seen["params"] = dict(chat_cfg.params)
+            seen["request"] = messages[-1]["content"]
+            return CHAT_REPLY
+
+        slot = make_slot(chat_reasoning_effort="medium", chat_web_search=True)
+        with mock.patch.object(evaluator, "chat", side_effect=fake_chat):
+            daypic.build_prompt(cfg, slot, NOW.astimezone(MSK), "")
+        self.assertEqual(seen["params"]["reasoning_effort"], "medium")
+        self.assertTrue(seen["params"]["web_search"])
+        self.assertIn("интернете", seen["request"])
+        self.assertIn("российским", seen["request"])
+
+    def test_a_slot_without_search_sends_neither_param_nor_the_line(self):
+        cfg = evaluator.Config()
+        seen = {}
+
+        def fake_chat(chat_cfg, messages):
+            seen["params"] = dict(chat_cfg.params)
+            seen["request"] = messages[-1]["content"]
+            return CHAT_REPLY
+
+        with mock.patch.object(evaluator, "chat", side_effect=fake_chat):
+            daypic.build_prompt(cfg, make_slot(), NOW.astimezone(MSK), "")
+        self.assertNotIn("web_search", seen["params"])
+        self.assertNotIn("reasoning_effort", seen["params"])
+        self.assertNotIn("интернете", seen["request"])
 
     def test_a_plain_text_reply_is_still_a_prompt(self):
         """The model wrote a prompt, just not the JSON envelope: use it."""
@@ -263,13 +297,16 @@ class SlotLoadingTests(unittest.TestCase):
     def test_only_enabled_slots_are_loaded(self):
         self._create_table([
             ("day", 1, "Картина дня", "08:00", "задание", "система", "a\nb\n",
-             "", "", "", "", "", "1600x900"),
-            ("evening", 0, "Картина вечера", "20:00", "з", "с", "", "", "", "", "", "", ""),
+             "codex-oauth", "gpt-5.5", "medium", 1, "", "", "", "1600x900"),
+            ("evening", 0, "Картина вечера", "20:00", "з", "с", "",
+             "", "", "", 0, "", "", "", ""),
         ])
         slots = daypic.load_slots(self.news_db)
         self.assertEqual([slot.slot for slot in slots], ["day"])
         self.assertEqual(slots[0].styles, ("a", "b"))
         self.assertEqual(slots[0].image_size_wide, "1600x900")
+        self.assertEqual(slots[0].chat_reasoning_effort, "medium")
+        self.assertTrue(slots[0].chat_web_search)
 
 
 class WildcarOrgTests(unittest.TestCase):
@@ -353,7 +390,7 @@ class RunTests(unittest.TestCase):
         con.execute(
             "INSERT INTO exchange_daypic_slot VALUES "
             "('day', 1, 'Картина дня', '08:00', 'задание', 'система', 'low-poly', "
-            "'', '', '', '', '', '')"
+            "'', '', '', 0, '', '', '', '')"
         )
         con.commit()
         con.close()

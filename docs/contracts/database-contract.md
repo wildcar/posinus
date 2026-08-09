@@ -175,7 +175,8 @@ FROM exchange_publication_order;
 ```sql
 SELECT slot, enabled, title, generate_at,
        prompt, system_prompt, styles,
-       chat_provider, chat_model, image_provider, image_model,
+       chat_provider, chat_model, chat_reasoning_effort, chat_web_search,
+       image_provider, image_model,
        image_size, image_size_wide
 FROM exchange_daypic_slot
 WHERE enabled = 1;
@@ -188,6 +189,7 @@ WHERE enabled = 1;
 - `prompt` и `system_prompt` — задание чат-модели, которая пишет промпт для генерации изображения.
 - `styles` — список стилей, по одному на строку; клиент выбирает стиль случайно, не повторяя уже использованные этим слотом в текущем месяце (когда неиспользованных не осталось, берётся любой).
 - `chat_provider`/`chat_model`, `image_provider`/`image_model` — подсказки роутеру; пустое значение оставляет выбор клиенту или роутеру.
+- `chat_reasoning_effort` и `chat_web_search` — параметры вызова чат-модели: уровень рассуждений (`low`, `medium`, `high`, …; пусто — умолчание провайдера) и признак «искать в интернете». Клиент передаёт их роутеру в `params`; провайдер, который их не понимает, их просто не получит.
 - `image_size` и `image_size_wide` — размеры вертикальной и горизонтальной картинок: выпуск рисуется в двух ориентациях (вертикальная уходит в telegram, горизонтальная — на сайты и в VK).
 
 Два правила для клиента. Отсутствие таблицы или пустой ответ — не ошибка: «Картина дня» просто не настроена, работайте дальше без неё. И правок в этой таблице у клиента нет: настройка принадлежит оператору, результат — конвейеру.

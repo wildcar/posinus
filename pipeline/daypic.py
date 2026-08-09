@@ -72,7 +72,8 @@ DB_LOCK_RETRIES = 4
 # is not an error: «Картина дня» is simply not set up on this database.
 SLOTS_SQL = """
 SELECT slot, enabled, title, generate_at, prompt, system_prompt, styles,
-       chat_provider, chat_model, image_provider, image_model,
+       chat_provider, chat_model, chat_reasoning_effort, chat_web_search,
+       image_provider, image_model,
        image_size, image_size_wide
 FROM exchange_daypic_slot
 WHERE enabled = 1
@@ -112,13 +113,16 @@ CREATE TABLE IF NOT EXISTS daypic_publication (
 );
 """
 
-# The prompt scaffolding around the operator's slot prompt. The router has no
-# web search, so the date discipline matters: the model must build the day from
-# its own knowledge of the calendar and not drift to a neighbouring date. The
-# reply format is owned here, not by the slot text: the code is what parses it.
+# The prompt scaffolding around the operator's slot prompt. The slot can turn
+# on the router's web search (chat_web_search; codex-oauth runs its native
+# search tool), but the date discipline still matters either way: searched or
+# remembered, the day must stay the passed date and not drift to a neighbouring
+# one. The reply format is owned here, not by the slot text: the code is what
+# parses it.
 PROMPT_REQUEST = (
     "Сегодня {date}, {weekday}. Используй только эту дату и события и праздники именно "
-    "этого дня; не придумывай другую дату и не смещайся на соседние дни.{style_line}\n\n"
+    "этого дня; не придумывай другую дату и не смещайся на соседние дни."
+    "{search_line}{style_line}\n\n"
     "{task}\n\n"
     "Картинка будет отрисована дважды, вертикально и горизонтально, поэтому ориентацию "
     "кадра в промпте не задавай. Верни один JSON-объект и больше ничего: "
@@ -127,6 +131,12 @@ PROMPT_REQUEST = (
     'события, нейтрально и дружелюбно>"}}'
 )
 STYLE_LINE = " Базовый стиль картинки: {style}."
+# Only when the slot switched web search on: the model gets the tool from the
+# router, and this is what tells it to actually spend it on today.
+SEARCH_LINE = (
+    " Найди в интернете праздники и события этой даты, приоритет российским, "
+    "и опирайся на найденное."
+)
 RU_WEEKDAYS = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
 
 # When the chat model would not answer, the issue still goes out on this
@@ -137,7 +147,8 @@ FALLBACK_PROMPT = (
     "контекст с приоритетом российских праздников, дружелюбное настроение, красивый свет "
     "и композицию открытки. Избегай насилия, трагедий, политики, катастроф и шок-контента. "
     "Без крупных надписей; только внизу небольшая плашка в стиле картинки с указанием "
-    "по-русски, какие сегодня праздники."
+    "по-русски, какие сегодня праздники. Спрячь в кадре небольшой весёлый визуальный "
+    "сюрприз — деталь, которую зрителю будет приятно поискать и найти."
 )
 
 # Appended on the retry after the image provider refused the first prompt —
@@ -226,6 +237,8 @@ class Slot:
     styles: tuple[str, ...]
     chat_provider: str = ""
     chat_model: str = ""
+    chat_reasoning_effort: str = ""
+    chat_web_search: bool = False
     image_provider: str = ""
     image_model: str = ""
     image_size: str = ""
@@ -262,6 +275,8 @@ def load_slots(news_db: str) -> list[Slot]:
             styles=tuple(line.strip() for line in (row["styles"] or "").splitlines() if line.strip()),
             chat_provider=(row["chat_provider"] or "").strip(),
             chat_model=(row["chat_model"] or "").strip(),
+            chat_reasoning_effort=(row["chat_reasoning_effort"] or "").strip(),
+            chat_web_search=bool(row["chat_web_search"]),
             image_provider=(row["image_provider"] or "").strip(),
             image_model=(row["image_model"] or "").strip(),
             image_size=(row["image_size"] or "").strip(),
@@ -306,6 +321,7 @@ def build_prompt_request(slot: Slot, now_local: datetime, style: str) -> str:
     return PROMPT_REQUEST.format(
         date=now_local.strftime("%Y-%m-%d"),
         weekday=RU_WEEKDAYS[now_local.weekday()],
+        search_line=SEARCH_LINE if slot.chat_web_search else "",
         style_line=STYLE_LINE.format(style=style) if style else "",
         task=slot.prompt,
     )
@@ -344,10 +360,20 @@ def build_prompt(
     prompt, just not the envelope), and only after that the built-in template —
     the issue is worth more than the prose.
     """
+    # Reasoning effort and web search ride the params next to temperature and
+    # max_tokens; the router drops what a provider does not understand (it
+    # reports them as ignored_params), so a slot pointed at a plainer provider
+    # keeps working.
+    params = dict(router_cfg.params)
+    if slot.chat_reasoning_effort:
+        params["reasoning_effort"] = slot.chat_reasoning_effort
+    if slot.chat_web_search:
+        params["web_search"] = True
     cfg = replace(
         router_cfg,
         provider=slot.chat_provider or router_cfg.provider,
         model_id=slot.chat_model or router_cfg.model_id,
+        params=params,
     )
     messages = [
         {"role": "system", "content": slot.system_prompt},

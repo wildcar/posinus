@@ -63,6 +63,18 @@ def test_the_migration_seeds_the_day_slot_switched_off():
 
 
 @pytest.mark.django_db
+def test_the_day_slot_asks_the_web_for_the_date_and_hides_a_surprise():
+    """Migration 0015: codex-oauth gpt-5.5, medium reasoning, search on."""
+    slot = DaypicSlot.objects.get(pk="day")
+    assert (slot.chat_provider, slot.chat_model) == ("codex-oauth", "gpt-5.5")
+    assert slot.chat_reasoning_effort == "medium"
+    assert slot.chat_web_search
+    assert "Веб-поиска у тебя нет" not in slot.system_prompt
+    assert "интернете" in slot.system_prompt
+    assert "сюрприз" in slot.prompt
+
+
+@pytest.mark.django_db
 def test_the_page_shows_the_slot_and_survives_a_missing_pipeline_db(operator, settings, tmp_path):
     settings.POSINUS_PIPELINE_DB_PATH = str(tmp_path / "absent.sqlite3")
 
