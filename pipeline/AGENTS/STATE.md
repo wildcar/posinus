@@ -372,6 +372,23 @@ a publish-ready retelling, and posts them to the platforms.
   exactly the sources tail. The published posts of 2026-08-10/11 keep their
   tails — not repaired.
 
+- Since 2026-08-11 (owner's channel feedback, second change of the day): the
+  retelling prompt demands a self-sufficient headline — кто и что сделал,
+  понятно без открытия текста; teasers like «Незнакомка с подносом» are
+  forbidden, with a worked replacement example in the prompt. And every news
+  post now ends with the owner's standing footer («Хотите ежедневно видеть
+  хотя бы одну хорошую новость? Подпишитесь на канал. А какая добрая история
+  запомнилась вам за последнее время?»), appended by the publisher at send
+  time like NEWS_TAGS — never stored in `retold_body_md`, so already-prepared
+  items get it too. Wording per platform: «на канал» in telegram, «на
+  сообщество» on VK, a link to t.me/posinus (from `TELEGRAM_CHANNEL_USERNAME`)
+  on wildcar.ru, wildcar.org and in the Дзен feed's content:encoded. In
+  telegram the footer counts against the visible-text limit and is never
+  dropped — paragraphs give way, so a long retelling loses one more paragraph
+  to it (the «Полный текст» link compensates). Old headlines are not
+  regenerated — the new rule starts with the next prepared item. 297 tests
+  pass.
+
 ## Next
 
 1. Prompt calibration and soft profiles («Россия» / «Международное»). The `default` profile

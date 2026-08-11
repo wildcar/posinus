@@ -35,6 +35,10 @@ Platforms (each turns on only when its secrets are present in the config):
   and its tags field carries EGEYA_TAGS plus the item's tags.
 - vk: a community wall post (photo upload + wall.post from the group).
 
+Every news post ends with the owner's standing footer (subscription call plus
+a question to the reader), worded per platform — see FOOTER_ASK below. It is a
+publishing rule like NEWS_TAGS: rendered at send time, never stored.
+
 Idempotency: each (news_id, platform) send is recorded in the `publication`
 table; a re-run skips platforms already 'ok' and retries only the failed ones.
 
@@ -115,6 +119,22 @@ ORDER BY prepared_at ASC, news_id ASC
 # by the preparer: it is a publishing rule, and it covers items prepared
 # before tags existed.
 NEWS_TAGS = ("позитивная", "новость", "позитивная новость")
+
+# Every news post ends with the owner's standing call to the reader — the same
+# publishing-rule reasoning as NEWS_TAGS: added at send time, never stored in
+# the retelling, so items prepared earlier get it too. Only the subscription
+# sentence varies: the telegram reader is inside the channel, the VK reader
+# inside the community, and a site reader gets a link to the channel instead.
+FOOTER_ASK = "Хотите ежедневно видеть хотя бы одну хорошую новость?"
+FOOTER_QUESTION = "А какая добрая история запомнилась вам за последнее время?"
+
+
+def footer_text(subscribe: str) -> str:
+    return f"{FOOTER_ASK} {subscribe} {FOOTER_QUESTION}"
+
+
+TG_FOOTER = footer_text("Подпишитесь на канал.")
+VK_FOOTER = footer_text("Подпишитесь на сообщество.")
 
 # The order to take them in, from the crawler DB: «сила» of each news item plus
 # whatever the operator changed by hand. Preparation time is the fallback and the
@@ -245,6 +265,37 @@ class PublisherConfig:
         if self.vk_token and self.vk_group_id:
             platforms.append("vk")
         return platforms
+
+
+def tg_channel_url(cfg: PublisherConfig) -> str:
+    return f"https://t.me/{cfg.tg_channel_username}" if cfg.tg_channel_username else ""
+
+
+def site_footer(cfg: PublisherConfig) -> str:
+    """The Эгея variant of the footer: the subscription call links to the
+    telegram channel in Neasden markup. No username configured — plain text."""
+    url = tg_channel_url(cfg)
+    if not url:
+        return TG_FOOTER
+    return footer_text(f"Подпишитесь на телеграм-канал (({url} @{cfg.tg_channel_username})).")
+
+
+def wildcar_footer(cfg: PublisherConfig) -> str:
+    """The wildcar.org variant: same call, as a markdown link."""
+    url = tg_channel_url(cfg)
+    if not url:
+        return TG_FOOTER
+    return footer_text(f"Подпишитесь на [телеграм-канал @{cfg.tg_channel_username}]({url}).")
+
+
+def feed_footer(cfg: PublisherConfig) -> str:
+    """The Дзен feed variant: same call, as HTML for content:encoded."""
+    url = tg_channel_url(cfg)
+    if not url:
+        return html.escape(TG_FOOTER)
+    link = (f'<a href="{html.escape(url, quote=True)}">телеграм-канал '
+            f"@{html.escape(cfg.tg_channel_username)}</a>")
+    return footer_text(f"Подпишитесь на {link}.")
 
 
 # ------------------------------------------------ stop cock and time window
@@ -469,15 +520,17 @@ def _tg_len(text: str) -> int:
 
 def build_tg_message(
     title: str, paragraphs: list[str], source_url: str, source_name: str, limit: int,
-    more_url: str = "",
+    more_url: str = "", footer: str = "",
 ) -> str:
-    """HTML message: bold title, as many leading paragraphs as fit, source link.
-    When paragraphs had to be dropped, a link to the full text (`more_url`,
-    the wildcar.org page) goes in before the source line.
+    """HTML message: bold title, as many leading paragraphs as fit, source link,
+    the standing footer. When paragraphs had to be dropped, a link to the full
+    text (`more_url`, the wildcar.org page) goes in before the source line.
 
     The limit applies to the VISIBLE text — Telegram counts what the reader
     sees after parsing the entities, not the raw HTML with its tags and the
-    href URL. Counting the raw string here used to cost a whole paragraph."""
+    href URL. Counting the raw string here used to cost a whole paragraph.
+    The footer counts against the limit too and is never dropped: paragraphs
+    give way to it."""
 
     def render(n: int) -> tuple[str, str]:
         visible = title
@@ -500,6 +553,9 @@ def build_tg_message(
                 '\n\n<a href="' + html.escape(source_url, quote=True) + '">'
                 + html.escape(label) + "</a>"
             )
+        if footer:
+            visible += "\n\n" + footer
+            message += "\n\n" + html.escape(footer)
         return visible, message
 
     n = len(paragraphs)
@@ -510,21 +566,26 @@ def build_tg_message(
     return message
 
 
-def build_vk_message(title: str, paragraphs: list[str], source_url: str, source_name: str) -> str:
-    """Plain-text wall post: title, full retelling, source link."""
+def build_vk_message(
+    title: str, paragraphs: list[str], source_url: str, source_name: str,
+    footer: str = "",
+) -> str:
+    """Plain-text wall post: title, full retelling, source link, the footer."""
     blocks = [title]
     if paragraphs:
         blocks.append("\n\n".join(paragraphs))
     if source_url:
         blocks.append(f"Источник: {source_url}")
+    blocks.append(footer)
     return "\n\n".join(b for b in blocks if b)
 
 
 def build_site_text(
-    images: list[tuple[str, str]], paragraphs: list[str], source_url: str, source_name: str
+    images: list[tuple[str, str]], paragraphs: list[str], source_url: str, source_name: str,
+    footer: str = "",
 ) -> str:
     """Neasden markup, mirroring the wildcar.org page: the lead picture, the
-    paragraphs, the remaining pictures, a ((url name)) source line.
+    paragraphs, the remaining pictures, a ((url name)) source line, the footer.
 
     `images` are (uploaded filename, caption). A caption goes on the line right
     under its picture — no blank line between them, which is how Neasden puts
@@ -541,6 +602,7 @@ def build_site_text(
         blocks.append(picture(filename, caption))
     if source_url:
         blocks.append(f"Источник: (({source_url} {source_name or source_name_from_url(source_url)}))")
+    blocks.append(footer)
     return "\n\n".join(b for b in blocks if b)
 
 
@@ -720,7 +782,8 @@ def publish_telegram(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) ->
     if item.lead_image:
         limit = min(TG_CAPTION_LIMIT, cfg.tg_text_limit)
         caption = build_tg_message(
-            item.title, item.paragraphs, item.source_url, item.source_name, limit, more_url)
+            item.title, item.paragraphs, item.source_url, item.source_name, limit,
+            more_url, TG_FOOTER)
         if dry_run:
             log.info("news %s telegram [dry-run]: photo upload, %d chars (limit %d)",
                      item.news_id, len(caption), limit)
@@ -734,7 +797,8 @@ def publish_telegram(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) ->
     else:
         limit = min(TG_MESSAGE_LIMIT, cfg.tg_text_limit)
         text = build_tg_message(
-            item.title, item.paragraphs, item.source_url, item.source_name, limit, more_url)
+            item.title, item.paragraphs, item.source_url, item.source_name, limit,
+            more_url, TG_FOOTER)
         if dry_run:
             log.info("news %s telegram [dry-run]: text message, %d chars (limit %d)",
                      item.news_id, len(text), limit)
@@ -834,10 +898,10 @@ def _image_block(filename: str, caption: str) -> str:
     return block
 
 
-def build_wildcar_page(entry: WildcarEntry, zone: ZoneInfo) -> str:
+def build_wildcar_page(entry: WildcarEntry, zone: ZoneInfo, footer: str = "") -> str:
     """The news page: tags in the front matter, title, lead picture, full text,
-    the rest of the pictures, a date-and-source line. MkDocs takes the H1 as
-    the page title."""
+    the rest of the pictures, a date-and-source line, the footer. MkDocs takes
+    the H1 as the page title."""
     parts = [f"# {entry.title}"]
     if entry.images:
         parts.append(_image_block(*entry.images[0]))
@@ -849,6 +913,8 @@ def build_wildcar_page(entry: WildcarEntry, zone: ZoneInfo) -> str:
         name = entry.source_name or source_name_from_url(entry.source_url)
         tail += f" · Источник: [{name}]({entry.source_url})"
     parts.append(f"*{tail}*")
+    if footer:
+        parts.append(footer)
     return build_front_matter(entry.tags) + "\n\n".join(parts) + "\n"
 
 
@@ -879,8 +945,9 @@ def _feed_title(title: str) -> str:
     return title[:-1] if title.endswith(".") and not title.endswith("...") else title
 
 
-def _feed_item_html(entry: WildcarEntry, page_url: str) -> str:
-    """content:encoded body: figures with absolute URLs, paragraphs, source."""
+def _feed_item_html(entry: WildcarEntry, page_url: str, footer_html: str = "") -> str:
+    """content:encoded body: figures with absolute URLs, paragraphs, source,
+    the footer (already HTML, see feed_footer)."""
 
     def figure(filename: str, caption: str) -> str:
         src = html.escape(page_url + urllib.parse.quote(filename), quote=True)
@@ -897,6 +964,8 @@ def _feed_item_html(entry: WildcarEntry, page_url: str) -> str:
         name = entry.source_name or source_name_from_url(entry.source_url)
         parts.append(f'<p>Источник: <a href="{html.escape(entry.source_url, quote=True)}">'
                      f"{html.escape(name)}</a></p>")
+    if footer_html:
+        parts.append(f"<p>{footer_html}</p>")
     return "".join(parts)
 
 
@@ -905,6 +974,7 @@ def build_wildcar_feed(cfg: PublisherConfig, entries: list[WildcarEntry]) -> str
     title / link / guid / pubDate (RFC-822) / category are required per item,
     the full text goes in content:encoded, the lead picture in enclosure."""
     section_url = wildcar_section_url(cfg)
+    footer_html = feed_footer(cfg)
     out = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">',
@@ -926,7 +996,8 @@ def build_wildcar_feed(cfg: PublisherConfig, entries: list[WildcarEntry]) -> str
             lead = entry.images[0][0]
             src = html.escape(page_url + urllib.parse.quote(lead), quote=True)
             out.append(f'<enclosure url="{src}" type="{guess_mime(lead)}"/>')
-        out.append("<content:encoded>" + _cdata(_feed_item_html(entry, page_url)) + "</content:encoded>")
+        out.append("<content:encoded>" + _cdata(_feed_item_html(entry, page_url, footer_html))
+                   + "</content:encoded>")
         out.append("</item>")
     out.extend(["</channel>", "</rss>"])
     return "\n".join(out) + "\n"
@@ -989,7 +1060,7 @@ def publish_wildcar_org(cfg: PublisherConfig, item: PreparedNews, dry_run: bool)
             WildcarEntry(item.news_id, item.title, item.paragraphs, item.source_url,
                          item.source_name, [(Path(p).name, c) for p, c in item.images],
                          datetime.now(timezone.utc), item.tags),
-            _window_zone(cfg.window_tz))
+            _window_zone(cfg.window_tz), wildcar_footer(cfg))
         log.info("news %s wildcar_org [dry-run]: %s, %d images, tags [%s], %d chars",
                  item.news_id, page_url, len(item.images), ", ".join(item.tags), len(page))
         return "(dry-run)"
@@ -1006,7 +1077,8 @@ def publish_wildcar_org(cfg: PublisherConfig, item: PreparedNews, dry_run: bool)
     page_dir.mkdir(parents=True, exist_ok=True)
     for path, _ in item.images:
         shutil.copyfile(path, page_dir / Path(path).name)
-    (page_dir / "index.md").write_text(build_wildcar_page(entry, zone), encoding="utf-8")
+    (page_dir / "index.md").write_text(
+        build_wildcar_page(entry, zone, wildcar_footer(cfg)), encoding="utf-8")
 
     section = wildcar_section_dir(cfg)
     entries = [entry] + _wildcar_published_entries(cfg, exclude_id=item.news_id)
@@ -1075,7 +1147,8 @@ def vk_upload_photo(cfg: PublisherConfig, image_path: str) -> str:
 
 
 def publish_vk(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
-    message = build_vk_message(item.title, item.paragraphs, item.source_url, item.source_name)
+    message = build_vk_message(
+        item.title, item.paragraphs, item.source_url, item.source_name, VK_FOOTER)
     if dry_run:
         log.info("news %s vk [dry-run]: image=%s, %d chars", item.news_id, bool(item.lead_image), len(message))
         return "(dry-run)"
@@ -1099,7 +1172,8 @@ def publish_site(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str
     tags = merge_tags(split_tags(cfg.site_tags), item.tags)
     if dry_run:
         text = build_site_text([(Path(path).name, caption) for path, caption in item.images],
-                               item.paragraphs, item.source_url, item.source_name)
+                               item.paragraphs, item.source_url, item.source_name,
+                               site_footer(cfg))
         log.info("news %s site [dry-run]: title='%s', %d images, tags [%s], %d chars",
                  item.news_id, item.title, len(item.images), ", ".join(tags), len(text))
         return "(dry-run)"
@@ -1139,7 +1213,8 @@ def publish_site(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str
         data = reply.get("data", {})
         uploaded.append((data.get("new-name") or data.get("name") or Path(path).name, caption))
 
-    text = build_site_text(uploaded, item.paragraphs, item.source_url, item.source_name)
+    text = build_site_text(uploaded, item.paragraphs, item.source_url, item.source_name,
+                           site_footer(cfg))
     # The tags control on the note form is a multi-select named `tags[]` (its
     # options carry the tag names as text), so the tags go as repeated
     # parameters. A flat `tags=строка` field is silently ignored — which is

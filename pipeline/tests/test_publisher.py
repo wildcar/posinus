@@ -128,6 +128,23 @@ class TelegramMessageTests(unittest.TestCase):
                                more_url="https://wildcar.org/news/5/")
         self.assertNotIn("Полный текст", msg)
 
+    def test_footer_goes_last_after_the_source(self):
+        msg = build_tg_message("T", ["a"], "https://s.test/a", "s.test", 1024,
+                               footer=publisher.TG_FOOTER)
+        self.assertTrue(msg.endswith(publisher.TG_FOOTER))
+        self.assertLess(msg.find("Источник"), msg.find("Хотите ежедневно"))
+
+    def test_footer_counts_in_the_limit_and_is_never_dropped(self):
+        # Both paragraphs fit without the footer; with it the second one gives
+        # way — the footer itself stays whole at the end.
+        paras = ["x" * 500, "y" * 480]
+        without = build_tg_message("T", paras, "https://s.test/a", "s.test", 1024)
+        with_footer = build_tg_message("T", paras, "https://s.test/a", "s.test", 1024,
+                                       footer=publisher.TG_FOOTER)
+        self.assertIn("y" * 480, without)
+        self.assertNotIn("y" * 480, with_footer)
+        self.assertTrue(with_footer.endswith(publisher.TG_FOOTER))
+
 
 class VkAndSiteTextTests(unittest.TestCase):
     def test_vk_message_has_title_body_source(self):
@@ -145,6 +162,20 @@ class VkAndSiteTextTests(unittest.TestCase):
         text = build_site_text([], ["a"], "https://s.test/a", "s.test")
         self.assertFalse(text.startswith("\n"))
         self.assertTrue(text.startswith("a"))
+
+    def test_vk_footer_after_source(self):
+        msg = build_vk_message("Т", ["a"], "https://s.test/a", "s.test", publisher.VK_FOOTER)
+        self.assertTrue(msg.endswith("Источник: https://s.test/a\n\n" + publisher.VK_FOOTER))
+        self.assertIn("Подпишитесь на сообщество.", publisher.VK_FOOTER)
+
+    def test_site_footer_links_the_telegram_channel(self):
+        footer = publisher.site_footer(PublisherConfig())
+        text = build_site_text([], ["a"], "https://s.test/a", "s.test", footer)
+        self.assertTrue(text.endswith(
+            "Хотите ежедневно видеть хотя бы одну хорошую новость? "
+            "Подпишитесь на телеграм-канал ((https://t.me/posinus @posinus)). "
+            "А какая добрая история запомнилась вам за последнее время?"))
+        self.assertLess(text.find("Источник"), text.find("Хотите"))
 
     def test_site_text_mirrors_the_wildcar_page(self):
         """Lead picture, paragraphs, the rest of the pictures; a caption sits on
@@ -320,6 +351,15 @@ class WildcarOrgTests(unittest.TestCase):
         self.assertIn("<p>Абзац один.</p>", body)
         self.assertIn('<a href="https://src.test/a">src.test</a>', body)
 
+    def test_page_and_feed_end_with_the_footer(self):
+        self.publish()
+        section = Path(self.cfg.wildcar_content_dir) / "news"
+        page = (section / "7169" / "index.md").read_text(encoding="utf-8")
+        self.assertIn("Подпишитесь на [телеграм-канал @posinus](https://t.me/posinus).", page)
+        self.assertLess(page.find("Источник"), page.find("Хотите ежедневно"))
+        feed = (section / "rss.xml").read_text(encoding="utf-8")
+        self.assertIn('<a href="https://t.me/posinus">телеграм-канал @posinus</a>', feed)
+
     def test_feed_and_index_remember_previous_items(self):
         # an earlier item, already recorded as published on wildcar_org
         earlier = PreparedNews(
@@ -442,8 +482,10 @@ class TelegramSendTests(unittest.TestCase):
         with mock.patch.object(publisher, "_post_json_result", fake_post):
             publisher.publish_telegram(cfg, item, dry_run=False)
         text = urllib.parse.parse_qs(sent["data"].decode("utf-8"))["text"][0]
-        self.assertEqual(text.count("п" * 700), 2)  # 2 of 4 paragraphs fit in 1500
+        # 1 of 4 paragraphs fits in 1500: the standing footer takes its share
+        self.assertEqual(text.count("п" * 700), 1)
         self.assertIn('href="https://wildcar.org/news/7169/"', text)
+        self.assertTrue(text.endswith(publisher.TG_FOOTER))
 
 
 class SitePublishTests(unittest.TestCase):
