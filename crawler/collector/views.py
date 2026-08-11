@@ -41,6 +41,7 @@ from .services.calibration import (
     titles_for,
 )
 from .services.console import attention, feed_mix, pipeline_counters, today_counters
+from .services.maintenance import is_banned_source_domain
 from .services.manual_review import mark_selected
 from .services.model_router import ModelRouterError
 from .services.pipeline_db import PipelineUnavailable
@@ -253,6 +254,9 @@ def source_detail(request, pk):
 def source_resume(request, pk):
     if request.method == "POST":
         source = get_object_or_404(Source, pk=pk)
+        if is_banned_source_domain(source.domain):
+            messages.error(request, "Домен в чёрном списке владельца, источник нельзя вернуть в работу.")
+            return redirect("source_detail", pk=pk)
         source.status = Source.Status.PROBATION
         source.probation_started_at = timezone.now()
         source.save(update_fields=["status", "probation_started_at", "updated_at"])

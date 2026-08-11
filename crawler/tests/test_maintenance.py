@@ -5,11 +5,12 @@ import pytest
 from django.test import override_settings
 from django.utils import timezone
 
-from collector.models import DiscoveryDomain, NewsTranslation, OperatorEvent, ReviewEvent, Source
+from collector.models import BannedSourceDomain, DiscoveryDomain, NewsTranslation, OperatorEvent, ReviewEvent, Source
 from collector.services.ingest import ingest_article
 from collector.services.maintenance import (
     create_backup,
     evaluate_sources,
+    is_banned_source_domain,
     is_blocked_discovery_domain,
     process_positive_discovery,
     purge_old_content,
@@ -39,6 +40,88 @@ def test_positive_discovery_skips_blocked_domains():
     process_positive_discovery()
     assert not DiscoveryDomain.objects.filter(domain__in=["vk.com", "t.me"]).exists()
     assert not Source.objects.filter(domain__in=["vk.com", "t.me"]).exists()
+
+
+@pytest.mark.django_db
+def test_shotam_ban_is_seeded_by_migration():
+    assert BannedSourceDomain.objects.filter(domain="shotam.info").exists()
+
+
+@pytest.mark.django_db
+def test_banned_domain_matches_self_and_subdomains():
+    BannedSourceDomain.objects.create(domain="banned.example")
+    assert is_banned_source_domain("banned.example")
+    assert is_banned_source_domain("www.banned.example")
+    assert is_banned_source_domain("BANNED.EXAMPLE")
+    assert not is_banned_source_domain("notbanned.example")
+    assert not is_banned_source_domain("")
+
+
+@pytest.mark.django_db
+def test_positive_discovery_skips_banned_domains():
+    BannedSourceDomain.objects.create(domain="banned.example")
+    source = Source.objects.create(name="Src", base_url="https://src.example/", domain="src.example")
+    item, _, _ = ingest_article(
+        source=source, url="https://src.example/b", title="Another story",
+        body=("Body text here. " * 30), links=["https://banned.example/some-article/"],
+    )
+    ReviewEvent.objects.create(news_item=item, decision="positive", selector_name="news-evaluator", idempotency_key="k2")
+    process_positive_discovery()
+    assert not DiscoveryDomain.objects.filter(domain="banned.example").exists()
+    assert not Source.objects.filter(domain="banned.example").exists()
+
+
+@pytest.mark.django_db
+def test_source_form_refuses_banned_domain():
+    from collector.forms import SourceForm
+
+    BannedSourceDomain.objects.create(domain="banned.example")
+    form = SourceForm(data={
+        "name": "Banned", "base_url": "https://www.banned.example/", "status": "active",
+        "interval_minutes": 60, "download_delay_seconds": 1.0,
+    })
+    assert not form.is_valid()
+    assert "base_url" in form.errors
+
+
+@pytest.mark.django_db
+def test_database_trigger_refuses_banned_domain():
+    """The batch script that added Shotam bypassed the form and discovery, so
+    the ban must hold at the database itself."""
+    from django.db import connection
+    from django.db.utils import IntegrityError
+
+    BannedSourceDomain.objects.create(domain="banned.example")
+    for domain in ["banned.example", "www.banned.example"]:
+        with pytest.raises(IntegrityError):
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO sources (name, base_url, domain, status, is_auto_discovered,"
+                    " interval_minutes, download_delay_seconds, use_playwright, include_patterns,"
+                    " exclude_patterns, adapter_config, created_at, updated_at)"
+                    " VALUES ('X', 'https://' || %s || '/', %s, 'active', 0, 60, 1.0, 0, '[]', '[]', '{}',"
+                    " datetime('now'), datetime('now'))",
+                    [domain, domain],
+                )
+    other = Source.objects.create(name="Other", base_url="https://other.example/", domain="other.example")
+    with pytest.raises(IntegrityError):
+        with connection.cursor() as cursor:
+            cursor.execute("UPDATE sources SET domain='banned.example' WHERE id=%s", [other.id])
+
+
+@pytest.mark.django_db
+def test_banned_source_cannot_be_resumed(client, django_user_model):
+    django_user_model.objects.create_user(username="op", password="pw")
+    client.login(username="op", password="pw")
+    # The source predates the ban: the insert trigger would refuse it afterwards.
+    source = Source.objects.create(
+        name="Banned", base_url="https://banned.example/", domain="banned.example",
+        status=Source.Status.PAUSED_MANUAL,
+    )
+    BannedSourceDomain.objects.create(domain="banned.example")
+    client.post(f"/sources/{source.pk}/resume/")
+    source.refresh_from_db()
+    assert source.status == Source.Status.PAUSED_MANUAL
 
 
 @pytest.mark.django_db

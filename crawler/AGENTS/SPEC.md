@@ -66,6 +66,7 @@ External selector <- exchange views -> append-only review events-+
 ### Source policy
 
 - ✅ Discover candidate domains only from external links of positively reviewed items, excluding a blocklist of social networks, messengers, video platforms, app stores, link shorteners, and reference/commerce/web-infrastructure domains.
+- ✅ The owner can ban a domain as a source outright (`banned_source_domains`, covers subdomains). A ban is enforced four times over: the source form refuses the URL, discovery skips the domain, a paused source with a banned domain cannot be resumed, and database triggers reject any INSERT/UPDATE that would put a banned domain into `sources` — so an ad-hoc batch script cannot re-add it either. First entry: `shotam.info` (owner's order, 2026-08-11).
 - ✅ Automatically accepted sources enter probation, limited to 20 saved articles.
 - ✅ A probation crawl is budgeted per run: at most 40 fetched article pages and 10 minutes of wall clock, whichever comes first. The 20-saved-articles cap never fires on a site that publishes nothing dated today, and an unbudgeted probation run used to walk a giant site whole for hours.
 - ✅ A probation source with at least 10 finished runs over at least 150 fetched pages and zero saved articles is paused as low-yield by the daily pass. Such a source produces no reviews, so the review-based yield rule could never reach it.

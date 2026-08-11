@@ -9,7 +9,7 @@ from django.db import connection, transaction
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
-from collector.models import DiscoveryDomain, NewsItem, NewsTranslation, OperatorEvent, ReviewEvent, Source, SourceEndpoint
+from collector.models import BannedSourceDomain, DiscoveryDomain, NewsItem, NewsTranslation, OperatorEvent, ReviewEvent, Source, SourceEndpoint
 from .fetch import allowed_by_robots, discover_endpoints, fetch_url
 
 logger = logging.getLogger(__name__)
@@ -54,6 +54,21 @@ def is_blocked_discovery_domain(domain: str) -> bool:
     return any(
         normalized == blocked or normalized.endswith("." + blocked)
         for blocked in BLOCKED_DISCOVERY_DOMAINS
+    )
+
+
+def is_banned_source_domain(domain: str) -> bool:
+    """True when the owner banned a domain as a source (self or any subdomain).
+
+    Unlike the discovery blocklist above, the ban is editorial and lives in the
+    database (`banned_source_domains`), where triggers enforce it on raw SQL too.
+    """
+    normalized = (domain or "").lower().strip(".")
+    if not normalized:
+        return False
+    return any(
+        normalized == banned or normalized.endswith("." + banned)
+        for banned in BannedSourceDomain.objects.values_list("domain", flat=True)
     )
 
 
@@ -122,7 +137,7 @@ def process_positive_discovery(limit=20):
     for event in events:
         links = event.news_item.occurrences.values_list("outbound_links__url", "outbound_links__domain").filter(outbound_links__is_external=True)
         for url, domain in links:
-            if not domain or is_blocked_discovery_domain(domain) or Source.objects.filter(domain=domain).exists():
+            if not domain or is_blocked_discovery_domain(domain) or is_banned_source_domain(domain) or Source.objects.filter(domain=domain).exists():
                 continue
             probe, created = DiscoveryDomain.objects.get_or_create(review_event=event, domain=domain, defaults={"url": url})
             if created:

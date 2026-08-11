@@ -510,6 +510,30 @@ class OperatorEvent(models.Model):
         ordering = ["-created_at"]
 
 
+class BannedSourceDomain(models.Model):
+    """A domain the owner banned as a news source, subdomains included.
+
+    Rows are read by the source form, discovery and the resume action; database
+    triggers (migration 0017) enforce the same rule on raw SQL, so a batch
+    script bypassing the ORM cannot re-add a banned source either.
+    """
+
+    domain = models.CharField(max_length=255, unique=True)
+    reason = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "banned_source_domains"
+        ordering = ["domain"]
+
+    def __str__(self):
+        return self.domain
+
+    def save(self, *args, **kwargs):
+        self.domain = self.domain.lower().strip(".")
+        super().save(*args, **kwargs)
+
+
 class DiscoveryDomain(models.Model):
     review_event = models.ForeignKey(ReviewEvent, on_delete=models.CASCADE, related_name="discovered_domains")
     domain = models.CharField(max_length=255)

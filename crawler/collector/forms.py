@@ -5,6 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import DaypicSlot, OperatorEvent, Source, SourceEndpoint, SourceRuntimeState
+from .services.maintenance import is_banned_source_domain
 
 
 class SourceForm(forms.ModelForm):
@@ -33,6 +34,13 @@ class SourceForm(forms.ModelForm):
                 field = mapping[endpoint.kind]
                 if not self.fields[field].initial:
                     self.fields[field].initial = endpoint.url
+
+    def clean_base_url(self):
+        base_url = self.cleaned_data["base_url"]
+        domain = (urlsplit(base_url).hostname or "").lower()
+        if is_banned_source_domain(domain):
+            raise forms.ValidationError("Домен в чёрном списке владельца, источник с него не добавить.")
+        return base_url
 
     @transaction.atomic
     def save(self, commit=True):
