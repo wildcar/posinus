@@ -6,6 +6,14 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 ## Now
 
+- Listing pages are refused as article candidates since `0301028` (LIVE 2026-08-11 15:19 UTC):
+  `url_matches` drops URLs whose path contains a whole listing segment (category, tag,
+  archive, author, faces, page…). The selection profile is at revision 3 — `highlight_min`
+  back to 9 on all seven axes (owner's call after revision 2 let through the 8949 military
+  story and several category pages retold as news; 34 of those 39 borderline items had
+  already been published). The four queued Boa Notícia category pages (9147–9151) are
+  dropped from the plan with corrective `not_positive` events; the pause used while the
+  owner decided is lifted.
 - Domain bans are LIVE at `83b2bb7` (2026-08-11, migration `0017`): `banned_source_domains`
   (seeded with `shotam.info`) plus database triggers refusing INSERT/UPDATE of `sources` with
   a banned domain, checked also by the source form, discovery and resume. The Shotam source
