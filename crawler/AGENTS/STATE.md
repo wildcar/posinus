@@ -6,6 +6,12 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 ## Now
 
+- Domain bans are LIVE at `83b2bb7` (2026-08-11, migration `0017`): `banned_source_domains`
+  (seeded with `shotam.info`) plus database triggers refusing INSERT/UPDATE of `sources` with
+  a banned domain, checked also by the source form, discovery and resume. The Shotam source
+  (id 308, added by an ad-hoc batch script on 2026-08-03) is deleted from prod, its 8 news
+  items are tombstoned, the 8949 verdict is corrected by an `operator:wildcar` `not_positive`
+  event, and the wildcar.org page /news/8949/ is removed (404, index and RSS regenerated).
 - The 2026-08-03…07 flow outage is fixed and LIVE at `942c1f6` (deployed 2026-08-07 19:52 UTC,
   `update-ubuntu.sh`, backup `pre-update-20260807T195154Z.sqlite3`). The single worker had been
   grinding giant auto-discovered probation sources (good.is: 5.4 h, 9809 pages, 0 saved) while

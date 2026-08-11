@@ -94,6 +94,13 @@ to time: merge duplicates, drop stale entries.
   apps, so the working token comes from the grandfathered Kate Mobile app_id (`2685278`) via
   the legacy implicit flow (non-expiring). Post with `owner_id=-<id>` plus `from_group=1`.
   Full recipe: `pipeline/docs/services.md`, «VK: the token type matters».
+- Taking a published news page off wildcar.org (first done 2026-08-11, news 8949): flip its
+  `publication` row to `status='removed'` (never delete rows), remove
+  `/var/lib/posinus/wildcar-org/news/<id>/`, regenerate `index.md` and `rss.xml` with the
+  publisher's own `_wildcar_published_entries`/`build_wildcar_index`/`build_wildcar_feed`
+  (they take only `status='ok'` rows), touch the rebuild marker, verify the 404. Why: index
+  and feed are static files rewritten only on publish — deleting the page alone leaves them
+  linking to a 404 until the next post goes out.
 - «Картина дня» reaches the owner's telegram bot `@wildaiapi_bot` (`~/repo/ort_bot`,
   11 subscribers, no channel) by PULL, not push: the bot reads the pickup manifest in
   `DAYPIC_DIR` at 08:00 and broadcasts the vertical picture itself (owner, 2026-08-09,
