@@ -387,7 +387,12 @@ a publish-ready retelling, and posts them to the platforms.
   dropped — paragraphs give way, so a long retelling loses one more paragraph
   to it (the «Полный текст» link compensates). Old headlines are not
   regenerated — the new rule starts with the next prepared item. 297 tests
-  pass.
+  pass. LIVE at `73989ec` (update-ubuntu.sh, 2026-08-11 13:11 UTC, backup
+  `pre-update-20260811T131132Z.sqlite3`), verified by a prod dry run of
+  news 8949 through all four platforms: telegram 982 chars against limit
+  1024, site 1168, vk 1175, wildcar_org 1418 — the footer is inside every
+  count. The first headline on the new prompt arrives with the next
+  prepared item.
 
 ## Next
 
