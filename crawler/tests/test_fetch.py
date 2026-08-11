@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from collector.models import Source, SourceEndpoint
-from collector.services.fetch import FetchResult, candidate_urls, decompress_gzip_body, extract_article
+from collector.services.fetch import FetchResult, candidate_urls, decompress_gzip_body, extract_article, is_listing_url, url_matches
 
 
 @pytest.fixture
@@ -52,3 +52,36 @@ def test_custom_css_extraction_multilingual():
     assert article["language"] == "ru"
     assert article["links"] == ["https://another.example/source"]
 
+
+def test_listing_urls_are_refused_as_article_candidates():
+    """Category, tag, archive, profile and pagination pages carry fresh teaser
+    text and today's date, so only the URL shape can tell them from articles
+    (on 2026-08-11 such pages were retold and published as news)."""
+    listings = [
+        "https://boanoticia.org.br/categorias/noticias/",
+        "https://boanoticia.org.br/categorias/destaques/",
+        "https://example.org/category/featured/",
+        "https://example.org/tag/food-pantries/",
+        "https://moya-planeta.ru/faces/view/1118",
+        "https://example.org/news/archive/2026/",
+        "https://example.org/blog/page/2/",
+        "https://example.org/Tag/Upper/",
+    ]
+    for url in listings:
+        assert is_listing_url(url), url
+    articles = [
+        "https://shotam.info/some-article-slug/",
+        "https://example.org/news/tagging-whales-in-the-arctic",
+        "https://example.org/2026/08/11/categorical-refusal-explained",
+        "https://www.theguardian.com/world/2026/aug/11/some-story",
+    ]
+    for url in articles:
+        assert not is_listing_url(url), url
+
+
+@pytest.mark.django_db
+def test_url_matches_refuses_listing_urls():
+    source = Source.objects.create(name="N", base_url="https://news.example/", domain="news.example")
+    assert url_matches(source, "https://news.example/2026/08/11/a-real-story")
+    assert not url_matches(source, "https://news.example/category/good-news/")
+    assert not url_matches(source, "https://news.example/login")

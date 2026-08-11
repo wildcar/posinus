@@ -218,9 +218,32 @@ def extract_article(source: Source, result: FetchResult, published_at=None):
     return {"url": result.url, "canonical_url": canonical, "title": title, "body": body, "language": language, "author": author, "published_at": date, "metadata": {k: v for k, v in data.items() if k not in {"text", "title", "author", "date", "url"}}, "links": links}
 
 
+# Path segments that name a listing rather than an article: category rubrics,
+# tag pages, date archives, author and profile indexes, pagination. A listing
+# shows fresh teasers and today's date, so it passes the «published today»
+# gate, trafilatura extracts the teaser text whole, and the page gets saved as
+# a news item (2026-08-11: category, tag and profile pages 9147–9151, 8298 and
+# 8690 were retold and published as news). Whole segments only — a slug that
+# merely contains the word ("/news/tagging-whales") must stay allowed.
+LISTING_PATH_SEGMENTS = frozenset({
+    "category", "categories", "categoria", "categorias", "kategoria",
+    "kategorie", "rubric", "rubrics", "rubrika", "tag", "tags", "temas",
+    "topic", "topics", "archive", "archives", "author", "authors", "faces",
+    "label", "labels", "sections", "page",
+})
+
+
+def is_listing_url(url: str) -> bool:
+    """True when the URL path names a listing page (category, tag, archive…)."""
+    path = urlsplit(url).path.lower()
+    return any(segment in LISTING_PATH_SEGMENTS for segment in path.split("/") if segment)
+
+
 def url_matches(source: Source, url: str) -> bool:
     lower_url = url.lower()
     if any(marker in lower_url for marker in ("/login", "/signin", "/sign-in", "/subscribe", "/paywall", "/captcha")):
+        return False
+    if is_listing_url(url):
         return False
     include = source.include_patterns or []
     exclude = source.exclude_patterns or []
