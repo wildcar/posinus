@@ -46,6 +46,7 @@ import json
 import logging
 import os
 import random
+import re
 import shutil
 import sqlite3
 import sys
@@ -129,7 +130,8 @@ PROMPT_REQUEST = (
     "кадра в промпте не задавай. Верни один JSON-объект и больше ничего: "
     '{{"prompt": "<готовый промпт для модели генерации изображений>", '
     '"description": "<два-четыре предложения по-русски: какие сегодня праздники и '
-    'события, нейтрально и дружелюбно>"}}'
+    'события, нейтрально и дружелюбно; без ссылок, адресов сайтов и списка '
+    'источников>"}}'
 )
 STYLE_LINE = " Базовый стиль картинки: {style}."
 # Only when the slot switched web search on: the model gets the tool from the
@@ -336,6 +338,31 @@ def fallback_prompt(slot: Slot, now_local: datetime, style: str) -> str:
     )
 
 
+# What a searched model cites into the description: markdown links, URLs with
+# a scheme or www., bare domain/path addresses, and a «Источники: …» tail.
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_URL_RE = re.compile(
+    r"(?:https?://|www\.)[^\s)»,;]+"
+    r"|\b[\w-]+(?:\.[\w-]+)+/[^\s,;)»]*",
+)
+_SOURCES_RE = re.compile(r"источник[иа]?\s*:\s*[^.!?]*[.!?]?", re.IGNORECASE)
+
+
+def strip_source_links(text: str) -> str:
+    """The description without the sources the model cites after a web search.
+
+    The caption under the picture is prose for a reader, not a bibliography;
+    the request says so, but a searched model appends «Источники: calend.ru/…»
+    anyway (prod, 2026-08-11). URLs go first: domain dots would otherwise end
+    the «Источники…» sentence early and leave its tail standing."""
+    text = _MD_LINK_RE.sub(r"\1", text)
+    text = _URL_RE.sub("", text)
+    text = _SOURCES_RE.sub("", text)
+    text = re.sub(r"\(\s*\)|«\s*»", "", text)       # brackets the strips emptied
+    text = re.sub(r"\s+([.,;:!?»)])", r"\1", text)  # space left before punctuation
+    return " ".join(text.split())
+
+
 def parse_prompt_reply(text: str) -> tuple[str, str]:
     """(prompt, description) out of the model's JSON reply.
 
@@ -349,7 +376,7 @@ def parse_prompt_reply(text: str) -> tuple[str, str]:
     description = payload.get("description")
     if not isinstance(description, str):
         description = ""
-    return " ".join(prompt.split()), " ".join(description.split())
+    return " ".join(prompt.split()), strip_source_links(description)
 
 
 def build_prompt(

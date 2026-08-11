@@ -121,6 +121,33 @@ class PromptTests(unittest.TestCase):
         self.assertEqual(description, "Сегодня день дружбы.")
         self.assertEqual(model, "chat-m")
 
+    def test_the_request_forbids_links_in_the_description(self):
+        request = daypic.build_prompt_request(make_slot(), NOW.astimezone(MSK), "")
+        self.assertIn("без ссылок", request)
+
+    def test_source_links_are_stripped_from_the_description(self):
+        """Prod 2026-08-11: with web search on, the model cited its sources."""
+        reply = json.dumps({
+            "prompt": "готовый промпт",
+            "description": (
+                "Сегодня Калинник — день калины и утренних туманов. "
+                "Также отмечают [День белого гриба](https://calend.ru/holidays/0/0/3237/). "
+                "Источники: calend.ru/day/8-11/, ortox.ru/calendar/day/2026/8/11/, "
+                "tass.ru/info/5173586."
+            ),
+        }, ensure_ascii=False)
+        _, description = daypic.parse_prompt_reply(reply)
+        self.assertEqual(
+            description,
+            "Сегодня Калинник — день калины и утренних туманов. "
+            "Также отмечают День белого гриба.")
+
+    def test_bare_urls_and_emptied_brackets_are_cleaned(self):
+        self.assertEqual(
+            daypic.strip_source_links(
+                "День шахтёра (https://tass.ru/info/1) и день кино (www.calend.ru/day/)."),
+            "День шахтёра и день кино.")
+
     def test_slot_model_hints_override_the_config(self):
         cfg = evaluator.Config(provider="deepseek", model_id="deepseek-v4-pro")
         seen = {}
