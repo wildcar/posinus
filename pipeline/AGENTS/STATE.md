@@ -359,6 +359,19 @@ a publish-ready retelling, and posts them to the platforms.
   manifest, and switch off its own 01:00 picture-of-day so subscribers get one
   picture a day instead of two.
 
+- Since 2026-08-11 the day's description carries no source references: with web
+  search on, gpt-5.5 was appending a «Источники: calend.ru/…» tail to the caption
+  (the 2026-08-10 and 2026-08-11 issues went out with it). The reply format now
+  forbids links and source lists, and `strip_source_links()` cleans what still
+  leaks — markdown links, bare URLs with or without a scheme, the «Источники: …»
+  sentence — before the caption is stored. 292 tests pass. LIVE at `0bf793c`
+  (update-ubuntu.sh, 2026-08-11 07:47 UTC, backup
+  `pre-update-20260811T074736Z.sqlite3`) and verified through the live router:
+  a `build_prompt` call for today returned a clean three-sentence description,
+  and the stripper applied to the already-published 2026-08-11 caption removes
+  exactly the sources tail. The published posts of 2026-08-10/11 keep their
+  tails — not repaired.
+
 ## Next
 
 1. Prompt calibration and soft profiles («Россия» / «Международное»). The `default` profile
