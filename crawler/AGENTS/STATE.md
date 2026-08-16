@@ -18,11 +18,24 @@ Operate a single-host multilingual news crawler whose source list improves from 
   August) reached the queue and the publisher now reports `prepared 1` with the next slot at
   09:00 MSK. The source ban and the listing filter that let 8949 through in the first place are
   both still in force.
-- Code fixes for the queue starvation are committed at `94a84a4` but **NOT deployed**: an active
-  crawl is budgeted (1500 pages / 20 minutes, the lease length), a run releases its lease even
-  when its own row cannot be saved, and the low-yield bar follows the selection profile instead
-  of a flat 2%. 161 tests pass. `update-ubuntu.sh` was refused by the agent permission policy,
-  so the owner runs it.
+- Code fixes for the queue starvation are committed at `94a84a4` and **still NOT deployed as of
+  2026-08-16 22:50 UTC**, though the owner ran the update: `/opt/posinus` sits on `0301028`, four
+  commits behind, and neither `ACTIVE_TIME_BUDGET` nor `low_yield_threshold` is in the deployed
+  files. `origin/main` is fetched to `bd1487d`, the checkout is clean and has no local commits,
+  and no `pre-update-20260816*` backup exists — so `update-ubuntu.sh` aborted between `git fetch`
+  and the backup step, where the only gate is the `lsof` guard. The fix itself is what most
+  likely blocks it: a four-hour Upworthy crawl keeps the worker holding the database open.
+  The change gives an active crawl a budget (1500 pages / 20 minutes, the lease length), makes a
+  run release its lease even when its own row cannot be saved, and ties the low-yield bar to the
+  selection profile instead of a flat 2%. 161 tests pass.
+- Orphaned crawl rows are cleared (2026-08-16): 76 rows stuck in `running`, aged 4 to 768 hours
+  and all with zero fetched pages, are closed as `failed` with a reason; one live run stays open.
+  Verified first that closing them tips no probation source into the fruitless pause. Only one
+  source was actually stuck behind a stale schedule — Upworthy (18), whose `next_run_at` sat at
+  14 August and kept handing it the head of the oldest-due queue, five open runs deep, two of
+  them from 29 July; its schedule is pushed forward and its lease left alone. The other 71 rows
+  belonged to sources that had long since been crawled again, so the queue starved on run length,
+  not on them.
 - Listing pages are refused as article candidates since `0301028` (LIVE 2026-08-11 15:19 UTC):
   `url_matches` drops URLs whose path contains a whole listing segment (category, tag,
   archive, author, faces, page…). The four queued Boa Notícia category pages (9147–9151) are
