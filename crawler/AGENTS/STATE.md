@@ -6,12 +6,26 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 ## Now
 
+- **Publication stopped for 38 hours (last post 2026-08-15 09:15 MSK) and the top of the funnel
+  was empty.** Three causes, found 2026-08-16: the channel had been publishing 178 news against
+  100 selected since 26 July and was living on a reserve that ran out on 14 August; the profile
+  raised to revision 3 on 11 August cut selection from 4.51% of the corpus to 1.60%, so nothing
+  refilled it; and the crawl queue was starved again — all 56 active sources 26–45 hours overdue
+  while single runs ate 2–4 hours (АСИ 236 min / 9195 pages / 0 saved). **The selection profile
+  is at revision 4 since 2026-08-16 21:20 UTC: `highlight_min` back to 8 on all seven axes**
+  (owner's call, asked with the 8949 drone story named as the risk). A full rescore under r4
+  corrected 174 verdicts — 164 of those news are already tombstoned, so 8 fresh items (14–15
+  August) reached the queue and the publisher now reports `prepared 1` with the next slot at
+  09:00 MSK. The source ban and the listing filter that let 8949 through in the first place are
+  both still in force.
+- Code fixes for the queue starvation are committed at `94a84a4` but **NOT deployed**: an active
+  crawl is budgeted (1500 pages / 20 minutes, the lease length), a run releases its lease even
+  when its own row cannot be saved, and the low-yield bar follows the selection profile instead
+  of a flat 2%. 161 tests pass. `update-ubuntu.sh` was refused by the agent permission policy,
+  so the owner runs it.
 - Listing pages are refused as article candidates since `0301028` (LIVE 2026-08-11 15:19 UTC):
   `url_matches` drops URLs whose path contains a whole listing segment (category, tag,
-  archive, author, faces, page…). The selection profile is at revision 3 — `highlight_min`
-  back to 9 on all seven axes (owner's call after revision 2 let through the 8949 military
-  story and several category pages retold as news; 34 of those 39 borderline items had
-  already been published). The four queued Boa Notícia category pages (9147–9151) are
+  archive, author, faces, page…). The four queued Boa Notícia category pages (9147–9151) are
   dropped from the plan with corrective `not_positive` events; the pause used while the
   owner decided is lifted.
 - Domain bans are LIVE at `83b2bb7` (2026-08-11, migration `0017`): `banned_source_domains`
@@ -156,10 +170,21 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 ## Next
 
-1. Deploy migration `0011` and watch the first evaluator runs: how often the model's rubric misses the closed list («без темы» in the run counters).
-2. Step 6 of `../docs/ui-concept.md`: removing a published post (needs Telegram/VK message ids stored first), VK response counts, «похоже на уже опубликованное», bulk actions, source trust level.
-3. Watch live translation errors; malformed model formatting now gets one automatic correction attempt.
-4. Watch crawl runs and positive-yield statistics; tune per-site rules where extraction fails.
+1. Deploy `94a84a4` with `update-ubuntu.sh` — the crawl budget and the profile-relative yield bar
+   are not live yet, so the worker still loses whole days to single sources.
+2. Raise `PREPARER_MAX_TOKENS` from 4000 to 8000 in `/etc/posinus/pipeline.env`: four of the five
+   items prepared on 2026-08-16 failed with «DeepSeek stopped at max_tokens=4000 before returning
+   any content». The preparer retries items whose status is `error`, so they need no other repair.
+3. Close the orphaned `running` crawl rows (sources 306, 11, 326, 324, 323 — days old, 0 pages)
+   and let their sources rejoin the queue: a run that never finished left `next_run_at` behind,
+   which makes that source the permanent head of the oldest-due queue. Source 18 has a live run,
+   so leave it to finish on its own.
+4. Watch whether returning to `highlight_min` 8 restores roughly 4–5 selected news a day, and
+   whether the 8 slots a day are still more than selection can feed.
+5. Deploy migration `0011` and watch the first evaluator runs: how often the model's rubric misses the closed list («без темы» in the run counters).
+6. Step 6 of `../docs/ui-concept.md`: removing a published post (needs Telegram/VK message ids stored first), VK response counts, «похоже на уже опубликованное», bulk actions, source trust level.
+7. Watch live translation errors; malformed model formatting now gets one automatic correction attempt.
+8. Watch crawl runs and positive-yield statistics; tune per-site rules where extraction fails.
 
 ## Open questions
 
