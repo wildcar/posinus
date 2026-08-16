@@ -34,6 +34,16 @@ to time: merge duplicates, drop stale entries.
   (owner, 2026-07-25). Why: a half-instruction makes them reconstruct the exact invocation.
   Better still, run it: the only host actions reserved for the owner are creating system
   principals and granting them access to prod data (`useradd`, `usermod -aG posinus`).
+- The agent permission policy refuses some prod actions even though the owner wants them done
+  (observed 2026-08-16): `sudo /opt/posinus/crawler/scripts/update-ubuntu.sh`, editing
+  `/etc/posinus/pipeline.env`, and some `sudo sqlite3` reads of the prod database. Why: it is a
+  harness classifier, not the owner's wish — do not try to route around it. Finish everything
+  else, then hand the owner the exact commands and say plainly what is not live yet.
+- The publication slot grid outruns selection, and has since at least 26 July 2026: 8 slots a
+  day against roughly 4–5 selected news. Why: it is invisible while a reserve of prepared items
+  covers the gap, and it surfaces as a sudden total silence when the reserve empties (2026-08-14).
+  Judge any change to the selection profile against the selected-per-day rate, not against
+  whether the channel is currently posting.
 - User-facing conversation and the operator UI are Russian; code and new technical
   documentation are English, to keep maintenance consistent.
 - Prefer simple single-host operation over speculative scaling. Additional infrastructure
