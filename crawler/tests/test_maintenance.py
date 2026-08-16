@@ -124,16 +124,58 @@ def test_banned_source_cannot_be_resumed(client, django_user_model):
     assert source.status == Source.Status.PAUSED_MANUAL
 
 
+def _reviewed_source(domain, reviews, positives):
+    """An active source with `reviews` judged news items, `positives` of them selected."""
+    source = Source.objects.create(name=domain, base_url=f"https://{domain}/", domain=domain)
+    for number in range(reviews):
+        item, _, _ = ingest_article(
+            source=source, url=f"https://{domain}/{number}",
+            title=f"Item {number} on {domain}", body=(f"Body {number} of {domain}. " * 30),
+            language="en",
+        )
+        ReviewEvent.objects.create(
+            news_item=item,
+            decision="positive" if number < positives else "not_positive",
+            selector_name="selector", idempotency_key=f"{domain}-{number}",
+        )
+    return source
+
+
 @pytest.mark.django_db
 def test_active_source_is_paused_after_fifty_low_yield_reviews():
-    source = Source.objects.create(name="Weak", base_url="https://weak.example/", domain="weak.example")
-    for number in range(50):
-        item, _, _ = ingest_article(source=source, url=f"https://weak.example/{number}", title=f"Ordinary item {number}", body=(f"Content number {number}. " * 30), language="en")
-        ReviewEvent.objects.create(news_item=item, decision="not_positive", selector_name="selector", idempotency_key=str(number))
+    weak = _reviewed_source("weak.example", reviews=50, positives=0)
+    _reviewed_source("strong.example", reviews=50, positives=5)
     evaluate_sources()
-    source.refresh_from_db()
-    assert source.status == Source.Status.PAUSED_LOW_YIELD
-    assert OperatorEvent.objects.filter(event_type="source_status", source=source).exists()
+    weak.refresh_from_db()
+    assert weak.status == Source.Status.PAUSED_LOW_YIELD
+    assert OperatorEvent.objects.filter(event_type="source_status", source=weak).exists()
+
+
+@pytest.mark.django_db
+def test_low_yield_bar_follows_the_selection_profile():
+    """A stricter profile must not turn the yield rule on the whole source list.
+
+    Raising the profile on 2026-08-11 dropped the corpus to 1.6% selected, under
+    the flat 2% bar, and the next four nightly passes paused the eight most
+    productive sources — collection fell from 150–550 news a day to 34. A source
+    that matches what the profile passes is doing its job, whatever the number.
+    """
+    typical = _reviewed_source("typical.example", reviews=100, positives=1)
+    _reviewed_source("peer.example", reviews=100, positives=1)
+    evaluate_sources()
+    typical.refresh_from_db()
+    assert typical.status == Source.Status.ACTIVE
+
+
+@pytest.mark.django_db
+def test_nothing_is_paused_when_the_profile_selects_nothing():
+    """With no positives anywhere the rule cannot tell a bad source from a bad
+    profile, so it blames neither."""
+    silent = _reviewed_source("silent.example", reviews=60, positives=0)
+    _reviewed_source("quiet.example", reviews=60, positives=0)
+    evaluate_sources()
+    silent.refresh_from_db()
+    assert silent.status == Source.Status.ACTIVE
 
 
 @pytest.mark.django_db

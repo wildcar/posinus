@@ -90,12 +90,37 @@ def latest_reviews():
 FRUITLESS_PROBATION_RUNS = 10
 FRUITLESS_PROBATION_FETCHED = 150
 
+# The yield bar used to be a flat 2%, which silently assumed a selection profile
+# that let about 4.5% of the corpus through. When the owner tightened the profile
+# on 2026-08-11 the whole corpus fell to 1.6% — under the bar — and the rule
+# turned on the sources it exists to protect: whoever collects enough to be
+# measured fails, and the most productive fail first, because they reach the
+# 50-review sample fastest. Eight sources were paused over the four nights that
+# followed, and collection fell from 150–550 news a day to 34.
+#
+# So the bar follows the profile. A source is judged against what the editorial
+# rule actually passes across every source, and only a source far below that
+# average is paused. The ceiling keeps the rule from ever being stricter than
+# the 2% the owner originally asked for, and a corpus that selects nothing at
+# all yields a bar of zero — nobody is blamed for a rule nothing can satisfy.
+LOW_YIELD_SHARE_OF_CORPUS = 0.4
+LOW_YIELD_MAX_THRESHOLD = 0.02
+
+
+def low_yield_threshold(decisions) -> float:
+    """The positive share below which a source is not worth crawling."""
+    if not decisions:
+        return 0.0
+    corpus = sum(d == ReviewEvent.Decision.POSITIVE for d in decisions.values()) / len(decisions)
+    return min(LOW_YIELD_MAX_THRESHOLD, corpus * LOW_YIELD_SHARE_OF_CORPUS)
+
 
 def evaluate_sources():
     now = timezone.now()
     since = now - timedelta(days=30)
     latest = list(latest_reviews().filter(created_at__gte=since, decision__in=[ReviewEvent.Decision.POSITIVE, ReviewEvent.Decision.NOT_POSITIVE]))
     decisions = {event.news_item_id: event.decision for event in latest}
+    threshold = low_yield_threshold(decisions)
     for source in Source.objects.filter(status__in=[Source.Status.ACTIVE, Source.Status.PROBATION, Source.Status.PROBATION_WAITING]):
         if source.status == Source.Status.PROBATION:
             sample = source.crawl_runs.filter(
@@ -118,12 +143,14 @@ def evaluate_sources():
             fetched = totals["fetched"] or 0
             saved = totals["saved"] or 0
             extraction_ok = fetched > 0 and saved / fetched >= 0.8
-            if extraction_ok and ratio >= 0.02:
-                _change_status(source, Source.Status.ACTIVE, "Источник успешно прошел пробный режим", {"reviews": total, "positive_ratio": ratio})
-            elif total >= 50 and ratio < 0.02:
-                _change_status(source, Source.Status.PAUSED_LOW_YIELD, "Источник не прошел пробный режим", {"reviews": total, "positive_ratio": ratio})
-        elif source.status == Source.Status.ACTIVE and total >= 50 and ratio < 0.02:
-            _change_status(source, Source.Status.PAUSED_LOW_YIELD, "Автопауза: доля позитивных новостей ниже 2%", {"reviews": total, "positive_ratio": ratio})
+            if extraction_ok and ratio >= threshold:
+                _change_status(source, Source.Status.ACTIVE, "Источник успешно прошел пробный режим", {"reviews": total, "positive_ratio": ratio, "threshold": threshold})
+            elif total >= 50 and ratio < threshold:
+                _change_status(source, Source.Status.PAUSED_LOW_YIELD, "Источник не прошел пробный режим", {"reviews": total, "positive_ratio": ratio, "threshold": threshold})
+        elif source.status == Source.Status.ACTIVE and total >= 50 and ratio < threshold:
+            _change_status(source, Source.Status.PAUSED_LOW_YIELD,
+                           f"Автопауза: доля позитивных новостей ниже {threshold:.2%}",
+                           {"reviews": total, "positive_ratio": ratio, "threshold": threshold})
 
 
 def _change_status(source, status, message, details):

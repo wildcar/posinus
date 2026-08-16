@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import timedelta
 
 import pytest
@@ -6,6 +7,7 @@ from django.utils import timezone
 from collector.models import CrawlRun, Source, SourceEndpoint, SourceRuntimeState
 from collector.services.crawler import (
     ACTIVE_LEASES_PER_PROBATION,
+    ACTIVE_PAGE_BUDGET,
     PROBATION_PAGE_BUDGET,
     crawl_source,
     lease_next_source,
@@ -103,12 +105,65 @@ def test_probation_crawl_stops_at_the_time_budget(monkeypatch):
 
 
 @pytest.mark.django_db
-def test_active_crawl_is_not_budgeted(monkeypatch):
+def test_active_crawl_keeps_the_wider_budget_of_the_product(monkeypatch):
+    """An active source is worth far more pages than a probation sample."""
     count = PROBATION_PAGE_BUDGET + 20
     source = _crawlable_source(monkeypatch, "cur.example", Source.Status.ACTIVE, count)
     run = crawl_source(source)
     assert run.fetched_count == count
     assert "budget_exhausted" not in run.details
+
+
+@pytest.mark.django_db
+def test_active_crawl_stops_at_the_page_budget(monkeypatch):
+    """The 200-saved-articles cap has the probation cap's blind spot: a site
+    that saves nothing never reaches it, so the run ends only once the whole
+    site has been walked. Four such runs held the worker for 12 hours on
+    2026-08-16 while all 56 active sources sat up to 45 hours overdue."""
+    source = _crawlable_source(monkeypatch, "huge.example", Source.Status.ACTIVE, ACTIVE_PAGE_BUDGET * 2)
+    run = crawl_source(source)
+    assert run.fetched_count == ACTIVE_PAGE_BUDGET
+    assert run.details["budget_exhausted"] == "pages"
+
+
+@pytest.mark.django_db
+def test_active_crawl_stops_at_the_time_budget(monkeypatch):
+    source = _crawlable_source(monkeypatch, "slowactive.example", Source.Status.ACTIVE, 10)
+    monkeypatch.setattr("collector.services.crawler.ACTIVE_TIME_BUDGET", timedelta(0))
+    run = crawl_source(source)
+    assert run.fetched_count == 0
+    assert run.details["budget_exhausted"] == "time"
+
+
+@pytest.mark.django_db
+def test_budget_ends_a_run_that_fetches_nothing(monkeypatch):
+    """Source 18 spent 19 minutes on candidates it skipped without one fetch,
+    so the budget is read before the skip conditions, not after them."""
+    source = _crawlable_source(monkeypatch, "skipall.example", Source.Status.ACTIVE, 10)
+    monkeypatch.setattr("collector.services.crawler.url_matches", lambda source, url: False)
+    monkeypatch.setattr("collector.services.crawler.ACTIVE_TIME_BUDGET", timedelta(0))
+    run = crawl_source(source)
+    assert run.details["budget_exhausted"] == "time"
+
+
+@pytest.mark.django_db
+def test_lease_is_released_even_when_the_run_row_cannot_be_saved(monkeypatch):
+    """A run whose row fails to save must still free its source.
+
+    On 2026-08-16 source 18 kept a `next_run_at` from two days earlier after an
+    abandoned run, which made it the permanent head of the oldest-due queue: it
+    was leased again 23 minutes later while 56 actives waited behind it.
+    """
+    source = _crawlable_source(monkeypatch, "lockme.example", Source.Status.ACTIVE, 1)
+    monkeypatch.setattr(
+        "collector.services.crawler._save_run",
+        lambda run: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked")),
+    )
+    with pytest.raises(sqlite3.OperationalError):
+        crawl_source(source)
+    state = SourceRuntimeState.objects.get(source=source)
+    assert state.lease_until is None
+    assert state.next_run_at > timezone.now()
 
 
 @pytest.mark.django_db

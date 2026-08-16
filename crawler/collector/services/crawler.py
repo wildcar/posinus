@@ -23,6 +23,26 @@ logger = logging.getLogger(__name__)
 PROBATION_PAGE_BUDGET = 40
 PROBATION_TIME_BUDGET = timedelta(minutes=10)
 
+# An active source is the product, so its budget is far wider than a sample —
+# but it is a budget. The 200-saved-articles cap has the same blind spot as the
+# probation one: a site that saves nothing never reaches it, and the run ends
+# only when the whole site has been walked. On 2026-08-16 four such runs held
+# the worker for 12 hours between them (АСИ 236 min / 9195 pages / 0 saved,
+# Goednieuwssite 199 / 5439 / 0, My Modern Met 184 / 8239 / 0) while all 56
+# active sources sat 26–45 hours overdue and the news flow stopped.
+#
+# The trade is measured, not guessed. Over the three weeks to 2026-08-16 active
+# runs of 20 minutes or less returned 968 articles for 6.3 worker-hours, while
+# runs over an hour returned 390 for 166 hours — 154 articles per hour against
+# 2.3. Cutting the long tail costs a little yield per run and buys back the two
+# days a starved source now waits for its turn.
+#
+# The time budget stays at the lease length on purpose: a run that outlives its
+# own lease lets the next loop lease the same source again, which is how source
+# 18 came to hold two live runs at once on 2026-08-16.
+ACTIVE_PAGE_BUDGET = 1500
+ACTIVE_TIME_BUDGET = timedelta(minutes=20)
+
 # Curated active sources are the product; probation sources are an experiment.
 # Without a priority the experiment starved the product for four days (2026-08),
 # and with a strict priority the product would starve the experiment forever.
@@ -111,9 +131,10 @@ def crawl_source(source: Source):
         seen = set()
         probation = source.status == Source.Status.PROBATION
         article_limit = 20 if probation else 200
-        deadline = timezone.now() + PROBATION_TIME_BUDGET
+        page_budget = PROBATION_PAGE_BUDGET if probation else ACTIVE_PAGE_BUDGET
+        deadline = timezone.now() + (PROBATION_TIME_BUDGET if probation else ACTIVE_TIME_BUDGET)
         for endpoint in endpoints:
-            if probation and timezone.now() >= deadline:
+            if timezone.now() >= deadline:
                 budget_exhausted = budget_exhausted or "time"
             if budget_exhausted:
                 break
@@ -139,13 +160,15 @@ def crawl_source(source: Source):
                     except Exception as exc:
                         errors.append({"url": endpoint.url, "reason": f"nested sitemap: {exc}"})
                 for url, hinted_date in candidates:
-                    if probation:
-                        if run.fetched_count >= PROBATION_PAGE_BUDGET:
-                            budget_exhausted = "pages"
-                            break
-                        if timezone.now() >= deadline:
-                            budget_exhausted = "time"
-                            break
+                    # Checked before the skip conditions below, so a candidate
+                    # list that is walked without a single fetch still ends on
+                    # time — source 18 spent 19 minutes and 0 pages that way.
+                    if run.fetched_count >= page_budget:
+                        budget_exhausted = "pages"
+                        break
+                    if timezone.now() >= deadline:
+                        budget_exhausted = "time"
+                        break
                     if run.saved_count >= article_limit or not url or url in seen or not url_matches(source, url):
                         continue
                     seen.add(url)
@@ -187,9 +210,23 @@ def crawl_source(source: Source):
         if budget_exhausted:
             run.details["budget_exhausted"] = budget_exhausted
         run.finished_at = timezone.now()
-        run.save()
-        finish_lease(source, run)
+        # Releasing the lease matters more than recording the run. When the run
+        # row failed to save — the pipeline holds the crawler database open, and
+        # a write can lose the race — the source kept its old `next_run_at` and
+        # became the permanent head of the oldest-due queue: source 18 was
+        # leased again 23 minutes after an abandoned run on 2026-08-16, while
+        # 56 actives waited two days behind it. Save with the retry the rest of
+        # the queue writes already use, and free the lease either way.
+        try:
+            _save_run(run)
+        finally:
+            finish_lease(source, run)
     return run
+
+
+@retry_sqlite()
+def _save_run(run):
+    run.save()
 
 
 @retry_sqlite()

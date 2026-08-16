@@ -71,8 +71,11 @@ External selector <- exchange views -> append-only review events-+
 - ✅ Automatically accepted sources enter probation, limited to 20 saved articles.
 - ✅ A probation crawl is budgeted per run: at most 40 fetched article pages and 10 minutes of wall clock, whichever comes first. The 20-saved-articles cap never fires on a site that publishes nothing dated today, and an unbudgeted probation run used to walk a giant site whole for hours.
 - ✅ A probation source with at least 10 finished runs over at least 150 fetched pages and zero saved articles is paused as low-yield by the daily pass. Such a source produces no reviews, so the review-based yield rule could never reach it.
-- ✅ Promote after at least ten final reviews, at least 80% extraction success, and positive yield of at least 2%.
-- ✅ Pause an active source below 2% yield after at least 50 final reviews in a rolling 30-day window.
+- ✅ An active crawl is budgeted per run too, wider than the sample: at most 1500 fetched article pages and 20 minutes of wall clock. The 200-saved-articles cap has the same blind spot as the probation one, so an unbudgeted run ended only when the whole site had been walked — on 2026-08-16 four such runs held the single worker for 12 hours while all 56 active sources sat 26–45 hours overdue. The time budget equals the lease, because a run that outlives its lease lets the next loop lease the same source a second time. The budget is read before the skip conditions, so a run that fetches nothing still ends on time.
+- ✅ A run always releases its lease, even when its own row cannot be written. A source whose `next_run_at` was left behind becomes the permanent head of the oldest-due queue and is leased again and again while every other source waits.
+- ✅ The low-yield bar follows the selection profile instead of a fixed number: it is 40% of the share the profile selects across the whole corpus, capped at 2%. A stricter profile lowers the bar for everyone, so tightening the editorial rule cannot turn the yield rule on the sources it exists to protect (2026-08-11: the corpus fell to 1.6%, under the old flat 2%, and the four nightly passes that followed paused the eight most productive sources). When the corpus selects nothing the bar is zero and nobody is paused.
+- ✅ Promote after at least ten final reviews, at least 80% extraction success, and positive yield at or above the bar.
+- ✅ Pause an active source below the bar after at least 50 final reviews in a rolling 30-day window.
 - ✅ Ignore skipped/missing reviews and allow the operator to restart probation.
 
 ### Operator and operation
