@@ -29,18 +29,18 @@
       <h3>Обязательные</h3>
       {% for bound in gates_min %}
       <label class="bound"><span>{{ bound.title }}</span> от
-        <input type="number" name="{{ bound.kind }}__{{ bound.key }}" min="0" max="10" value="{{ bound.value }}"></label>
+        <input type="number" name="{{ bound.kind }}__{{ bound.key }}" min="0" max="10" value="{{ bound.value|default_if_none:'' }}"></label>
       {% endfor %}
       {% for bound in gates_max %}
       <label class="bound"><span>{{ bound.title }}</span> не больше
-        <input type="number" name="{{ bound.kind }}__{{ bound.key }}" min="0" max="10" value="{{ bound.value }}"></label>
+        <input type="number" name="{{ bound.kind }}__{{ bound.key }}" min="0" max="10" value="{{ bound.value|default_if_none:'' }}"></label>
       {% endfor %}
     </section>
     <section>
       <h3>Хотя бы одна сильная сторона</h3>
       {% for bound in highlights %}
       <label class="bound"><span>{{ bound.title }}</span> от
-        <input type="number" name="{{ bound.kind }}__{{ bound.key }}" min="0" max="10" value="{{ bound.value }}"></label>
+        <input type="number" name="{{ bound.kind }}__{{ bound.key }}" min="0" max="10" value="{{ bound.value|default_if_none:'' }}"></label>
       {% endfor %}
     </section>
   </div>

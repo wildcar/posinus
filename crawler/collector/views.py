@@ -574,6 +574,18 @@ def selection(request):
     current = apply_profile(bounds, corpus)
     draft_outcome = apply_profile(draft, corpus) if has_draft else None
 
+    # The form must echo what the operator typed, not the rule in force:
+    # inputs and the apply form's hidden copy both re-render from the draft,
+    # and an emptied (dropped) condition stays empty instead of springing back.
+    draft_values = {f"{b.kind}__{b.key}": b.value for b in draft}
+    form_bounds = (
+        [replace(b, value=draft_values.get(f"{b.kind}__{b.key}")) for b in bounds]
+        if has_draft else bounds
+    )
+    form_fields = {
+        f"{b.kind}__{b.key}": draft_values.get(f"{b.kind}__{b.key}", "") for b in bounds
+    }
+
     titles = {axis.key: axis.title for axis in EvaluationCharacteristic.objects.all()}
     blockers = sorted(
         (
@@ -592,10 +604,10 @@ def selection(request):
 
     context = {
         "profile": profile,
-        "gates_min": [b for b in bounds if b.kind == SelectionBound.Kind.GATE_MIN],
-        "gates_max": [b for b in bounds if b.kind == SelectionBound.Kind.GATE_MAX],
-        "highlights": [b for b in bounds if b.kind == SelectionBound.Kind.HIGHLIGHT_MIN],
-        "draft": {b.kind + "__" + b.key: b.value for b in draft} if has_draft else {},
+        "gates_min": [b for b in form_bounds if b.kind == SelectionBound.Kind.GATE_MIN],
+        "gates_max": [b for b in form_bounds if b.kind == SelectionBound.Kind.GATE_MAX],
+        "highlights": [b for b in form_bounds if b.kind == SelectionBound.Kind.HIGHLIGHT_MIN],
+        "draft": form_fields if has_draft else {},
         "has_draft": has_draft,
         "current": current,
         "draft_outcome": draft_outcome,

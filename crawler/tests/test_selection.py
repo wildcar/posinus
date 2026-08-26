@@ -137,6 +137,29 @@ def test_screen_compares_a_draft_with_the_profile_in_force(operator, source, mak
 
 
 @pytest.mark.django_db
+def test_the_form_echoes_the_draft_not_the_rule_in_force(operator, profile):
+    """After «Посчитать» the inputs keep the operator's numbers, and the apply
+    form's hidden copy carries a dropped condition as an empty field."""
+    payload = {f"{b.kind}__{b.key}": str(b.value) for b in bounds_of(profile)}
+    payload["gate_min__positivity"] = "7"
+    payload["highlight_min__pride_russia"] = ""  # condition dropped entirely
+
+    html = operator.get(reverse("selection"), payload).content.decode()
+
+    assert 'name="gate_min__positivity" min="0" max="10" value="7"' in html
+    assert 'name="highlight_min__pride_russia" min="0" max="10" value=""' in html
+    assert '<input type="hidden" name="gate_min__positivity" value="7">' in html
+    assert '<input type="hidden" name="highlight_min__pride_russia" value="">' in html
+
+
+@pytest.mark.django_db
+def test_without_a_draft_the_form_shows_the_rule_in_force(operator, profile):
+    html = operator.get(reverse("selection")).content.decode()
+
+    assert 'name="gate_min__positivity" min="0" max="10" value="8"' in html
+
+
+@pytest.mark.django_db
 def test_screen_without_a_draft_offers_no_apply(operator, profile):
     html = operator.get(reverse("selection")).content.decode()
 
