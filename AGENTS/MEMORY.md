@@ -79,6 +79,13 @@ to time: merge duplicates, drop stale entries.
 
 ## Project facts — pipeline
 
+- DeepSeek raised V4 API prices up to 4x and switched to peak/off-peak billing on
+  2026-08-16/17 (v4-pro output $3.96/M peak, $1.98 off-peak; $0.87 before). The evaluator's
+  model cost went from ~$0.3 to ~$1.5–2 a day. Why: judge model-choice questions against the
+  router's own `request_logs` (`/opt/model-router-mcp/data/router.db`, root-readable via
+  sudo) — the registry's manual deepseek row lags real prices, and daily cost mixes both
+  tariff windows.
+
 - The `default` selection rule (owner's spec, 2026-07-23): positivity≥8 AND heroism≤4 AND
   clickbait≤4 AND promo≤4 AND at least one of pride_humanity / pride_russia / inspiration /
   beauty / interestingness / surprise / uniqueness ≥9. Note that heroism is used as an UPPER
