@@ -125,8 +125,9 @@ Config (in `/etc/posinus/pipeline.env`):
   calls, so the router does not bill them to `news-evaluator`.
 - `IMAGE_PROVIDER` (default `codex-oauth`), `IMAGE_MODEL` (empty → router picks) — image
   generation for items with zero pictures.
-- `IMAGE_CHECK_PROVIDER` (default `codex-oauth`), `IMAGE_CHECK_MODEL` (empty → router
-  picks) — the vision check of downloaded pictures; empty provider turns it off.
+- `IMAGE_CHECK_PROVIDER` (default `codex-oauth`), `IMAGE_CHECK_MODEL` (default
+  `gpt-5.6-terra`, owner's pick 2026-08-26; empty → router picks) — the vision check of
+  downloaded pictures; empty provider turns it off.
 
 ## publisher.py
 

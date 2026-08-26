@@ -132,7 +132,7 @@ class PreparerConfig:
     # URL blacklist and the size filters cannot see: source logos, banners,
     # badges. Same off-switch convention as the pair above.
     image_check_provider: str = "codex-oauth"
-    image_check_model: str = ""
+    image_check_model: str = "gpt-5.6-terra"
 
     @classmethod
     def from_env(cls, env: dict[str, str] = os.environ) -> "PreparerConfig":
