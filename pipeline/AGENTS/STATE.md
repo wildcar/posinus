@@ -19,12 +19,15 @@ a publish-ready retelling, and posts them to the platforms.
   live probe: answered by terra, verdict keep), and the daypic `day` slot chat model is
   `gpt-5.6-sol` (slot row updated via manage.py shell; live probe: build_prompt answered
   by sol with the real August-26 holidays; first real issue 08:00 MSK tomorrow).
-  Retelling stays on deepseek-v4-pro. **The selection profile is still r4**: on glm's
-  stricter highlight scoring selection runs at about half rate until r5 (positivity 7,
-  highlights 7) is applied — profile writes are refused by the agent permission policy,
-  so the owner applies r5 through the «Отбор» screen (fixed today on the crawler side).
-  Do NOT run `--rescore-all` across the model change: it would re-apply looser thresholds
-  to stored v4-pro scores and flood the queue.
+  Retelling stays on deepseek-v4-pro. **Profile r5 (positivity 7, highlights 7) applied by
+  the owner ~19:15 UTC through the fixed «Отбор» screen, and the chain is verified live**:
+  news 12520 (93-year-old lifting weights against Parkinson's) was selected under
+  `default.r5`, passed the final check, and was prepared with 2 images a minute later.
+  Known one-off gap: 17 news scored by glm under r4 in the 18:41–19:15 window stay
+  not_positive; 4 of them pass r5 and the final check (12509, 12514, 12517, 12519) —
+  verdict writes are refused to the agent, the owner can push them via «Отправить в
+  публикацию» or let them go. Do NOT run `--rescore-all` across the model change: it
+  would re-apply looser thresholds to stored v4-pro scores and flood the queue.
 - **Since 2026-08-26 a selected news item passes a FINAL APPROPRIATENESS CHECK before its
   verdict is written**: the model re-reads it as the publishing editor of a positive news
   feed, and «неуместно» flips the verdict to `not_positive` (reason «Финальный контроль: …»,

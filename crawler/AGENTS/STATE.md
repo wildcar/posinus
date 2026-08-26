@@ -14,8 +14,10 @@ Operate a single-host multilingual news crawler whose source list improves from 
   HEAD by plain `git pull` (it had sat on `0301028` since the aborted 2026-08-16 update),
   posinus-web and posinus-worker restarted 18:56 UTC — which also finally shipped the
   `94a84a4` queue-starvation fixes. **Profile r5 (positivity 7, all highlights 7 — the
-  glm calibration) is NOT applied**: the agent permission policy refuses selection-profile
-  writes by any path, so the owner applies it through the fixed screen.
+  glm calibration) was applied by the owner through the fixed screen ~19:15 UTC**, and the
+  first selection under it went through the whole funnel the same evening (pipeline STATE).
+  The agent permission policy refuses selection-profile and verdict writes by any path —
+  those stay owner-only actions.
 - **Publication stopped for 38 hours (last post 2026-08-15 09:15 MSK) and the top of the funnel
   was empty.** Three causes, found 2026-08-16: the channel had been publishing 178 news against
   100 selected since 26 July and was living on a reserve that ran out on 14 August; the profile
