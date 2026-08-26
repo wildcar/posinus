@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -20,6 +22,7 @@ from evaluator import (
     build_chat_arguments,
     extract_json_object,
     validate_evaluation,
+    validate_final_check,
     write_review,
 )
 
@@ -611,6 +614,207 @@ class RescoreTests(unittest.TestCase):
             "SELECT news_id, decision FROM exchange_latest_reviews"
         ).fetchall())
         self.assertEqual(latest, {1: "not_positive", 2: "positive"})
+
+    def test_rescore_keeps_the_veto(self):
+        """Replaying thresholds must not resurrect what the final check rejected."""
+        passing = full_scores(0)
+        passing.update({"positivity": 9, "uniqueness": 9})
+        # same scores, but one was vetoed by the final check
+        write_review(self.con, self.cfg, 1, passing, "Финальный контроль: некролог",
+                     "m", "not_positive", "default.r1+veto")
+        write_review(self.con, self.cfg, 2, passing, "", "m", "not_positive", "default.r1")
+
+        evaluator.run_backfill(self.cfg, evaluator.DEFAULT_PROFILE, dry_run=False, rescore_all=True)
+
+        latest = dict(self.con.execute(
+            "SELECT news_id, decision FROM exchange_latest_reviews"
+        ).fetchall())
+        self.assertEqual(latest, {1: "not_positive", 2: "positive"})
+
+
+class ValidateFinalCheckTests(unittest.TestCase):
+    def test_appropriate(self):
+        self.assertEqual(
+            validate_final_check({"appropriate": True, "reason": "добрая история"}),
+            (True, "добрая история"),
+        )
+
+    def test_inappropriate(self):
+        self.assertEqual(
+            validate_final_check({"appropriate": False, "reason": "некролог"}),
+            (False, "некролог"),
+        )
+
+    def test_string_verdicts_coerced(self):
+        self.assertEqual(validate_final_check({"appropriate": "Да"})[0], True)
+        self.assertEqual(validate_final_check({"appropriate": " false "})[0], False)
+
+    def test_missing_or_garbage_verdict_rejected(self):
+        for payload in ({}, {"appropriate": "возможно"}, {"appropriate": 1}):
+            with self.assertRaises(EvaluationInvalid):
+                validate_final_check(payload)
+
+    def test_reason_normalized_capped_and_optional(self):
+        verdict, reason = validate_final_check(
+            {"appropriate": False, "reason": "  много \n пробелов  " + "x" * 600}
+        )
+        self.assertFalse(verdict)
+        self.assertTrue(reason.startswith("много пробелов"))
+        self.assertLessEqual(len(reason), evaluator.MAX_COMMENT_CHARS)
+        self.assertEqual(validate_final_check({"appropriate": False, "reason": 7}), (False, ""))
+
+
+class FinalCheckConfigTests(unittest.TestCase):
+    def test_on_by_default(self):
+        self.assertTrue(Config.from_env({}).final_check)
+
+    def test_off_values(self):
+        for value in ("off", "0", "no", "false", " OFF "):
+            self.assertFalse(
+                Config.from_env({"EVALUATOR_FINAL_CHECK": value}).final_check, value
+            )
+
+    def test_other_values_keep_it_on(self):
+        self.assertTrue(Config.from_env({"EVALUATOR_FINAL_CHECK": "on"}).final_check)
+
+
+def _fake_news(news_id=1, title="t", body="b"):
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    return con.execute(
+        "SELECT ? AS news_id, ? AS title, ? AS body_text", (news_id, title, body)
+    ).fetchone()
+
+
+class FinalCheckCallTests(unittest.TestCase):
+    """final_check: same retry contract as the scoring call."""
+
+    def setUp(self):
+        self.cfg = Config(router_token="x")
+
+    def test_verdict_and_reason_returned(self):
+        reply = {"text": '{"appropriate": false, "reason": "некролог"}', "cost_usd": 0.1}
+        with mock.patch.object(evaluator, "chat", return_value=reply) as chatmock:
+            verdict, reason, got = evaluator.final_check(self.cfg, _fake_news())
+        self.assertEqual((verdict, reason), (False, "некролог"))
+        self.assertIs(got, reply)
+        messages = chatmock.call_args.args[1]
+        self.assertIn("выпускающий редактор", messages[0]["content"])
+        self.assertIn("Заголовок: t", messages[1]["content"])
+
+    def test_invalid_reply_retried_with_feedback(self):
+        replies = [{"text": "мусор"}, {"text": '{"appropriate": true}'}]
+        with mock.patch.object(evaluator, "chat", side_effect=replies) as chatmock:
+            verdict, _, _ = evaluator.final_check(self.cfg, _fake_news())
+        self.assertTrue(verdict)
+        self.assertEqual(chatmock.call_count, 2)
+        retry = chatmock.call_args.args[1][-1]
+        self.assertIn("не прошёл проверку", retry["content"])
+
+    def test_attempts_exhausted_raise(self):
+        with mock.patch.object(evaluator, "chat", return_value={"text": "мусор"}):
+            with self.assertRaises(EvaluationInvalid):
+                evaluator.final_check(self.cfg, _fake_news())
+
+
+# Schema for run() tests: the full characteristics table the prompt builder
+# reads, the news view as a plain table, and the exchange views over events.
+RUN_SCHEMA_SQL = """
+CREATE TABLE exchange_news_for_selection (
+    news_id INTEGER PRIMARY KEY,
+    title TEXT, body_text TEXT, language TEXT,
+    published_at TEXT, first_seen_at TEXT
+);
+DROP TABLE exchange_evaluation_characteristics;
+CREATE TABLE exchange_evaluation_characteristics (
+    key TEXT PRIMARY KEY, category TEXT DEFAULT '', title TEXT DEFAULT '',
+    description TEXT DEFAULT '', anchor_low TEXT DEFAULT '',
+    anchor_high TEXT DEFAULT '', position INTEGER DEFAULT 0
+);
+"""
+
+
+class RunFinalCheckTests(unittest.TestCase):
+    """run(): the final check gates what the thresholds selected."""
+
+    PASSING_REPLY = ""  # built in setUp, needs AXIS_KEYS
+
+    def setUp(self):
+        self.path = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False).name
+        con = evaluator.open_db(self.path)
+        con.executescript(SCHEMA_SQL)
+        con.executescript(RUN_SCHEMA_SQL)
+        con.executescript(RescoreTests.VIEWS_SQL)
+        con.executemany(
+            "INSERT INTO exchange_evaluation_characteristics (key, position) VALUES (?, ?)",
+            [(key, i) for i, key in enumerate(AXIS_KEYS)],
+        )
+        con.execute(
+            "INSERT INTO exchange_news_for_selection VALUES (1, 'заголовок', 'текст', 'ru', '', '')"
+        )
+        con.commit()
+        con.close()
+        self.cfg = Config(db_path=self.path, selector_name="news-evaluator",
+                          model_id="test-model", router_token="x")
+        scores = full_scores(0)
+        scores.update({"positivity": 8, "uniqueness": 9})
+        self.scoring_reply = {
+            "text": json.dumps({"news_id": 1, "scores": scores, "comment": "оценка"},
+                               ensure_ascii=False),
+            "model_id": "test-model",
+        }
+
+    def _run(self, check_reply):
+        def fake_chat(cfg, messages):
+            if messages[0]["content"].startswith("Ты оценщик"):
+                return self.scoring_reply
+            if isinstance(check_reply, Exception):
+                raise check_reply
+            return check_reply
+        with mock.patch.object(evaluator, "chat", side_effect=fake_chat):
+            return evaluator.run(self.cfg, DEFAULT_PROFILE, limit=10, dry_run=False)
+
+    def _latest(self):
+        con = evaluator.open_db(self.path)
+        try:
+            return con.execute(
+                "SELECT decision, reason, selector_version FROM exchange_latest_reviews"
+            ).fetchone()
+        finally:
+            con.close()
+
+    def test_veto_overrides_the_thresholds(self):
+        rc = self._run({"text": '{"appropriate": false, "reason": "некролог"}'})
+        self.assertEqual(rc, 0)
+        row = self._latest()
+        self.assertEqual(row["decision"], "not_positive")
+        self.assertEqual(row["reason"], "Финальный контроль: некролог")
+        self.assertTrue(row["selector_version"].endswith("+default.builtin+veto"))
+
+    def test_appropriate_news_stays_positive(self):
+        self._run({"text": '{"appropriate": true, "reason": "добрая история"}'})
+        row = self._latest()
+        self.assertEqual(row["decision"], "positive")
+        self.assertEqual(row["reason"], "оценка")
+        self.assertTrue(row["selector_version"].endswith("+default.builtin"))
+
+    def test_check_failure_leaves_the_news_in_queue(self):
+        rc = self._run(evaluator.McpError("router down"))
+        self.assertEqual(rc, 1)
+        self.assertIsNone(self._latest())
+
+    def test_disabled_check_never_calls_the_model_twice(self):
+        self.cfg.final_check = False
+        calls = []
+
+        def fake_chat(cfg, messages):
+            calls.append(messages[0]["content"][:20])
+            return self.scoring_reply
+
+        with mock.patch.object(evaluator, "chat", side_effect=fake_chat):
+            evaluator.run(self.cfg, DEFAULT_PROFILE, limit=10, dry_run=False)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(self._latest()["decision"], "positive")
 
 
 if __name__ == "__main__":

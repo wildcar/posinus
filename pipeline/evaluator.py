@@ -105,7 +105,7 @@ PLACEHOLDER_TOPIC = "unknown"
 # News whose latest event by this selector is still 'skipped' (no verdict yet),
 # together with the scores attached to that event. Feeds the backfill pass.
 BACKFILL_SQL = """
-SELECT s.news_id, r.decision, s.characteristic_key, s.value
+SELECT s.news_id, r.decision, r.selector_version, s.characteristic_key, s.value
 FROM exchange_latest_evaluation_scores AS s
 JOIN exchange_latest_reviews AS r
   ON r.news_id = s.news_id AND r.selector_name = s.selector_name
@@ -118,7 +118,7 @@ ORDER BY s.news_id
 # Feeds --rescore-all, which re-applies the current thresholds to the whole
 # corpus and only writes where the verdict actually changed.
 RESCORE_SQL = """
-SELECT s.news_id, r.decision, s.characteristic_key, s.value
+SELECT s.news_id, r.decision, r.selector_version, s.characteristic_key, s.value
 FROM exchange_latest_evaluation_scores AS s
 JOIN exchange_latest_reviews AS r
   ON r.news_id = s.news_id AND r.selector_name = s.selector_name
@@ -240,6 +240,9 @@ class Config:
     # which surfaces here as "DeepSeek returned an empty response". The old 1000-token
     # budget was fine for deepseek-chat and failed on most news with v4-pro.
     params: dict[str, Any] = field(default_factory=lambda: {"temperature": 0.3, "max_tokens": 4000})
+    # Selected news gets a second look from the model as a publishing editor
+    # before the verdict is written; "inappropriate" overrides the thresholds.
+    final_check: bool = True
 
     @classmethod
     def from_env(cls, env: dict[str, str] = os.environ) -> "Config":
@@ -256,6 +259,9 @@ class Config:
             cfg.params["max_tokens"] = int(value)
         if value := env.get("EVALUATOR_TEMPERATURE"):
             cfg.params["temperature"] = float(value)
+        cfg.final_check = env.get("EVALUATOR_FINAL_CHECK", "").strip().lower() not in (
+            "off", "0", "no", "false"
+        )
         return cfg
 
 
@@ -603,21 +609,100 @@ def build_system_prompt(axes: list[sqlite3.Row], topics: list[sqlite3.Row] | Non
     return "\n".join(lines)
 
 
-def build_user_message(news: sqlite3.Row) -> str:
+def _news_block(news: sqlite3.Row) -> str:
     body = (news["body_text"] or "").strip()
     if len(body) > MAX_BODY_CHARS:
         body = body[:MAX_BODY_CHARS] + "\n(текст обрезан)"
-    return (
-        f"Оцени новость news_id: {news['news_id']}\n"
-        f"Заголовок: {(news['title'] or '').strip()}\n"
-        f"Текст:\n{body}"
-    )
+    return f"Заголовок: {(news['title'] or '').strip()}\nТекст:\n{body}"
+
+
+def build_user_message(news: sqlite3.Row) -> str:
+    return f"Оцени новость news_id: {news['news_id']}\n" + _news_block(news)
 
 
 RETRY_MESSAGE = (
     "Твой ответ не прошёл проверку: {error}. "
     "Пришли исправленный JSON той же схемы и больше ничего."
 )
+
+
+# ------------------------------------------------------------- final check
+
+
+# Appended to selector_version when the final check rejects a news item the
+# thresholds had selected. A veto is a judgement about the content, not about
+# the thresholds, so the rescore pass must not undo it — it keys on this tag.
+VETO_TAG = "veto"
+
+FINAL_CHECK_SYSTEM = (
+    "Ты выпускающий редактор ленты позитивных новостей. Читатель приходит "
+    "сюда за радостью, вдохновением и добрыми историями.\n"
+    "Реши, уместна ли новость в такой ленте. Суди не качество текста, "
+    "а уместность самой новости.\n"
+    "Неуместное: некролог; новость, где главное событие — смерть, гибель или "
+    "тяжёлая болезнь; катастрофа, война, преступление или конфликт без "
+    "счастливой развязки; политическая агитация; реклама.\n"
+    "Уместное: история преодоления со счастливым концом; спасение; добрые "
+    "дела; открытия и достижения; красота и забавные случаи.\n"
+    "Сомневаешься — бракуй: одна неуместная публикация обходится каналу "
+    "дороже, чем одна пропущенная хорошая.\n"
+    "Формат ответа. Верни один JSON-объект и больше ничего: "
+    '{"appropriate": true или false, "reason": "<одно предложение по-русски: почему>"}'
+)
+
+_FINAL_CHECK_TRUE = {"true", "yes", "да"}
+_FINAL_CHECK_FALSE = {"false", "no", "нет"}
+
+
+def build_final_check_message(news: sqlite3.Row) -> str:
+    return "Уместна ли эта новость в ленте позитивных новостей?\n" + _news_block(news)
+
+
+def validate_final_check(payload: dict[str, Any]) -> tuple[bool, str]:
+    """Check a parsed final-check reply: a boolean verdict plus a one-line reason."""
+    verdict = payload.get("appropriate")
+    if isinstance(verdict, str):
+        lowered = verdict.strip().lower()
+        if lowered in _FINAL_CHECK_TRUE:
+            verdict = True
+        elif lowered in _FINAL_CHECK_FALSE:
+            verdict = False
+    if not isinstance(verdict, bool):
+        raise EvaluationInvalid("в ответе нет поля appropriate со значением true или false")
+    reason = payload.get("reason", "")
+    if not isinstance(reason, str):
+        reason = ""
+    reason = " ".join(reason.split())[:MAX_COMMENT_CHARS]
+    return verdict, reason
+
+
+def final_check(cfg: Config, news: sqlite3.Row) -> tuple[bool, str, dict[str, Any]]:
+    """Ask the model whether a selected news item belongs on the channel.
+
+    Same retry contract as evaluate_news: the validation error goes back to the
+    model as feedback, and running out of attempts raises EvaluationInvalid.
+    """
+    messages = [
+        {"role": "system", "content": FINAL_CHECK_SYSTEM},
+        {"role": "user", "content": build_final_check_message(news)},
+    ]
+    last_error = "модель не отвечала"
+    for attempt in range(1, MAX_MODEL_ATTEMPTS + 1):
+        reply = chat(cfg, messages)
+        text = reply["text"]
+        try:
+            verdict, reason = validate_final_check(extract_json_object(text))
+        except EvaluationInvalid as exc:
+            last_error = str(exc)
+            log.warning(
+                "news %s: final check attempt %d/%d rejected: %s",
+                news["news_id"], attempt, MAX_MODEL_ATTEMPTS, last_error,
+            )
+            messages.append({"role": "assistant", "content": text})
+            messages.append({"role": "user", "content": RETRY_MESSAGE.format(error=last_error)})
+            continue
+        return verdict, reason, reply
+    raise EvaluationInvalid(last_error)
 
 
 # ---------------------------------------------------------------- pipeline
@@ -745,7 +830,7 @@ def run(cfg: Config, profile: SelectionProfile, limit: int, dry_run: bool,
         ).fetchall()
         log.info("queue: %d news to evaluate (limit %d, profile %s)", len(queue), limit, profile.name)
 
-        done, failed, selected, total_cost, no_topic = 0, 0, 0, 0.0, 0
+        done, failed, selected, vetoed, total_cost, no_topic = 0, 0, 0, 0, 0.0, 0
         for news in queue:
             title = (news["title"] or "")[:60]
             try:
@@ -761,31 +846,54 @@ def run(cfg: Config, profile: SelectionProfile, limit: int, dry_run: bool,
                 log.error("news %s: router/model error: %s", news["news_id"], exc)
                 continue
             decision = profile.decide(scores)
+            total_cost += reply.get("cost_usd") or 0.0
+            # The thresholds see 20 numbers; the final check sees the story. A
+            # warm obituary passes the numbers, so a selected item needs both.
+            veto_reason = ""
+            if decision == "positive" and cfg.final_check:
+                try:
+                    appropriate, check_reason, check_reply = final_check(cfg, news)
+                except EvaluationInvalid as exc:
+                    failed += 1
+                    log.error("news %s: final check failed, stays in queue: %s", news["news_id"], exc)
+                    continue
+                except (McpError, urllib.error.URLError) as exc:
+                    failed += 1
+                    log.error("news %s: final check router/model error: %s", news["news_id"], exc)
+                    continue
+                total_cost += check_reply.get("cost_usd") or 0.0
+                if not appropriate:
+                    decision = "not_positive"
+                    veto_reason = check_reason or "модель сочла новость неуместной для канала"
+                    vetoed += 1
+                    log.info("news %s: final check vetoed: %s", news["news_id"], veto_reason)
             selected += decision == "positive"
             no_topic += bool(topic_keys) and topic == PLACEHOLDER_TOPIC
-            total_cost += reply.get("cost_usd") or 0.0
             if dry_run:
                 log.info("news %s [dry-run] %s -> %s (%s)", news["news_id"], title, decision, topic)
-                print(json.dumps(
-                    {"news_id": news["news_id"], "decision": decision, "topic": topic,
-                     "scores": scores, "comment": comment},
-                    ensure_ascii=False,
-                ))
+                printed = {"news_id": news["news_id"], "decision": decision, "topic": topic,
+                           "scores": scores, "comment": comment}
+                if veto_reason:
+                    printed["final_check"] = veto_reason
+                print(json.dumps(printed, ensure_ascii=False))
             else:
                 model_used = reply.get("model_id") or cfg.model_id
                 event_id = write_review(
-                    con, cfg, news["news_id"], scores, comment, model_used, decision,
-                    profile.tag, topic if topic_keys else "",
+                    con, cfg, news["news_id"], scores,
+                    f"Финальный контроль: {veto_reason}" if veto_reason else comment,
+                    model_used, decision,
+                    f"{profile.tag}+{VETO_TAG}" if veto_reason else profile.tag,
+                    topic if topic_keys else "",
                 )
                 log.info("news %s: event %d %s: %s", news["news_id"], event_id, decision, title)
             done += 1
         log.info(
-            "finished: %d evaluated (%d selected), %d failed, model cost $%.4f (%s/%s)",
-            done, selected, failed, total_cost, cfg.provider, cfg.model_id,
+            "finished: %d evaluated (%d selected, %d vetoed), %d failed, model cost $%.4f (%s/%s)",
+            done, selected, vetoed, failed, total_cost, cfg.provider, cfg.model_id,
         )
         if counters is not None:
             counters.update(queue=len(queue), evaluated=done, selected=selected,
-                            failed=failed, cost_usd=round(total_cost, 4),
+                            vetoed=vetoed, failed=failed, cost_usd=round(total_cost, 4),
                             without_topic=no_topic)
         return 0 if failed == 0 else 1
     finally:
@@ -810,22 +918,30 @@ def run_backfill(cfg: Config, profile: SelectionProfile, dry_run: bool, rescore_
     try:
         by_news: dict[int, dict[str, int]] = {}
         current: dict[int, str] = {}
+        versions: dict[int, str] = {}
         query = RESCORE_SQL if rescore_all else BACKFILL_SQL
         for row in con.execute(query, {"selector_name": cfg.selector_name}):
             by_news.setdefault(row["news_id"], {})[row["characteristic_key"]] = row["value"]
             current[row["news_id"]] = row["decision"]
+            versions[row["news_id"]] = row["selector_version"] or ""
         log.info(
             "%s: %d news to re-verdict (profile %s)",
             "rescore" if rescore_all else "backfill", len(by_news), profile.tag,
         )
 
-        processed, selected, incomplete, unchanged = 0, 0, 0, 0
+        processed, selected, incomplete, unchanged, vetoed = 0, 0, 0, 0, 0
         for news_id, scores in by_news.items():
             if len(scores) != AXIS_COUNT:
                 incomplete += 1
                 log.warning("news %s: %d/%d scores, skipping", news_id, len(scores), AXIS_COUNT)
                 continue
             decision = profile.decide(scores)
+            # A veto is the final check's call on the content itself; replaying
+            # thresholds knows nothing about it and must not resurrect the item.
+            if (decision == "positive" and current.get(news_id) == "not_positive"
+                    and versions.get(news_id, "").endswith(f"+{VETO_TAG}")):
+                vetoed += 1
+                continue
             selected += decision == "positive"
             if rescore_all and decision == current.get(news_id):
                 unchanged += 1
@@ -839,13 +955,14 @@ def run_backfill(cfg: Config, profile: SelectionProfile, dry_run: bool, rescore_
                 log.debug("news %s: event %d %s", news_id, event_id, decision)
             processed += 1
         log.info(
-            "finished: %d corrected, %d selected by the profile, %d unchanged, %d incomplete%s",
-            processed, selected, unchanged, incomplete,
+            "finished: %d corrected, %d selected by the profile, %d unchanged, "
+            "%d vetoed kept, %d incomplete%s",
+            processed, selected, unchanged, vetoed, incomplete,
             " (dry-run, nothing written)" if dry_run else "",
         )
         if counters is not None:
             counters.update(reviewed=len(by_news), corrected=processed, selected=selected,
-                            unchanged=unchanged, incomplete=incomplete)
+                            unchanged=unchanged, vetoed_kept=vetoed, incomplete=incomplete)
         return 0
     finally:
         con.close()
@@ -904,7 +1021,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.backfill:
         settings["scope"] = "all scored" if args.rescore_all else "skipped only"
     else:
-        settings.update(model=cfg.model_id, provider=cfg.provider, batch=args.limit)
+        settings.update(model=cfg.model_id, provider=cfg.provider, batch=args.limit,
+                        final_check=cfg.final_check)
     with runlog.record(service, runlog.DEFAULT_DB, settings) as counters:
         if args.backfill:
             return run_backfill(cfg, profile, dry_run=False, rescore_all=args.rescore_all, counters=counters)

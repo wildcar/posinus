@@ -12,6 +12,19 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- **Since 2026-08-26 a selected news item passes a FINAL APPROPRIATENESS CHECK before its
+  verdict is written**: the model re-reads it as the publishing editor of a positive news
+  feed, and «неуместно» flips the verdict to `not_positive` (reason «Финальный контроль: …»,
+  `selector_version` suffix `+veto`). Built after the Dolly Parton obituary (news 12306,
+  Upworthy) passed profile r4 honestly — positivity 8, inspiration 9, and NO gate on
+  negativity — and went out to all four platforms 2026-08-26 10:01 UTC with the headline
+  «Умерла Долли Партон…». `--rescore-all` keeps vetoed rows down (`+veto` guard); a check
+  failure leaves the item in the queue; kill switch `EVALUATOR_FINAL_CHECK=off`. Verified
+  through the live router: 12306 is vetoed («главное событие — смерть»), the
+  overcoming-adversity story 11471 (flood, then karate gold) passes. 313 tests. NOT YET
+  LIVE — ships with a `git pull` in /opt/posinus, no install.sh, no env change. The
+  published obituary itself is still up on all four platforms — taking it down is the
+  owner's call (procedure: news 8949 entry, 2026-08-11).
 - **The channel was silent for 38 hours to 2026-08-16 (last post 15 August 09:15 MSK) because
   the funnel was empty, not because anything here broke.** Publisher `prepared 0`, preparer
   `queue 0`, evaluator `0 selected` — while every timer ran and no post had failed in a month.
