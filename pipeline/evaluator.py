@@ -239,7 +239,7 @@ class Config:
     # processes apart. The router forwards it to providers that take one
     # (OpenRouter's HTTP-Referer/X-Title), and the URL outranks the name there.
     # An empty value drops the field from the request.
-    app_url: str = "https://dzen.ru/posinus"
+    app_url: str = "https://wildcar.org"
     app_name: str = "Positive news"
     # max_tokens has to cover the model's reasoning tokens, not just the JSON answer.
     # deepseek-v4-pro spends ~950 completion tokens on one full 20-axis evaluation, and

@@ -13,13 +13,15 @@ a publish-ready retelling, and posts them to the platforms.
 ## Now
 
 - Since 2026-08-26 every router call from all three scripts carries the application
-  identity: `app_url=https://dzen.ru/posinus`, `app_name=Positive news` (env
+  identity: `app_url=https://wildcar.org`, `app_name=Positive news` (env
   `ROUTER_APP_URL`/`ROUTER_APP_NAME`; an empty value drops the field). The router logs
   it in `request_logs.app` and forwards it to providers that take one (OpenRouter:
-  HTTP-Referer/X-Title). The crawler's translation calls send the same pair. Verified
-  live on prod 2026-08-26 22:14 UTC: a chat call through the deployed pipeline code
-  (external_user_id `posinus-app-identity-check`, openrouter/glm — the evaluator's own
-  path) landed as request_logs row 16435 with `app=https://dzen.ru/posinus`.
+  HTTP-Referer/X-Title). The crawler's translation calls send the same pair. The first
+  address was `https://dzen.ru/posinus`; the owner changed it to `https://wildcar.org`
+  the same evening. Verified live on prod both times by a chat call through the deployed
+  pipeline code (external_user_id `posinus-app-identity-check`, openrouter/glm — the
+  evaluator's own path): request_logs row 16435 carries the old address, the
+  re-verification row after the change carries the new one.
 - **Since 2026-08-26 evening the model roster is new (owner's picks)**: the evaluator runs
   `z-ai/glm-5.3-flash` via openrouter (env edit by the owner 18:41 UTC; first prod batch
   8 evaluated / 0 failed / $0.0029 — the 100-news bake-off behind the choice is in Open

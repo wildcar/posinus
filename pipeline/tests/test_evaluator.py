@@ -468,7 +468,7 @@ class ChatArgumentsTests(unittest.TestCase):
 
     def test_app_identity_sent_by_default(self):
         args = build_chat_arguments(Config(), self.MESSAGES)
-        self.assertEqual(args["app_url"], "https://dzen.ru/posinus")
+        self.assertEqual(args["app_url"], "https://wildcar.org")
         self.assertEqual(args["app_name"], "Positive news")
 
     def test_app_identity_from_env(self):

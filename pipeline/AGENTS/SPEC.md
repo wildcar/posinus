@@ -192,7 +192,7 @@ Bearer-токен). Провайдер и модель задаются конф
   значение берёт `SELECTOR_NAME`. Подготовка отправляет своё имя
   (`PREPARER_ROUTER_USER_ID`, по умолчанию `news-preparer`), чтобы расход токенов
   на пересказы не приписывался оценщику.
-- `ROUTER_APP_URL` (`https://dzen.ru/posinus`) и `ROUTER_APP_NAME` (`Positive news`) -
+- `ROUTER_APP_URL` (`https://wildcar.org`) и `ROUTER_APP_NAME` (`Positive news`) -
   поля `app_url`/`app_name` в каждом обращении к роутеру: какое приложение спрашивает.
   Идентичность одна на весь пайплайн, процессы различает `external_user_id`. Роутер
   отдаёт её провайдерам, принимающим такие данные (у OpenRouter это

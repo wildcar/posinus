@@ -121,7 +121,7 @@ Config (in `/etc/posinus/pipeline.env`):
 - `EVALUATOR_DB_PATH`, `MEDIA_DIR`, `NEWS_DB_PATH`, `PREPARER_USER_AGENT`.
 - Model routing: `ROUTER_AUTH_TOKEN`, `ROUTER_MCP_URL`, `EVALUATOR_PROVIDER`,
   `EVALUATOR_MODEL` (empty → router picks), `EVALUATOR_TIER`.
-- `ROUTER_APP_URL` (default `https://dzen.ru/posinus`), `ROUTER_APP_NAME` (default
+- `ROUTER_APP_URL` (default `https://wildcar.org`), `ROUTER_APP_NAME` (default
   `Positive news`) — the application identity in every router call, shared by all
   pipeline scripts; the router forwards it to providers that take one, URL wins.
 - `PREPARER_ROUTER_USER_ID` (default `news-preparer`) — `external_user_id` of the retelling

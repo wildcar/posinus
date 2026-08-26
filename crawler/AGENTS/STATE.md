@@ -7,7 +7,7 @@ Operate a single-host multilingual news crawler whose source list improves from 
 ## Now
 
 - Since 2026-08-26 the translation service names the application to the model router:
-  `app_url=https://dzen.ru/posinus`, `app_name=Positive news` (settings
+  `app_url=https://wildcar.org`, `app_name=Positive news` (settings
   `POSINUS_APP_URL`/`POSINUS_APP_NAME`; empty drops the field). Goes live with the next
   posinus-web restart; the paired pipeline change is in the pipeline's STATE.
 - **Since 2026-08-26 the «Отбор» screen echoes the operator's draft**: the inputs and the

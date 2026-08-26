@@ -268,7 +268,7 @@ class GenerateTests(unittest.TestCase):
                 self.cfg, self.router, make_slot(), "prompt", DAY)
         self.assertTrue(Path(vertical).exists())
         self.assertIsNone(wide)
-        self.assertEqual(calls[0]["app_url"], "https://dzen.ru/posinus")
+        self.assertEqual(calls[0]["app_url"], "https://wildcar.org")
         self.assertEqual(calls[0]["app_name"], "Positive news")
 
     def test_a_refusal_retries_once_with_the_safe_suffix(self):
