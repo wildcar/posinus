@@ -20,8 +20,8 @@ a publish-ready retelling, and posts them to the platforms.
   address was `https://dzen.ru/posinus`; the owner changed it to `https://wildcar.org`
   the same evening. Verified live on prod both times by a chat call through the deployed
   pipeline code (external_user_id `posinus-app-identity-check`, openrouter/glm — the
-  evaluator's own path): request_logs row 16435 carries the old address, the
-  re-verification row after the change carries the new one.
+  evaluator's own path): request_logs row 16435 carries the old address, row 16439 the
+  new one.
 - **Since 2026-08-26 evening the model roster is new (owner's picks)**: the evaluator runs
   `z-ai/glm-5.3-flash` via openrouter (env edit by the owner 18:41 UTC; first prod batch
   8 evaluated / 0 failed / $0.0029 — the 100-news bake-off behind the choice is in Open
