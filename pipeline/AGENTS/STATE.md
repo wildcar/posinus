@@ -440,7 +440,17 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Open questions
 
-- Long-term model choice; deepseek-chat is only the test model (swap via env file).
+- Long-term model choice. Bake-off 2026-08-26 over 100 scored news (30 baseline-positive)
+  against v4-pro under profile r4: `z-ai/glm-5.3-flash` (via openrouter, adopted in the
+  router registry) keeps 14/30 with 2 false and tracks best after loosening to
+  positivity≥7 / highlight≥7 (24/30, 7 false, same total volume as today, ~$3/mo);
+  `openai/gpt-5.6-luna` inflates most axes by +0.8..+1.2 and even calibrated tracks worse
+  (19/30, 6 false, ~$5/mo); `deepseek/deepseek-v4-flash` and `gemini-3.1-flash-lite`
+  dropped in the 14-news smoke round. All four vetoed the obituary in the final check;
+  zero JSON retries anywhere. Switch = env edit (owner) + profile revision 5; do NOT run
+  --rescore-all across the model change — old v4-pro scores under looser thresholds would
+  flood the queue. Current model deepseek-v4-pro costs ~$47/mo since the 2026-08-17 price
+  rise.
 ## Resolved
 
 - News 3143 stays unpublished on telegram, and 6775 on VK — the owner's call
