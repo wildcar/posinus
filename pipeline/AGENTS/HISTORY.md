@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-08-26 · Идентичность приложения в каждом запросе к роутеру
+- What: все вызовы роутера из трёх скриптов (chat и generate_image) несут `app_url=https://dzen.ru/posinus` и `app_name=Positive news`; правится через `ROUTER_APP_URL`/`ROUTER_APP_NAME`, пустое значение убирает поле. 316 тестов.
+- Why: роутер с 26 августа принимает идентичность приложения, пишет её в журнал (`request_logs.app`) и передаёт провайдерам — у OpenRouter это HTTP-Referer/X-Title. Значения выбрал владелец.
+- Files: pipeline/{evaluator,preparer,daypic}.py, deploy/pipeline.env.example, docs/services.md, AGENTS/SPEC.md; парная правка перевода в crawler — см. его HISTORY.
+- Next: после ближайшего прогона оценщика взглянуть на колонку app в журнале роутера.
+
 ## 2026-08-26 · Некролог 12306 снят с wildcar.org
 - What: по процедуре 8949 — строка `publication` в `status='removed'` с причиной, каталог страницы удалён, индекс и RSS перегенерированы штатными функциями из 228 живых записей, сайт пересобран по маркеру. Проверено: страница 404, в индексе и ленте следов нет.
 - Why: решение владельца. Публичный 404 отстал от ориджина на несколько минут — nginx-кэш на hel-vps (терминирует TLS wildcar.org) переоценивает страницы по своему TTL; доступа к нему с этого хоста нет, и он не понадобился.

@@ -12,6 +12,11 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- Since 2026-08-26 every router call from all three scripts carries the application
+  identity: `app_url=https://dzen.ru/posinus`, `app_name=Positive news` (env
+  `ROUTER_APP_URL`/`ROUTER_APP_NAME`; an empty value drops the field). The router logs
+  it in `request_logs.app` and forwards it to providers that take one (OpenRouter:
+  HTTP-Referer/X-Title). The crawler's translation calls send the same pair.
 - **Since 2026-08-26 evening the model roster is new (owner's picks)**: the evaluator runs
   `z-ai/glm-5.3-flash` via openrouter (env edit by the owner 18:41 UTC; first prod batch
   8 evaluated / 0 failed / $0.0029 — the 100-news bake-off behind the choice is in Open

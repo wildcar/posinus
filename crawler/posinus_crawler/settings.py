@@ -66,6 +66,10 @@ POSINUS_USER_AGENT = os.environ.get("POSINUS_USER_AGENT", "PositiveNewsCrawler/0
 POSINUS_ROUTER_MCP_URL = os.environ.get("POSINUS_ROUTER_MCP_URL", "http://127.0.0.1:8088/mcp/")
 POSINUS_ROUTER_AUTH_TOKEN = os.environ.get("POSINUS_ROUTER_AUTH_TOKEN", "")
 POSINUS_ROUTER_TIMEOUT_SECONDS = float(os.environ.get("POSINUS_ROUTER_TIMEOUT_SECONDS", "300"))
+# The application identity sent with every router call; the router forwards it
+# to providers that take one, and the URL outranks the name. Empty disables.
+POSINUS_APP_URL = os.environ.get("POSINUS_APP_URL", "https://dzen.ru/posinus")
+POSINUS_APP_NAME = os.environ.get("POSINUS_APP_NAME", "Positive news")
 POSINUS_TRANSLATION_PROVIDER = os.environ.get("POSINUS_TRANSLATION_PROVIDER", "deepseek")
 POSINUS_TRANSLATION_MODEL = os.environ.get("POSINUS_TRANSLATION_MODEL", "deepseek-v4-pro")
 POSINUS_TRANSLATION_TIER = os.environ.get("POSINUS_TRANSLATION_TIER", "")

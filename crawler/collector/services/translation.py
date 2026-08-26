@@ -107,6 +107,8 @@ def translate_news(item: NewsItem) -> NewsTranslation:
             provider=settings.POSINUS_TRANSLATION_PROVIDER,
             model_id=settings.POSINUS_TRANSLATION_MODEL,
             tier=settings.POSINUS_TRANSLATION_TIER,
+            app_url=settings.POSINUS_APP_URL,
+            app_name=settings.POSINUS_APP_NAME,
             params={
                 "temperature": settings.POSINUS_TRANSLATION_TEMPERATURE,
                 "max_tokens": settings.POSINUS_TRANSLATION_MAX_TOKENS,

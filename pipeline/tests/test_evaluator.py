@@ -466,6 +466,23 @@ class ChatArgumentsTests(unittest.TestCase):
         cfg = Config.from_env({"ROUTER_USER_ID": "someone-else"})
         self.assertEqual(cfg.router_user, "someone-else")
 
+    def test_app_identity_sent_by_default(self):
+        args = build_chat_arguments(Config(), self.MESSAGES)
+        self.assertEqual(args["app_url"], "https://dzen.ru/posinus")
+        self.assertEqual(args["app_name"], "Positive news")
+
+    def test_app_identity_from_env(self):
+        cfg = Config.from_env({"ROUTER_APP_URL": "https://example.org", "ROUTER_APP_NAME": "Другое"})
+        args = build_chat_arguments(cfg, self.MESSAGES)
+        self.assertEqual(args["app_url"], "https://example.org")
+        self.assertEqual(args["app_name"], "Другое")
+
+    def test_empty_app_identity_omitted(self):
+        cfg = Config.from_env({"ROUTER_APP_URL": "", "ROUTER_APP_NAME": ""})
+        args = build_chat_arguments(cfg, self.MESSAGES)
+        self.assertNotIn("app_url", args)
+        self.assertNotIn("app_name", args)
+
 
 class LoadProfileTests(unittest.TestCase):
     """One rule for two readers: the thresholds come from the crawler DB."""

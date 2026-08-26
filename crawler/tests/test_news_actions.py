@@ -67,6 +67,8 @@ def test_translation_service_sends_configured_model(monkeypatch, settings, sourc
 
     assert captured["provider"] == "configured-provider"
     assert captured["model_id"] == "configured-model"
+    assert captured["app_url"] == "https://dzen.ru/posinus"
+    assert captured["app_name"] == "Positive news"
     assert translation.model_id == "actual-model"
     assert translation.body_text == "Перевод с кавычкой «пример»."
 

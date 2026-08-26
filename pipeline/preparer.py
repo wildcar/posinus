@@ -443,6 +443,7 @@ def review_illustrations(
             "image_mime": mime,
             "params": {"reasoning_effort": "low"},
         }
+        arguments.update(evaluator.app_identity(router_cfg))
         if cfg.image_check_provider:
             arguments["provider"] = cfg.image_check_provider
         if cfg.image_check_model:
@@ -581,6 +582,7 @@ def generate_illustration(
         "external_user_id": router_cfg.router_user or router_cfg.selector_name,
         "prompt": build_image_prompt(title, paragraphs),
     }
+    arguments.update(evaluator.app_identity(router_cfg))
     if cfg.image_provider:
         arguments["provider"] = cfg.image_provider
     if cfg.image_model:

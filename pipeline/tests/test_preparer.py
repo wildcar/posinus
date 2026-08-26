@@ -562,6 +562,8 @@ class GenerateIllustrationTests(unittest.TestCase):
         self.assertEqual(calls["tool"], "generate_image")
         self.assertEqual(calls["arguments"]["provider"], "codex-oauth")
         self.assertEqual(calls["arguments"]["external_user_id"], "news-preparer")
+        self.assertEqual(calls["arguments"]["app_url"], "https://dzen.ru/posinus")
+        self.assertEqual(calls["arguments"]["app_name"], "Positive news")
         self.assertIn("Заголовок", calls["arguments"]["prompt"])
         self.assertIn("Без текста", calls["arguments"]["prompt"])
 
@@ -640,6 +642,8 @@ class ReviewIllustrationsTests(unittest.TestCase):
         self.assertEqual(first["image_mime"], "image/jpeg")
         self.assertEqual(calls[1][1]["image_mime"], "image/png")
         self.assertEqual(first["external_user_id"], "news-preparer")
+        self.assertEqual(first["app_url"], "https://dzen.ru/posinus")
+        self.assertEqual(first["app_name"], "Positive news")
         self.assertIn("Заголовок", first["text"])
         self.assertTrue(first["images_b64"][0])
 

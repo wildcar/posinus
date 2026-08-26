@@ -234,6 +234,13 @@ class Config:
     # router's usage reports tell scoring and retelling apart. Empty falls back to
     # selector_name, which is what the evaluator has always sent.
     router_user: str = ""
+    # The application identity sent with every router call (app_url/app_name).
+    # One identity for the whole of posinus — external_user_id already tells the
+    # processes apart. The router forwards it to providers that take one
+    # (OpenRouter's HTTP-Referer/X-Title), and the URL outranks the name there.
+    # An empty value drops the field from the request.
+    app_url: str = "https://dzen.ru/posinus"
+    app_name: str = "Positive news"
     # max_tokens has to cover the model's reasoning tokens, not just the JSON answer.
     # deepseek-v4-pro spends ~950 completion tokens on one full 20-axis evaluation, and
     # when it hits the cap before writing content the provider returns an empty body —
@@ -255,6 +262,8 @@ class Config:
         cfg.tier = env.get("EVALUATOR_TIER", cfg.tier)
         cfg.selector_name = env.get("SELECTOR_NAME", cfg.selector_name)
         cfg.router_user = env.get("ROUTER_USER_ID", cfg.router_user)
+        cfg.app_url = env.get("ROUTER_APP_URL", cfg.app_url)
+        cfg.app_name = env.get("ROUTER_APP_NAME", cfg.app_name)
         if value := env.get("EVALUATOR_MAX_TOKENS"):
             cfg.params["max_tokens"] = int(value)
         if value := env.get("EVALUATOR_TEMPERATURE"):
@@ -265,6 +274,16 @@ class Config:
         return cfg
 
 
+def app_identity(cfg: Config) -> dict[str, str]:
+    """The app_url/app_name pair for any router tool call; empty ones are omitted."""
+    identity: dict[str, str] = {}
+    if cfg.app_url:
+        identity["app_url"] = cfg.app_url
+    if cfg.app_name:
+        identity["app_name"] = cfg.app_name
+    return identity
+
+
 def build_chat_arguments(cfg: Config, messages: list[dict[str, str]]) -> dict[str, Any]:
     """Router hints are optional: empty ones are omitted, the router decides."""
     arguments: dict[str, Any] = {
@@ -272,6 +291,7 @@ def build_chat_arguments(cfg: Config, messages: list[dict[str, str]]) -> dict[st
         "messages": messages,
         "params": cfg.params,
     }
+    arguments.update(app_identity(cfg))
     if cfg.model_id:
         arguments["model_id"] = cfg.model_id
     if cfg.provider:

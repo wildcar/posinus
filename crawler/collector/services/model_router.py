@@ -64,6 +64,8 @@ def call_chat(
     provider: str = "",
     model_id: str = "",
     tier: str = "",
+    app_url: str = "",
+    app_name: str = "",
     params: dict[str, Any] | None = None,
     timeout: float = 300.0,
 ) -> dict[str, Any]:
@@ -78,6 +80,10 @@ def call_chat(
         arguments["model_id"] = model_id
     if tier:
         arguments["tier"] = tier
+    if app_url:
+        arguments["app_url"] = app_url
+    if app_name:
+        arguments["app_name"] = app_name
     request_id = 1
     payload = {
         "jsonrpc": "2.0",

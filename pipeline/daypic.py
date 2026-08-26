@@ -480,6 +480,7 @@ def generate_picture(
             "external_user_id": router_cfg.router_user or DAYPIC_ROUTER_USER,
             "prompt": text,
         }
+        arguments.update(evaluator.app_identity(router_cfg))
         if provider:
             arguments["provider"] = provider
         if model:
