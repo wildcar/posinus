@@ -39,6 +39,10 @@ to time: merge duplicates, drop stale entries.
   `/etc/posinus/pipeline.env`, and some `sudo sqlite3` reads of the prod database. Why: it is a
   harness classifier, not the owner's wish — do not try to route around it. Finish everything
   else, then hand the owner the exact commands and say plainly what is not live yet.
+  Refined 2026-08-26: readonly `sudo sqlite3` reads and plain `sudo git -C /opt/posinus pull`
+  pass; a daypic-slot data edit via `manage.py shell` passed; selection-profile writes are
+  refused by every path (script file and manage.py shell alike) — profile changes stay with
+  the owner, through the «Отбор» screen.
 - The publication slot grid outruns selection, and has since at least 26 July 2026: 8 slots a
   day against roughly 4–5 selected news. Why: it is invisible while a reserve of prepared items
   covers the gap, and it surfaces as a sudden total silence when the reserve empties (2026-08-14).

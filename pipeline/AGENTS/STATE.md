@@ -12,6 +12,19 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- **Since 2026-08-26 evening the model roster is new (owner's picks)**: the evaluator runs
+  `z-ai/glm-5.3-flash` via openrouter (env edit by the owner 18:41 UTC; first prod batch
+  8 evaluated / 0 failed / $0.0029 — the 100-news bake-off behind the choice is in Open
+  questions), the vision check defaults to `gpt-5.6-terra` (code default at `7242534`,
+  live probe: answered by terra, verdict keep), and the daypic `day` slot chat model is
+  `gpt-5.6-sol` (slot row updated via manage.py shell; live probe: build_prompt answered
+  by sol with the real August-26 holidays; first real issue 08:00 MSK tomorrow).
+  Retelling stays on deepseek-v4-pro. **The selection profile is still r4**: on glm's
+  stricter highlight scoring selection runs at about half rate until r5 (positivity 7,
+  highlights 7) is applied — profile writes are refused by the agent permission policy,
+  so the owner applies r5 through the «Отбор» screen (fixed today on the crawler side).
+  Do NOT run `--rescore-all` across the model change: it would re-apply looser thresholds
+  to stored v4-pro scores and flood the queue.
 - **Since 2026-08-26 a selected news item passes a FINAL APPROPRIATENESS CHECK before its
   verdict is written**: the model re-reads it as the publishing editor of a positive news
   feed, and «неуместно» flips the verdict to `not_positive` (reason «Финальный контроль: …»,

@@ -6,6 +6,16 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 ## Now
 
+- **Since 2026-08-26 the «Отбор» screen echoes the operator's draft**: the inputs and the
+  apply form's hidden copy re-render from the submitted values, and a dropped condition
+  stays an empty field instead of springing back on apply. Before that «Посчитать»
+  computed the draft but repainted the inputs from the rule in force (owner's report:
+  «возвращает цифры на предыдущие»). 163 tests. LIVE: /opt/posinus was fast-forwarded to
+  HEAD by plain `git pull` (it had sat on `0301028` since the aborted 2026-08-16 update),
+  posinus-web and posinus-worker restarted 18:56 UTC — which also finally shipped the
+  `94a84a4` queue-starvation fixes. **Profile r5 (positivity 7, all highlights 7 — the
+  glm calibration) is NOT applied**: the agent permission policy refuses selection-profile
+  writes by any path, so the owner applies it through the fixed screen.
 - **Publication stopped for 38 hours (last post 2026-08-15 09:15 MSK) and the top of the funnel
   was empty.** Three causes, found 2026-08-16: the channel had been publishing 178 news against
   100 selected since 26 July and was living on a reserve that ran out on 14 August; the profile
