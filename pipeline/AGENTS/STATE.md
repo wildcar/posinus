@@ -23,10 +23,9 @@ a publish-ready retelling, and posts them to the platforms.
   the owner ~19:15 UTC through the fixed «Отбор» screen, and the chain is verified live**:
   news 12520 (93-year-old lifting weights against Parkinson's) was selected under
   `default.r5`, passed the final check, and was prepared with 2 images a minute later.
-  Known one-off gap: 17 news scored by glm under r4 in the 18:41–19:15 window stay
-  not_positive; 4 of them pass r5 and the final check (12509, 12514, 12517, 12519) —
-  verdict writes are refused to the agent, the owner can push them via «Отправить в
-  публикацию» or let them go. Do NOT run `--rescore-all` across the model change: it
+  One-off gap CLOSED by the owner's call (2026-08-26): the 17 news scored by glm under r4
+  in the 18:41–19:15 window stay not_positive as they are, including the 4 that would pass
+  r5 (12509, 12514, 12517, 12519) — no corrections, the funnel lives on fresh news only. Do NOT run `--rescore-all` across the model change: it
   would re-apply looser thresholds to stored v4-pro scores and flood the queue.
 - **Since 2026-08-26 a selected news item passes a FINAL APPROPRIATENESS CHECK before its
   verdict is written**: the model re-reads it as the publishing editor of a positive news
