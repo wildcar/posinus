@@ -8,7 +8,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 from zoneinfo import ZoneInfo
@@ -445,7 +445,7 @@ class RunTests(unittest.TestCase):
         finally:
             con.close()
 
-    def _run(self, adapters=None, dry_run=False, ignore_time=False, now=NOW):
+    def _run(self, adapters=None, dry_run=False, ignore_time=False, now=NOW, issue_day=None):
         counters = {}
         reply = {"image_b64": [base64.b64encode(PNG).decode()], "model_id": "gpt-image-2"}
         patches = [
@@ -459,8 +459,40 @@ class RunTests(unittest.TestCase):
             patch.start()
             self.addCleanup(patch.stop)
         code = daypic.run(self.cfg, self.router, dry_run=dry_run,
-                          ignore_time=ignore_time, counters=counters, now=now)
+                          ignore_time=ignore_time, counters=counters, now=now,
+                          issue_day=issue_day)
         return code, counters
+
+    def test_a_given_up_day_can_be_redrawn_by_hand(self):
+        """2026-09-05/06: four burnt attempts each, the router fixed a day later."""
+        self.cfg.max_attempts = 2
+        con = daypic.open_own_db(self.own_db)
+        con.execute("INSERT INTO daypic_item (day, slot, status, title, attempts, error) "
+                    "VALUES ('2026-07-01', 'day', 'error', 'Картина дня', 2, 'HTTP 400')")
+        con.commit()
+        con.close()
+
+        code, counters = self._run(now=NOW.replace(hour=3), issue_day=date(2026, 7, 1))
+
+        self.assertEqual(code, 0)
+        self.assertEqual(counters["generated"], 1)
+        item = self._rows("SELECT * FROM daypic_item WHERE day = '2026-07-01'")[0]
+        self.assertEqual(item["status"], "published")
+        self.assertEqual(item["title"], "Картина дня · 1 июля 2026")
+        self.assertTrue(item["file_path"].endswith("2026-07-01-day.png"))
+        request = evaluator.chat.call_args.kwargs.get("messages") or evaluator.chat.call_args.args
+        self.assertIn("2026-07-01", str(request))
+        self.assertEqual(len(self._rows("SELECT * FROM daypic_item")), 1)  # no row for «today»
+
+    def test_a_manual_day_already_published_is_left_alone(self):
+        self._run()
+        code, counters = self._run(issue_day=NOW.astimezone(daypic._zone(self.cfg.tz)).date())
+        self.assertEqual(code, 0)
+        self.assertEqual(counters["generated"], 0)
+
+    def test_the_cli_rejects_a_malformed_day(self):
+        with self.assertRaises(SystemExit):
+            daypic.main(["--day", "вчера", "--dry-run"])
 
     def test_a_due_slot_generates_both_pictures_and_publishes(self):
         telegram = mock.Mock(return_value="https://t.me/posinus/1")

@@ -54,7 +54,7 @@ import time
 import urllib.error
 import urllib.parse
 from dataclasses import dataclass, replace
-from datetime import datetime, time as dt_time, timezone
+from datetime import date, datetime, time as dt_time, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -910,7 +910,16 @@ def publish_item(
 
 def run(cfg: DaypicConfig, router_cfg: "evaluator.Config", dry_run: bool,
         only_slot: str | None = None, ignore_time: bool = False,
-        counters: dict | None = None, now: datetime | None = None) -> int:
+        counters: dict | None = None, now: datetime | None = None,
+        issue_day: date | None = None) -> int:
+    """One pass over the enabled slots.
+
+    `issue_day` is the operator's «перерисуй за такое-то число»: the issue is
+    made for that local day instead of today — the prompt asks about that
+    date, the title and the file names carry it — and, since a human asked,
+    both the generate_at gate and the attempts cap are lifted. One issue per
+    day still holds: a day already published is left alone.
+    """
     now_utc = now or datetime.now(timezone.utc)
     pub_cfg = publisher.PublisherConfig.from_env()
     pub_cfg.site_tags = cfg.site_tags
@@ -931,6 +940,13 @@ def run(cfg: DaypicConfig, router_cfg: "evaluator.Config", dry_run: bool,
         return 0
 
     now_local = now_utc.astimezone(_zone(cfg.tz))
+    if issue_day is not None:
+        # Same clock, another calendar page: the time of day is kept so the
+        # rest of the pass (title, prompt weekday, file names) reads naturally.
+        now_local = datetime.combine(issue_day, now_local.time(), tzinfo=now_local.tzinfo)
+        ignore_time = True
+        log.info("manual issue for %s: the generate_at gate and the attempts cap are lifted",
+                 issue_day.isoformat())
     day = now_local.date().isoformat()
     slots = load_slots(cfg.news_db)
     log.info("day %s, %d slot(s) enabled, platforms [%s]%s",
@@ -952,7 +968,7 @@ def run(cfg: DaypicConfig, router_cfg: "evaluator.Config", dry_run: bool,
 
             has_picture = bool(row and row["file_path"] and Path(row["file_path"]).exists())
             if not has_picture:
-                if row is not None and row["attempts"] >= cfg.max_attempts:
+                if row is not None and row["attempts"] >= cfg.max_attempts and issue_day is None:
                     log.warning("slot %s: %d failed attempts today, giving the day up",
                                 slot.slot, row["attempts"])
                     continue
@@ -1003,6 +1019,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--slot", default=None, help="run only this slot")
     parser.add_argument("--ignore-time", action="store_true",
                         help="skip the generate_at gate (manual check)")
+    parser.add_argument("--day", type=date.fromisoformat, default=None, metavar="YYYY-MM-DD",
+                        help="make the issue for this local day instead of today (a manual "
+                             "re-run: lifts the time gate and the attempts cap; a day already "
+                             "published is left alone)")
     parser.add_argument("--dry-run", action="store_true",
                         help="build and print the prompt; no image call, nothing sent, no rows")
     parser.add_argument("--verbose", action="store_true", help="debug logging")
@@ -1026,7 +1046,8 @@ def main(argv: list[str] | None = None) -> int:
         log.error("ROUTER_AUTH_TOKEN is not set")
         return 2
     if args.dry_run:  # a dry run is not something the machine did; it leaves no row
-        return run(cfg, router_cfg, dry_run=True, only_slot=args.slot, ignore_time=args.ignore_time)
+        return run(cfg, router_cfg, dry_run=True, only_slot=args.slot, ignore_time=args.ignore_time,
+                   issue_day=args.day)
     settings = {
         "tz": cfg.tz,
         "image_provider": cfg.image_provider,
@@ -1035,7 +1056,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     with runlog.record("daypic", cfg.own_db, settings) as counters:
         return run(cfg, router_cfg, dry_run=False, only_slot=args.slot,
-                   ignore_time=args.ignore_time, counters=counters)
+                   ignore_time=args.ignore_time, counters=counters, issue_day=args.day)
 
 
 if __name__ == "__main__":

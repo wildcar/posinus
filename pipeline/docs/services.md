@@ -372,7 +372,11 @@ Gotchas:
   human meant «сейчас». The one-issue-per-day rule still holds;
 - `--dry-run` prints the prompt and the description (one cheap chat call) and never
   spends an image call; `--slot day --ignore-time` checks a slot by hand without
-  waiting for its hour;
+  waiting for its hour; `--day YYYY-MM-DD` makes the issue for another local day — the
+  operator's «перерисуй за 5 сентября» after an outage: the prompt asks about that
+  date, title and file names carry it, and both the time gate and the attempts cap are
+  lifted because a human asked. A day already published is left alone (used first on
+  2026-09-06 for the two issues lost to the gpt-5.4 retirement);
 - files older than `DAYPIC_KEEP_DAYS` (90) — both renditions and the manifest — are
   deleted by retention.py; rows stay and the gallery says «файл удалён по сроку».
 
