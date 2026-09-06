@@ -9,6 +9,7 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 - Why: 5 сентября Codex снял модель gpt-5.4, которой роутер ведёт генерацию картинок (`CODEX_IMAGE_MAIN_MODEL`), картина дня падала два утра подряд по четыре попытки, а сводка писала «проблем нет» — notify следил только за новостями.
 - Files: pipeline/notify.py, pipeline/tests/test_notify.py, pipeline/AGENTS/SPEC.md, pipeline/docs/services.md
 - Next: владелец меняет `CODEX_IMAGE_MAIN_MODEL` в `/opt/model-router-mcp/.env` на живую модель (gpt-5.5) и перезапускает роутер; первый выпуск после починки — 08:00 МСК 7 сентября.
+- Хвост: LIVE at `136b846` (`git pull` в /opt/posinus, 20:20 UTC). Сухой прогон от сервисного пользователя на живой базе дал ровно одну тревогу про 6 сентября и сводку с «Не вышла: Картина дня»; настоящее сообщение уйдёт часовым прогоном в 21:08 UTC.
 
 
 ## 2026-08-26 · Идентичность приложения в каждом запросе к роутеру

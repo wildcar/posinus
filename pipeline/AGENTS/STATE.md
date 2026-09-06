@@ -24,7 +24,11 @@ a publish-ready retelling, and posts them to the platforms.
   owner's agentish app. Fix is the owner's: set `CODEX_IMAGE_MAIN_MODEL=gpt-5.5` (active in the
   catalog, untested as image driver) and restart `model-router-mcp.service`; the 5 and 6
   September issues are lost (one issue per day, «Прогнать сейчас» does not lift the attempts
-  cap), first real check 08:00 MSK 2026-09-07. notify.py now alarms on this (below).
+  cap), first real check 08:00 MSK 2026-09-07. notify.py now alarms on this (below): LIVE at
+  `136b846` (plain `git pull` in /opt/posinus, 2026-09-06 20:20 UTC); a dry run as the service
+  user produced exactly one alarm, «Картина дня за 6 сентября 2026 не вышла…», and the digest
+  «Вчера вышло 8 постов. Не вышла: Картина дня. …». The real message goes out with the 21:08
+  UTC hourly run.
 - **Profile r6 since 2026-09-06 15:06 UTC (owner, «Отбор» screen): `highlight_min` back to 8 on
   all seven axes, gates unchanged (positivity 7; heroism/clickbait/promo ≤4).** Why: under r5
   with glm the funnel selected 36–51 news a day against a fixed 8 posts a day (8 slots), so
