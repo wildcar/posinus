@@ -380,8 +380,14 @@ Gotchas:
 
 Two timers, one script. `posinus-notify.timer` runs `notify.py` hourly and sends an alarm only
 for a platform that failed at least three times, a full day with no post inside an open window,
-or a queue empty for three days. `posinus-notify-digest.timer` sends one sentence at 09:00
-Moscow time. The same alarm is not repeated within 12 hours (`notification` table).
+a queue empty for three days, a «Картина дня» whose generation gave the day up (the slot's
+latest `daypic_item` is `error` with `DAYPIC_MAX_ATTEMPTS` attempts and no older than
+yesterday — a still-retrying failure is not an alarm, a slot switched off after a bad morning
+is not one forever) or a platform refusing the picture three times within a day.
+`posinus-notify-digest.timer` sends one sentence at 09:00 Moscow time, with «Не вышла:
+Картина дня» appended when yesterday's issue did not go out. The same alarm is not repeated
+within 12 hours (`notification` table). The daypic tables belong to `daypic.py`; when they do
+not exist yet, notify simply has nothing to say about the picture.
 
 `NOTIFY_CHAT_ID` is the owner's own chat — never the public channel, because this carries
 diagnostics. With it empty nothing is sent at all, which is the safe default. `--dry-run` builds

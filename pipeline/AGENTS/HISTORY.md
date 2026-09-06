@@ -4,6 +4,13 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-09-06 · notify.py узнал о картине дня
+- What: две новые тревоги — «генерация сдалась» (последний выпуск слота в `error` с `DAYPIC_MAX_ATTEMPTS` попытками, не старше вчера) и «площадка не принимает картину» (три отказа за сутки в `daypic_publication`); в утреннюю сводку добавляется «Не вышла: Картина дня». Таблиц нет — тревог нет. 324 теста.
+- Why: 5 сентября Codex снял модель gpt-5.4, которой роутер ведёт генерацию картинок (`CODEX_IMAGE_MAIN_MODEL`), картина дня падала два утра подряд по четыре попытки, а сводка писала «проблем нет» — notify следил только за новостями.
+- Files: pipeline/notify.py, pipeline/tests/test_notify.py, pipeline/AGENTS/SPEC.md, pipeline/docs/services.md
+- Next: владелец меняет `CODEX_IMAGE_MAIN_MODEL` в `/opt/model-router-mcp/.env` на живую модель (gpt-5.5) и перезапускает роутер; первый выпуск после починки — 08:00 МСК 7 сентября.
+
+
 ## 2026-08-26 · Идентичность приложения в каждом запросе к роутеру
 - What: все вызовы роутера из трёх скриптов (chat и generate_image) несут `app_url=https://dzen.ru/posinus` и `app_name=Positive news`; правится через `ROUTER_APP_URL`/`ROUTER_APP_NAME`, пустое значение убирает поле. 316 тестов.
 - Why: роутер с 26 августа принимает идентичность приложения, пишет её в журнал (`request_logs.app`) и передаёт провайдерам — у OpenRouter это HTTP-Referer/X-Title. Значения выбрал владелец.

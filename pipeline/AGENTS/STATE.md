@@ -12,6 +12,19 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- **«Картина дня» has not come out since 2026-09-05 (last issue 2026-09-04 05:16 UTC).** Cause is
+  outside this repo: the router's codex-oauth image generation drives the `image_generation`
+  tool with a fixed chat model, `CODEX_IMAGE_MAIN_MODEL=gpt-5.4` in `/opt/model-router-mcp/.env`,
+  and since the morning of 5 September Codex answers it with `HTTP 400 The 'gpt-5.4' model is
+  not supported when using Codex with a ChatGPT account` (the router's own registry saw gpt-5.4
+  vanish from the catalog 2026-09-04 19:33 UTC and marked it deprecated, but the image path
+  reads the env, not the registry). The Codex token is fine: sol/terra chat calls succeed, so
+  each morning the description was written and then 4 image attempts failed and the day was
+  given up (items 38 and 42). Same error hit one preparer picture (news 15238) and the
+  owner's agentish app. Fix is the owner's: set `CODEX_IMAGE_MAIN_MODEL=gpt-5.5` (active in the
+  catalog, untested as image driver) and restart `model-router-mcp.service`; the 5 and 6
+  September issues are lost (one issue per day, «Прогнать сейчас» does not lift the attempts
+  cap), first real check 08:00 MSK 2026-09-07. notify.py now alarms on this (below).
 - **Profile r6 since 2026-09-06 15:06 UTC (owner, «Отбор» screen): `highlight_min` back to 8 on
   all seven axes, gates unchanged (positivity 7; heroism/clickbait/promo ≤4).** Why: under r5
   with glm the funnel selected 36–51 news a day against a fixed 8 posts a day (8 slots), so
@@ -205,7 +218,9 @@ a publish-ready retelling, and posts them to the platforms.
   and those two columns were then restored on news 111, so nothing of the check is left in the
   data.
 - `notify.py` since 2026-07-25: hourly alarms (broken platform, a silent day inside an open
-  window, an empty queue) and a daily digest at 09:00 Moscow, both through the existing bot.
+  window, an empty queue; since 2026-09-06 also a «Картина дня» whose generation gave the day
+  up or whose platform refuses it, plus «Не вышла: Картина дня» in the digest) and a daily
+  digest at 09:00 Moscow, both through the existing bot.
   Silent until the owner puts their own chat id in `NOTIFY_CHAT_ID` — never the public channel.
   LIVE on prod (commit `454a811`, both timers enabled, hourly check runs and logs that no chat id
   is set). A dry run against prod data immediately earned its keep: the first version called VK

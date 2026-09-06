@@ -10,8 +10,9 @@ Two kinds, and the difference matters:
 - `--digest`: one sentence a day. «Вчера вышло 2 поста, проблем нет.»
 - `--check`: an alarm, and only for things that are actually wrong — a platform
   that failed three times running, a whole day with no post inside an open
-  window, an empty queue for three days. An empty channel is an editorial
-  failure too, and it deserves the same volume as a broken platform.
+  window, an empty queue for three days, a «Картина дня» whose generation gave
+  the day up or whose platform keeps refusing it. An empty channel is an
+  editorial failure too, and it deserves the same volume as a broken platform.
 
 The bar for an alarm is high on purpose: noise makes the channel worthless in a
 week, and then the one message that mattered gets ignored with the rest.
@@ -54,8 +55,20 @@ PLATFORM_FAIL_ATTEMPTS = 3
 PLATFORM_FAIL_WINDOW_HOURS = 24
 SILENT_HOURS = 24          # no post at all for this long, inside an open window
 EMPTY_QUEUE_DAYS = 3
+# daypic.py retries a failed generation on every 15-minute run and gives the day
+# up after this many attempts (its DAYPIC_MAX_ATTEMPTS; the same env knob here so
+# the two agree). Before that the failure is still healing itself and a message
+# would only be noise; after it a human is the only thing that can still act.
+# The 2026-09-05 outage (Codex retired the router's image driver model) ran two
+# days with nobody told, because this script knew nothing about the picture.
+DAYPIC_MAX_ATTEMPTS = int(os.environ.get("DAYPIC_MAX_ATTEMPTS", "4") or 4)
+# A given-up issue counts only while it is the slot's latest and this recent: a
+# slot switched off months ago must not keep reporting its last bad morning.
+DAYPIC_FRESH_DAYS = 1
 
-PLATFORM_TITLES = {"telegram": "Telegram", "site": "wildcar.ru", "vk": "ВКонтакте"}
+PLATFORM_TITLES = {
+    "telegram": "Telegram", "site": "wildcar.ru", "vk": "ВКонтакте", "wildcar_org": "wildcar.org",
+}
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS notification (
@@ -131,6 +144,71 @@ def remember(con: sqlite3.Connection, kind: str, text: str, now: datetime) -> No
         )
 
 
+def _table_exists(con: sqlite3.Connection, name: str) -> bool:
+    return con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+    ).fetchone() is not None
+
+
+def _day_ru(day: str) -> str:
+    """'2026-09-06' -> «6 сентября 2026»; a malformed day is shown as is."""
+    try:
+        return publisher._format_date_ru(datetime.fromisoformat(day))
+    except (TypeError, ValueError):
+        return str(day)
+
+
+def daypic_alarms(con: sqlite3.Connection, now: datetime) -> list[Alarm]:
+    """«Картина дня»: a day the generation gave up on, or a platform refusing it.
+
+    Both tables belong to daypic.py, which creates them on its first run — an
+    installation that never ran it has neither, and that is not an alarm.
+    """
+    if not _table_exists(con, "daypic_item"):
+        return []
+    alarms: list[Alarm] = []
+
+    since = (now - timedelta(days=DAYPIC_FRESH_DAYS)).date().isoformat()
+    for row in con.execute(
+        "SELECT slot, day, title, attempts, error FROM daypic_item AS i "
+        "WHERE day = (SELECT MAX(day) FROM daypic_item WHERE slot = i.slot) "
+        "AND status = 'error' AND attempts >= ? AND day >= ? ORDER BY slot",
+        (DAYPIC_MAX_ATTEMPTS, since),
+    ):
+        title = row["title"] or "Картина дня"
+        alarms.append(
+            Alarm(
+                kind=f"daypic:{row['slot']}",
+                text=(
+                    f"{title} за {_day_ru(row['day'])} не вышла: генерация сдалась после "
+                    f"{row['attempts']} попыток, сегодня её уже не будет. "
+                    f"Последняя ошибка: {row['error'] or 'без текста'}"
+                ),
+            )
+        )
+
+    if not _table_exists(con, "daypic_publication"):
+        return alarms
+    fresh = (now - timedelta(hours=PLATFORM_FAIL_WINDOW_HOURS)).isoformat()
+    for row in con.execute(
+        "SELECT p.platform, COUNT(*) AS items, MAX(p.attempts) AS attempts, MAX(p.error) AS error, "
+        "MAX(i.day) AS day FROM daypic_publication AS p JOIN daypic_item AS i ON i.id = p.item_id "
+        "WHERE p.status = 'error' AND p.attempts >= ? AND p.updated_at >= ? GROUP BY p.platform",
+        (PLATFORM_FAIL_ATTEMPTS, fresh),
+    ):
+        platform = PLATFORM_TITLES.get(row["platform"], row["platform"])
+        alarms.append(
+            Alarm(
+                kind=f"daypic-platform:{row['platform']}",
+                text=(
+                    f"{platform} не принимает картину дня за {_day_ru(row['day'])}: "
+                    f"попыток до {row['attempts']}. Последняя ошибка: {row['error'] or 'без текста'}"
+                ),
+            )
+        )
+    return alarms
+
+
 def collect_alarms(con: sqlite3.Connection, cfg: publisher.PublisherConfig, now: datetime) -> list[Alarm]:
     """Only what a person has to act on. Everything else belongs on the screen."""
     alarms: list[Alarm] = []
@@ -186,7 +264,28 @@ def collect_alarms(con: sqlite3.Connection, cfg: publisher.PublisherConfig, now:
                     ),
                 )
             )
+    alarms.extend(daypic_alarms(con, now))
     return alarms
+
+
+def daypic_digest(con: sqlite3.Connection, yesterday: str) -> str:
+    """One clause about yesterday's picture, and only when it did not come out.
+
+    A published issue says nothing: the digest is about what needs a person.
+    A slot that is switched off has no row for the day and says nothing either.
+    """
+    if not _table_exists(con, "daypic_item"):
+        return ""
+    missed = [
+        row["title"] or "Картина дня"
+        for row in con.execute(
+            "SELECT title FROM daypic_item WHERE day = ? AND status <> 'published' ORDER BY slot",
+            (yesterday,),
+        )
+    ]
+    if not missed:
+        return ""
+    return " Не вышла: " + ", ".join(missed) + "."
 
 
 def digest_text(con: sqlite3.Connection, now: datetime) -> str:
@@ -209,7 +308,7 @@ def digest_text(con: sqlite3.Connection, now: datetime) -> str:
 
     posts = f"вышло {published} постов" if published != 1 else "вышел 1 пост"
     state = f"проблем нет, в очереди {queue_size}" if not broken else f"площадок с ошибками: {broken}"
-    return f"Вчера {posts}. Сейчас {state}."
+    return f"Вчера {posts}.{daypic_digest(con, start.date().isoformat())} Сейчас {state}."
 
 
 def run(cfg: publisher.PublisherConfig, mode: str, dry_run: bool) -> int:

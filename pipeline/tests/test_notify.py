@@ -12,6 +12,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import daypic
 import notify
 import publisher
 
@@ -59,6 +60,33 @@ class NotifyTests(unittest.TestCase):
         )
         self.con.commit()
 
+    def _daypic_tables(self):
+        """daypic.py owns these; notify only reads them, so borrow its schema."""
+        self.con.executescript(daypic.OWN_SCHEMA_SQL)
+        self.con.commit()
+
+    def _daypic_item(self, day, status, attempts=1, error=None, slot="day", title="Картина дня"):
+        cur = self.con.execute(
+            "INSERT INTO daypic_item (day, slot, status, title, attempts, error, file_path) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (day, slot, status, title, attempts, error, "/x.jpg" if status == "published" else None),
+        )
+        self.con.commit()
+        return cur.lastrowid
+
+    def _daypic_publication(self, item_id, platform, status, attempts=1, when="2026-07-25T11:00:00+00:00", error=""):
+        self.con.execute(
+            "INSERT INTO daypic_publication (item_id, platform, status, error, attempts, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (item_id, platform, status, error, attempts, when),
+        )
+        self.con.commit()
+
+    def _quiet_news(self):
+        """A healthy news side, so only the daypic alarms can fire."""
+        self._prepared(9)
+        self._publication(3, "telegram", "ok", when="2026-07-25T11:30:00+00:00")
+
     def test_a_platform_failing_three_times_is_an_alarm(self):
         self._prepared(9)  # a non-empty queue, so only the platform alarm can fire
         self._publication(3, "telegram", "ok", when="2026-07-25T11:30:00+00:00")
@@ -105,6 +133,83 @@ class NotifyTests(unittest.TestCase):
 
         self.assertEqual([alarm.kind for alarm in alarms], ["empty-queue"])
         self.assertIn("отбор", alarms[0].text)
+
+    def test_a_daypic_day_given_up_is_an_alarm(self):
+        """2026-09-05: four failed generations, nobody told, the same again next morning."""
+        self._quiet_news()
+        self._daypic_tables()
+        self._daypic_item("2026-07-25", "error", attempts=4, error="Codex backend error HTTP 400")
+
+        alarms = notify.collect_alarms(self.con, self.cfg, self.now)
+
+        self.assertEqual([alarm.kind for alarm in alarms], ["daypic:day"])
+        self.assertIn("Картина дня за 25 июля 2026 не вышла", alarms[0].text)
+        self.assertIn("4 попыток", alarms[0].text)
+        self.assertIn("HTTP 400", alarms[0].text)
+
+    def test_a_daypic_failure_still_retrying_is_not_an_alarm(self):
+        """The timer retries every 15 minutes; one bad call heals itself."""
+        self._quiet_news()
+        self._daypic_tables()
+        self._daypic_item("2026-07-25", "error", attempts=1, error="timeout")
+
+        self.assertEqual(notify.collect_alarms(self.con, self.cfg, self.now), [])
+
+    def test_a_later_issue_silences_the_old_daypic_failure(self):
+        self._quiet_news()
+        self._daypic_tables()
+        self._daypic_item("2026-07-24", "error", attempts=4, error="HTTP 400")
+        self._daypic_item("2026-07-25", "published")
+
+        self.assertEqual(notify.collect_alarms(self.con, self.cfg, self.now), [])
+
+    def test_a_stale_daypic_failure_is_not_an_alarm(self):
+        """A slot switched off after a bad morning must not report it forever."""
+        self._quiet_news()
+        self._daypic_tables()
+        self._daypic_item("2026-07-10", "error", attempts=4, error="HTTP 400")
+
+        self.assertEqual(notify.collect_alarms(self.con, self.cfg, self.now), [])
+
+    def test_a_platform_refusing_the_daypic_is_an_alarm(self):
+        self._quiet_news()
+        self._daypic_tables()
+        item = self._daypic_item("2026-07-25", "generated")
+        self._daypic_publication(item, "telegram", "ok")
+        self._daypic_publication(item, "vk", "error", attempts=3, error="код 214")
+
+        alarms = notify.collect_alarms(self.con, self.cfg, self.now)
+
+        self.assertEqual([alarm.kind for alarm in alarms], ["daypic-platform:vk"])
+        self.assertIn("ВКонтакте не принимает картину дня за 25 июля 2026", alarms[0].text)
+        self.assertIn("214", alarms[0].text)
+
+    def test_without_daypic_tables_nothing_breaks(self):
+        """An installation that never ran daypic.py has no such tables."""
+        self._quiet_news()
+
+        self.assertEqual(notify.collect_alarms(self.con, self.cfg, self.now), [])
+
+    def test_digest_names_a_missed_picture(self):
+        yesterday = (self.now - timedelta(days=1)).replace(hour=10)
+        self._prepared(1, status="published", published_at=yesterday.isoformat())
+        self._prepared(2)
+        self._daypic_tables()
+        self._daypic_item(yesterday.date().isoformat(), "error", attempts=4, error="HTTP 400")
+
+        text = notify.digest_text(self.con, self.now)
+
+        self.assertEqual(text, "Вчера вышел 1 пост. Не вышла: Картина дня. Сейчас проблем нет, в очереди 1.")
+
+    def test_digest_says_nothing_about_a_published_picture(self):
+        yesterday = (self.now - timedelta(days=1)).replace(hour=10)
+        self._prepared(1, status="published", published_at=yesterday.isoformat())
+        self._prepared(2)
+        self._daypic_tables()
+        self._daypic_item(yesterday.date().isoformat(), "published")
+
+        self.assertEqual(notify.digest_text(self.con, self.now),
+                         "Вчера вышел 1 пост. Сейчас проблем нет, в очереди 1.")
 
     def test_nothing_is_wrong_means_nothing_is_sent(self):
         self._prepared(1)
