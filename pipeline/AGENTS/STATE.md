@@ -12,6 +12,21 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- **Profile r6 since 2026-09-06 15:06 UTC (owner, «Отбор» screen): `highlight_min` back to 8 on
+  all seven axes, gates unchanged (positivity 7; heroism/clickbait/promo ≤4).** Why: under r5
+  with glm the funnel selected 36–51 news a day against a fixed 8 posts a day (8 slots), so
+  the queue sat at ~300 and 3–11 items a day left it by the 10-day expiry, all of them with
+  strength 7.x; the preparer was retelling and illustrating ~4/5 of its items for nothing.
+  The publisher takes the STRONGEST first, never the freshest: freshness is not a sort key,
+  yet 93 of 120 posts in the two weeks before went out on their preparation day because the
+  daily inflow always had eight items of strength ≥8. Simulation over the 446 items prepared
+  2026-08-23..09-06: r6 would have passed 299 of them and every one of the 108 that were
+  actually published. Not the r4 situation (empty funnel on 2026-08-16): that was the old
+  model's scores; glm scores higher. Left as is: `PUB_EXPIRE_AFTER_DAYS` 10 and the
+  strength-blind order (a strength floor in the preparer and a shorter expiry were discussed,
+  not done). The existing queue drains by expiry on its own; no rescore. Verified live: the 15:15 UTC
+  evaluator run logged `selection profile default.r6`, 3 evaluated / 1 selected (news 15294,
+  inspiration 8, positivity 8), the two rejected ones carry `default.r6` in `selector_version`.
 - Since 2026-08-26 every router call from all three scripts carries the application
   identity: `app_url=https://wildcar.org`, `app_name=Positive news` (env
   `ROUTER_APP_URL`/`ROUTER_APP_NAME`; an empty value drops the field). The router logs
