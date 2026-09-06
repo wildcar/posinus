@@ -12,7 +12,14 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
-- **«Картина дня» has not come out since 2026-09-05 (last issue 2026-09-04 05:16 UTC).** Cause is
+- **The 5 and 6 September issues of «Картина дня» were redrawn by hand on 2026-09-06 20:45–20:52 UTC**
+  with the new `daypic.py --day` (LIVE at `e6e4bab`, run as the service user after the owner set
+  `CODEX_IMAGE_MAIN_MODEL=gpt-5.5` and restarted the router at 20:30 UTC). Both went to all four
+  platforms (t.me/posinus/854 and 855, wildcar.org/kartina/2026-09-05 and -06, wildcar.ru, VK
+  wall-233237778_404 and 405); gpt-5.5 as the image driver honours the orientation sentence —
+  all four renditions measured 1024x1536 / 1536x1024, no «asked for a … frame» warning. The
+  notify alarm for the given-up day therefore never fired: the slot's latest item is published.
+- **«Картина дня» had not come out on 2026-09-05 and 06 (last timer issue 2026-09-04 05:16 UTC).** Cause was
   outside this repo: the router's codex-oauth image generation drives the `image_generation`
   tool with a fixed chat model, `CODEX_IMAGE_MAIN_MODEL=gpt-5.4` in `/opt/model-router-mcp/.env`,
   and since the morning of 5 September Codex answers it with `HTTP 400 The 'gpt-5.4' model is
