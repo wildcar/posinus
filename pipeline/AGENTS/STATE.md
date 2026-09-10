@@ -12,25 +12,25 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
-- **VK: the fix is LIVE at `e9cdf82` (plain `git pull` in /opt/posinus, 2026-09-10 09:35 UTC),
-  waiting for the owner's env edit.** Since 2026-09-08 ~11:00 UTC every call with the old
-  token answers `9 Flood control` — `users.get` included — because VK meters API use per
-  application since 2026-09-07 and cut Kate Mobile off, the app_id our user token was minted
-  under; not our load (~50 calls a day), not the host, not the community. 15 news posts
-  (8–10 Sep) and the 9 and 10 Sep «Картина дня» went out without VK. The owner made a
-  community key and probed it with the new `tools/vk_probe.py`: rights photos, docs,
-  messages, wall, manage, stories, market; `wall.post` from the group passes with text and
-  with a URL in the text, fails with `attachments=<url>` (100 link_photo_sizing_rule) and
-  with photo upload (27), and cannot `wall.delete` (27) — probe posts 420 and 421 sit in
-  «Отложенные» and must be removed by hand. Hence `VK_POST_MODE=link`: no upload, «На
-  сайте: <wildcar.ru page>» before the source line (the first URL gives VK its card, and
-  Эгея pages carry `og:image`; wildcar.org pages do not), page URL read from
-  `publication`/`daypic_publication` right before each send. Dry run on prod as the service
-  user: news 16056 → `mode=link, page=https://wildcar.ru/all/uchyonye-…/`. Owner's part:
-  `VK_ACCESS_TOKEN=<community key>` and `VK_POST_MODE=link` in `/etc/posinus/pipeline.env`
-  (the agent policy refuses that file), delete the two probe posts, then eyeball the first
-  live post: does the card carry the picture. Items still under 8 VK attempts retry in link
-  mode on the next 15-min run; the given-up ones stay as they are.
+- **VK posts with pictures again, through a community key — code LIVE at `5227365`, the env
+  switch is the owner's.** Since 2026-09-08 ~11:00 UTC every call with the old user token
+  answers `9 Flood control` (VK meters API use per application since 2026-09-07 and cut Kate
+  Mobile off, the app_id that token was minted under; not our load, not the host). The owner
+  made a community key and probed it (`tools/vk_probe.py`): `wall.post` from the group passes,
+  photo upload via the wall server is refused (27), `wall.delete` too (27), and a link card
+  stays pictureless because `wall.parseAttachedLink` is refused as well (posts 421/422/424,
+  the link mode). The way through, found 2026-09-10 10:00 UTC: the messages upload server bound
+  to a dialog the community has (`photos.getMessagesUploadServer` + `saveMessagesPhoto`),
+  whose photo `wall.post` accepts — `VK_POST_MODE=photo` + `VK_PHOTO_PEER_ID`. The dialog must
+  be the owner's own (user 684651118, who wrote to the community for this; the first probe
+  used a subscriber's dialog by mistake, 901 without a dialog); VK's upload servers also drop
+  PNGs silently (empty `photo`, the «upload server returned no photo» errors of August), so
+  the adapter re-encodes to JPEG. Verified live: news 16237 → wall-233237778_425 posted with
+  `VK_POST_MODE=photo VK_PHOTO_PEER_ID=684651118` on the command line (the env file still says
+  `link`, so the 10:00 timer run posted 16260 as text). Owner's part: set `VK_POST_MODE=photo`
+  and `VK_PHOTO_PEER_ID=684651118` in `/etc/posinus/pipeline.env`, remove the probe posts 420,
+  421, 423 from «Отложенные» (the key cannot), and eyeball 425 for the picture. 15 news
+  posts (8–10 Sep) and the 9/10 Sep «Картина дня» stay without VK.
 - **The 5 and 6 September issues of «Картина дня» were redrawn by hand on 2026-09-06 20:45–20:52 UTC**
   with the new `daypic.py --day` (LIVE at `e6e4bab`, run as the service user after the owner set
   `CODEX_IMAGE_MAIN_MODEL=gpt-5.5` and restarted the router at 20:30 UTC). Both went to all four

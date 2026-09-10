@@ -122,7 +122,9 @@ to time: merge duplicates, drop stale entries.
   `photos.getWallUploadServer` as user-token-only, with the `wall`/`photos` rights granted
   «в исключительных случаях» by request to devsupport@corp.vk.com. The route that works
   since 2026-09-10 is a COMMUNITY key (community settings → Работа с API; no app, no expiry)
-  with `VK_POST_MODE=photo` and `VK_PHOTO_PEER_ID=<user the community has a dialog with>`:
+  with `VK_POST_MODE=photo` and `VK_PHOTO_PEER_ID=684651118` (the owner's own VK account,
+  which has a dialog with the community since 2026-09-10 — never a subscriber's dialog, the
+  photo is stored under the peer's id):
   the key carries the `wall` right (the docs page omits it), the wall upload server refuses
   it (27) but the messages upload server bound to that dialog takes the photo and `wall.post`
   accepts it with its access key. It cannot `wall.delete` (27), so any probe/test post must
