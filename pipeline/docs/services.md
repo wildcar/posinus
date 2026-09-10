@@ -339,7 +339,10 @@ community: Управление → Дополнительно → Работа 
   `wall.parseAttachedLink` produces, and that method answers 27. `docs.getWallUploadServer`
   answers 15 «User can't upload docs to this group» (the community has no Документы section;
   an image document would show as a file card anyway). `stories.getPhotoUploadServer` does
-  work — a story, not a wall post.
+  work — a story, not a wall post. A direct image URL does not help either: as
+  `attachments=` it is the same 100, in the text it stays a bare link (post 428) — the web
+  client turns such a link into a photo because it acts as the logged-in ADMIN (post 426,
+  edited by hand), and `wall.edit` answers 27 for the key, so that cannot be scripted.
 - VK's photo upload servers answer a PNG with an empty `photo` every time (3 of 3; JPEGs
   pass), so the adapter re-encodes anything that is not a JPEG through ffmpeg first — that
   empty `photo` is also what the «upload server returned no photo» errors of August–September

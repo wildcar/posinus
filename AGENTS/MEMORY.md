@@ -127,7 +127,8 @@ to time: merge duplicates, drop stale entries.
   2026-09-10): the wall upload server answers 27; a photo saved through the messages upload
   server — owned by a dialog user or by the community itself — is accepted by `wall.post` and
   silently dropped (posts 425, 426); `attachments=<url>` needs `wall.parseAttachedLink`, 27
-  too; docs 15. Judge a post's picture by its page `og:image` (VK's «Пост из ленты»
+  too; docs 15; a direct image URL in the text stays a bare link (post 428) — only the web
+  client, acting as the admin, turns it into a photo, and `wall.edit` is 27 for the key. Judge a post's picture by its page `og:image` (VK's «Пост из ленты»
   placeholder = no photo). The key cannot `wall.delete` (27): probe posts are removed by
   hand in «Отложенные». VK's photo upload servers silently drop PNGs (empty `photo`, 3 of 3
   on 2026-09-10) — the adapter re-encodes to JPEG first, for the day a user token is back.
