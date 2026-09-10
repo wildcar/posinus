@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-09-10 · Приложение VK ID 54692110: ссылки на вход выданы
+- What: владелец создал приложение VK ID (ID 54692110). От имени служебного пользователя сгенерированы две ссылки авторизации: с правами `wall photos groups` (хранилище `/var/lib/posinus/pipeline/vk-id.json`) и запасная только с `vkid.personal_info` (`vk-id-base.json`) на случай, если VK не пустит с неодобренными правами. Оба хранилища 0600.
+- Why: обмен кода на токены должен идти с этого сервера (208.92.227.90) и от служебного пользователя — там же будет жить продлеваемый токен публикатора; конфиденциальному приложению нужен `VK_ID_SERVICE_TOKEN` из pipeline.env.
+- Files: pipeline/AGENTS/STATE.md
+- Next: владелец открывает ссылку и присылает адрес страницы-приёмника; `exchange`, `probe`, затем письмо в devsupport за wall и photos.
+
 ## 2026-09-10 · Логотипы каналов и на wildcar.ru
 - What: `site_footer` отдаёт тот же ряд логотипов HTML-тегами с абсолютными адресами картинок на wildcar.org (`subscribe_footer_html`, общий с `wildcar_footer`); без wildcar.org остаются текстовые ссылки Neasden. 349 тестов.
 - Why: владелец посмотрел пост 15:00 и попросил логотипы и на wildcar.ru; черновиком проверено, что Neasden пропускает HTML как есть (черновик удалён через `/@actions/note-delete/`).

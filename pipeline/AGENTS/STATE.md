@@ -47,8 +47,13 @@ a publish-ready retelling, and posts them to the platforms.
   via plain `git pull`, first automatic story with the 2026-09-11 08:00 MSK issue (today's
   issue is settled and gets none). News stay text on VK. **Next step chosen by the owner: a
   VK ID application, then the devsupport request** — the redirect page
-  https://wildcar.org/auth/vk-id/ is live and `tools/vk_id_auth.py` is ready; waiting for
-  the application ID (see docs/services.md «The road to a user token in 2026»).
+  https://wildcar.org/auth/vk-id/ is live; **the owner created the application, ID 54692110**
+  (2026-09-10 ~13:15 UTC). Two authorize URLs were generated as the service user, PKCE state
+  in `/var/lib/posinus/pipeline/vk-id.json` (scope `wall photos groups`) and `vk-id-base.json`
+  (fallback, `vkid.personal_info` only, in case VK refuses the unapproved scopes); waiting for
+  the owner to open one and send back the landing URL. The exchange must run as the service
+  user on this host (208.92.227.90) with `VK_ID_SERVICE_TOKEN` from pipeline.env if the app
+  is confidential (see docs/services.md «The road to a user token in 2026»).
 - **The 5 and 6 September issues of «Картина дня» were redrawn by hand on 2026-09-06 20:45–20:52 UTC**
   with the new `daypic.py --day` (LIVE at `e6e4bab`, run as the service user after the owner set
   `CODEX_IMAGE_MAIN_MODEL=gpt-5.5` and restarted the router at 20:30 UTC). Both went to all four
