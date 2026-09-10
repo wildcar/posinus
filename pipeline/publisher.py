@@ -128,15 +128,15 @@ NEWS_TAGS = ("позитивная", "новость", "позитивная н�
 # sentence varies: the telegram reader is inside the channel, the VK reader
 # inside the community, and a site reader gets a link to the channel instead.
 FOOTER_ASK = "Хотите ежедневно видеть хотя бы одну хорошую новость?"
-FOOTER_QUESTION = "А какая добрая история запомнилась вам за последнее время?"
-
-
-def footer_text(subscribe: str) -> str:
-    return f"{FOOTER_ASK} {subscribe} {FOOTER_QUESTION}"
-
-
-TG_FOOTER = footer_text("Подпишитесь на канал.")
-VK_FOOTER = footer_text("Подпишитесь на сообщество.")
+FOOTER_CALL = "Подпишитесь:"
+SUBSCRIBE_SEP = " · "
+# Logos for the wildcar.org footer: files in the wildcar-site repo, docs/assets/logos/.
+SUBSCRIBE_LOGOS = {
+    "Telegram": "/assets/logos/telegram.svg",
+    "Дзен": "/assets/logos/dzen.png",
+    "ВКонтакте": "/assets/logos/vk.svg",
+    "wildcar.org": "/assets/logos/wildcar.png",
+}
 VK_POST_MODES = ("photo", "link")
 
 # The order to take them in, from the crawler DB: «сила» of each news item plus
@@ -203,6 +203,11 @@ class PublisherConfig:
     vk_group_id: str = ""
     vk_api_version: str = "5.199"
     vk_post_mode: str = "photo"
+    # The footer's channel list (owner, 2026-09-10): Telegram from the channel
+    # username above, wildcar.org from its base URL, these two by address. An
+    # empty value drops the channel from the footer.
+    dzen_url: str = "https://dzen.ru/posinus"
+    vk_community_url: str = "https://vk.com/positivenus"
     # Pacing: NEW items appear on the slot grid — fixed local times in
     # `window_tz`, one fresh item per slot. While the grid is set it replaces
     # both the interval and the window; empty or unparsable slots fall back to
@@ -247,6 +252,8 @@ class PublisherConfig:
         cfg.vk_group_id = env.get("VK_GROUP_ID", cfg.vk_group_id)
         cfg.vk_api_version = env.get("VK_API_VERSION", cfg.vk_api_version)
         cfg.vk_post_mode = (env.get("VK_POST_MODE", cfg.vk_post_mode) or "photo").strip().lower()
+        cfg.dzen_url = env.get("DZEN_CHANNEL_URL", cfg.dzen_url).strip()
+        cfg.vk_community_url = env.get("VK_COMMUNITY_URL", cfg.vk_community_url).strip()
         if cfg.vk_post_mode not in VK_POST_MODES:
             raise ValueError(f"VK_POST_MODE must be one of {', '.join(VK_POST_MODES)}, got {cfg.vk_post_mode!r}")
         cfg.slots = env.get("PUB_SLOTS", cfg.slots).strip()
@@ -281,31 +288,79 @@ def tg_channel_url(cfg: PublisherConfig) -> str:
     return f"https://t.me/{cfg.tg_channel_username}" if cfg.tg_channel_username else ""
 
 
+def subscribe_links(cfg: PublisherConfig) -> list[tuple[str, str]]:
+    """The channels the footer invites to, in the owner's order (2026-09-10):
+    Telegram, Дзен, ВКонтакте, wildcar.org. A channel without an address is
+    left out."""
+    links: list[tuple[str, str]] = []
+    if cfg.tg_channel_username:
+        links.append(("Telegram", tg_channel_url(cfg)))
+    if cfg.dzen_url:
+        links.append(("Дзен", cfg.dzen_url))
+    if cfg.vk_community_url:
+        links.append(("ВКонтакте", cfg.vk_community_url))
+    if cfg.wildcar_base:
+        links.append(("wildcar.org", cfg.wildcar_base + "/"))
+    return links
+
+
+def footer_plain(cfg: PublisherConfig) -> str:
+    """Plain text (VK): the call, then «name url» per channel."""
+    links = subscribe_links(cfg)
+    if not links:
+        return FOOTER_ASK
+    return f"{FOOTER_ASK} {FOOTER_CALL} " + SUBSCRIBE_SEP.join(f"{name} {url}" for name, url in links)
+
+
+def tg_footer(cfg: PublisherConfig) -> tuple[str, str]:
+    """Telegram: (visible text, HTML) — the names are links, so the visible
+    text, which is what counts against the caption limit, stays short."""
+    links = subscribe_links(cfg)
+    if not links:
+        return FOOTER_ASK, html.escape(FOOTER_ASK)
+    head = f"{FOOTER_ASK} {FOOTER_CALL} "
+    visible = head + SUBSCRIBE_SEP.join(name for name, _ in links)
+    rendered = html.escape(head) + SUBSCRIBE_SEP.join(
+        f'<a href="{html.escape(url, quote=True)}">{html.escape(name)}</a>' for name, url in links)
+    return visible, rendered
+
+
 def site_footer(cfg: PublisherConfig) -> str:
-    """The Эгея variant of the footer: the subscription call links to the
-    telegram channel in Neasden markup. No username configured — plain text."""
-    url = tg_channel_url(cfg)
-    if not url:
-        return TG_FOOTER
-    return footer_text(f"Подпишитесь на телеграм-канал (({url} @{cfg.tg_channel_username})).")
+    """The Эгея variant: Neasden links ((url name))."""
+    links = subscribe_links(cfg)
+    if not links:
+        return FOOTER_ASK
+    return f"{FOOTER_ASK} {FOOTER_CALL} " + SUBSCRIBE_SEP.join(f"(({url} {name}))" for name, url in links)
 
 
 def wildcar_footer(cfg: PublisherConfig) -> str:
-    """The wildcar.org variant: same call, as a markdown link."""
-    url = tg_channel_url(cfg)
-    if not url:
-        return TG_FOOTER
-    return footer_text(f"Подпишитесь на [телеграм-канал @{cfg.tg_channel_username}]({url}).")
+    """The wildcar.org variant: the call and a row of logos linking the
+    channels, as raw HTML inside the markdown page (the logo files live in the
+    wildcar-site repo, see SUBSCRIBE_LOGOS). A channel without a logo gets a
+    text link."""
+    links = subscribe_links(cfg)
+    if not links:
+        return FOOTER_ASK
+    icons = []
+    for name, url in links:
+        href = html.escape(url, quote=True)
+        logo = SUBSCRIBE_LOGOS.get(name)
+        if logo:
+            icons.append(f'<a href="{href}" title="{html.escape(name)}"><img src="{logo}" alt="{html.escape(name)}" '
+                         f'width="40" height="40" style="vertical-align:middle;border-radius:8px"></a>')
+        else:
+            icons.append(f'<a href="{href}">{html.escape(name)}</a>')
+    return (f'<p class="subscribe">{html.escape(FOOTER_ASK)} {FOOTER_CALL}</p>\n'
+            f'<p class="subscribe-links">{" ".join(icons)}</p>')
 
 
 def feed_footer(cfg: PublisherConfig) -> str:
-    """The Дзен feed variant: same call, as HTML for content:encoded."""
-    url = tg_channel_url(cfg)
-    if not url:
-        return html.escape(TG_FOOTER)
-    link = (f'<a href="{html.escape(url, quote=True)}">телеграм-канал '
-            f"@{html.escape(cfg.tg_channel_username)}</a>")
-    return footer_text(f"Подпишитесь на {link}.")
+    """The Дзен feed variant: HTML text links for content:encoded."""
+    links = subscribe_links(cfg)
+    if not links:
+        return html.escape(FOOTER_ASK)
+    return html.escape(f"{FOOTER_ASK} {FOOTER_CALL} ") + SUBSCRIBE_SEP.join(
+        f'<a href="{html.escape(url, quote=True)}">{html.escape(name)}</a>' for name, url in links)
 
 
 # ------------------------------------------------ stop cock and time window
@@ -541,11 +596,13 @@ def _tg_len(text: str) -> int:
 
 def build_tg_message(
     title: str, paragraphs: list[str], source_url: str, source_name: str, limit: int,
-    more_url: str = "", footer: str = "",
+    more_url: str = "", footer: str = "", footer_html: str = "",
 ) -> str:
     """HTML message: bold title, as many leading paragraphs as fit, source link,
     the standing footer. When paragraphs had to be dropped, a link to the full
     text (`more_url`, the wildcar.org page) goes in before the source line.
+    `footer` is the visible text; `footer_html` its rendering with links
+    (see tg_footer) — without it the footer goes in escaped as it is.
 
     The limit applies to the VISIBLE text — Telegram counts what the reader
     sees after parsing the entities, not the raw HTML with its tags and the
@@ -576,7 +633,7 @@ def build_tg_message(
             )
         if footer:
             visible += "\n\n" + footer
-            message += "\n\n" + html.escape(footer)
+            message += "\n\n" + (footer_html or html.escape(footer))
         return visible, message
 
     n = len(paragraphs)
@@ -809,11 +866,12 @@ def publish_telegram(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) ->
     had to be dropped, the caption links to the full text on wildcar.org."""
     more_url = wildcar_page_url(cfg, item.news_id) if cfg.wildcar_base else ""
     api = f"https://api.telegram.org/bot{cfg.tg_token}"
+    footer, footer_html = tg_footer(cfg)
     if item.lead_image:
         limit = min(TG_CAPTION_LIMIT, cfg.tg_text_limit)
         caption = build_tg_message(
             item.title, item.paragraphs, item.source_url, item.source_name, limit,
-            more_url, TG_FOOTER)
+            more_url, footer, footer_html)
         if dry_run:
             log.info("news %s telegram [dry-run]: photo upload, %d chars (limit %d)",
                      item.news_id, len(caption), limit)
@@ -828,7 +886,7 @@ def publish_telegram(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) ->
         limit = min(TG_MESSAGE_LIMIT, cfg.tg_text_limit)
         text = build_tg_message(
             item.title, item.paragraphs, item.source_url, item.source_name, limit,
-            more_url, TG_FOOTER)
+            more_url, footer, footer_html)
         if dry_run:
             log.info("news %s telegram [dry-run]: text message, %d chars (limit %d)",
                      item.news_id, len(text), limit)
@@ -1229,7 +1287,7 @@ def publish_vk(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
         log.warning("news %s vk: link mode without a page of ours to link, the card will come from the source",
                     item.news_id)
     message = build_vk_message(
-        item.title, item.paragraphs, item.source_url, item.source_name, VK_FOOTER,
+        item.title, item.paragraphs, item.source_url, item.source_name, footer_plain(cfg),
         page_url=item.page_url if link_mode else "",
         image_urls=item.image_urls if link_mode else None)
     if dry_run:

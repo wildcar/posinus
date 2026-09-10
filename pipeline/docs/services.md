@@ -150,6 +150,17 @@ timer runs harmlessly until at least one is configured):
 | `site` | wildcar.ru on Эгея: login → upload of EVERY picture → `note-process` → `note-publish` → verify. The note mirrors the wildcar.org page (lead picture, text, the rest with captions on the line under the picture); the tags field carries the item's tags, prefixed by `EGEYA_TAGS` when set (empty by default) | `EGEYA_PASSWORD` (login `EGEYA_LOGIN`, default `wildcar`); `EGEYA_BASE_URL`, `EGEYA_TAGS` |
 | `vk` | community wall: `wall.post` from the group, with a photo upload (`photo`) or a link card (`link`) | `VK_ACCESS_TOKEN` **and** `VK_GROUP_ID`; `VK_API_VERSION`; `VK_POST_MODE` |
 
+Every post — news and the picture of the day alike — ends with the standing footer: «Хотите
+ежедневно видеть хотя бы одну хорошую новость? Подпишитесь:» and the four channels in the
+owner's order (2026-09-10): Telegram (`TELEGRAM_CHANNEL_USERNAME`), Дзен (`DZEN_CHANNEL_URL`,
+default `https://dzen.ru/posinus`), ВКонтакте (`VK_COMMUNITY_URL`, default
+`https://vk.com/positivenus`), wildcar.org (`WILDCAR_ORG_BASE_URL`). An empty address drops
+the channel. Telegram gets the names as links, VK names plus addresses in plain text,
+wildcar.ru Neasden links, the Дзен feed text links, and wildcar.org a row of 40-px logos —
+`/assets/logos/{telegram.svg,dzen.png,vk.svg,wildcar.png}` in the wildcar-site repo (official
+Telegram SVG, the VK glyph from Simple Icons, the Дзен favicon, the community avatar).
+Pages already published keep the footer they went out with.
+
 `wildcar_org` runs first in the platform order on purpose: a truncated telegram caption
 links to the full text there, so within one run the page should already be live.
 
