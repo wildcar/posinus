@@ -53,7 +53,7 @@ a publish-ready retelling, and posts them to the platforms.
   `VK_ID_SERVICE_TOKEN` the owner put in pipeline.env — but the scope is `vkid.personal_info`
   only: `photos.getWallUploadServer` → 15.** The letter asking devsupport@corp.vk.com for
   `wall`+`photos` is drafted in `docs/vk-id-devsupport.md`; the owner sends it. The spare
-  store `vk-id-base.json` (pending PKCE state, never exchanged) can be deleted. NB the service
+  store `vk-id-base.json` (never exchanged) is deleted. NB the service
   key was echoed once into the agent's command output on 2026-09-10 (my `${VAR:-no}` slip);
   the owner may want to re-issue it in the cabinet and update pipeline.env. Next after the
   rights: the rolling-token store in the publisher (see docs/services.md «The road to a user
