@@ -213,14 +213,21 @@ class VkAndSiteTextTests(unittest.TestCase):
                          ["https://wildcar.org/news/7/1.jpg", "https://wildcar.org/news/7/%D1%84%D0%BE%D1%82%D0%BE%202.png"])
         self.assertEqual(publisher.image_urls_for({"site": "https://wildcar.ru/all/x/"}, images), [])
 
-    def test_site_footer_lists_the_channels_as_neasden_links(self):
+    def test_site_footer_shows_the_logo_row_hotlinked_from_wildcar_org(self):
         cfg = PublisherConfig(tg_channel_username="posinus", wildcar_base="https://wildcar.org")
         footer = publisher.site_footer(cfg)
         text = build_site_text([], ["a"], "https://s.test/a", "s.test", footer)
-        self.assertTrue(text.endswith(
-            "Хотите ежедневно видеть хотя бы одну хорошую новость? Подпишитесь: "
-            "((https://t.me/posinus Telegram)) · ((https://dzen.ru/posinus Дзен)) · "
-            "((https://vk.com/positivenus ВКонтакте)) · ((https://wildcar.org/ wildcar.org))"))
+        self.assertIn('<p class="subscribe">Хотите ежедневно видеть хотя бы одну хорошую новость? Подпишитесь:</p>', text)
+        self.assertIn('<a href="https://t.me/posinus" title="Telegram"><img src="https://wildcar.org/assets/logos/telegram.svg"', text)
+        self.assertIn('<a href="https://wildcar.org/" title="wildcar.org"><img src="https://wildcar.org/assets/logos/wildcar.png"', text)
+        self.assertTrue(text.endswith("</p>"))
+
+    def test_site_footer_falls_back_to_neasden_links_without_wildcar_org(self):
+        cfg = PublisherConfig(tg_channel_username="posinus", wildcar_base="")
+        footer = publisher.site_footer(cfg)
+        self.assertEqual(footer, "Хотите ежедневно видеть хотя бы одну хорошую новость? Подпишитесь: "
+                                 "((https://t.me/posinus Telegram)) · ((https://dzen.ru/posinus Дзен)) · "
+                                 "((https://vk.com/positivenus ВКонтакте))")
 
     def test_site_text_mirrors_the_wildcar_page(self):
         """Lead picture, paragraphs, the rest of the pictures; a caption sits on

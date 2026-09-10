@@ -155,11 +155,14 @@ Every post — news and the picture of the day alike — ends with the standing 
 owner's order (2026-09-10): Telegram (`TELEGRAM_CHANNEL_USERNAME`), Дзен (`DZEN_CHANNEL_URL`,
 default `https://dzen.ru/posinus`), ВКонтакте (`VK_COMMUNITY_URL`, default
 `https://vk.com/positivenus`), wildcar.org (`WILDCAR_ORG_BASE_URL`). An empty address drops
-the channel. Telegram gets the names as links, VK names plus addresses in plain text,
-wildcar.ru Neasden links, the Дзен feed text links, and wildcar.org a row of 40-px logos —
+the channel. Telegram gets the names as links, VK names plus addresses in plain text, the
+Дзен feed text links, and wildcar.org and wildcar.ru a row of 40-px logos —
 `/assets/logos/{telegram.svg,dzen.png,vk.svg,wildcar.png}` in the wildcar-site repo (official
-Telegram SVG, the VK glyph from Simple Icons, the Дзен favicon, the community avatar).
-Pages already published keep the footer they went out with.
+Telegram SVG, the VK glyph from Simple Icons, the Дзен favicon, the community avatar);
+wildcar.ru gets them as raw HTML with absolute wildcar.org URLs (Neasden keeps HTML tags as
+they are — checked on a draft on 2026-09-10; a draft is removed with
+`/@actions/note-delete/`, note-id + token). Pages already published keep the footer they
+went out with.
 
 `wildcar_org` runs first in the platform order on purpose: a truncated telegram caption
 links to the full text there, so within one run the page should already be live.

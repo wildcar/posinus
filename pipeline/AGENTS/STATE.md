@@ -14,8 +14,9 @@ a publish-ready retelling, and posts them to the platforms.
 
 - **New footer since 2026-09-10 ~11:45 UTC (owner's wording): «Хотите ежедневно видеть хотя бы
   одну хорошую новость? Подпишитесь:» + Telegram · Дзен · ВКонтакте · wildcar.org** — links in
-  Telegram, addresses in VK text, Neasden links on wildcar.ru, a row of logos on wildcar.org
-  (`/assets/logos/`, live on the site), text links in the Дзен feed; the picture of the day
+  Telegram, addresses in VK text, a row of logos on wildcar.org (`/assets/logos/`, live on the
+  site) and — since ~12:10 UTC, raw HTML hot-linking those files — on wildcar.ru too, text
+  links in the Дзен feed; the picture of the day
   carries it too, on every platform. Addresses come from the env (`DZEN_CHANNEL_URL`,
   `VK_COMMUNITY_URL` new, defaults set). Code LIVE via plain `git pull`; first live post with
   it: the 15:00 MSK slot. Already published pages keep the old footer.

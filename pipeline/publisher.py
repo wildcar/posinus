@@ -325,8 +325,34 @@ def tg_footer(cfg: PublisherConfig) -> tuple[str, str]:
     return visible, rendered
 
 
+def subscribe_footer_html(cfg: PublisherConfig, logo_base: str = "") -> str:
+    """The call and a row of logos linking the channels, as HTML. The logo
+    files live on wildcar.org (the wildcar-site repo, SUBSCRIBE_LOGOS);
+    `logo_base` is that site's address when the HTML is shown elsewhere —
+    wildcar.org's own pages take the paths as they are. A channel without a
+    logo gets a text link."""
+    links = subscribe_links(cfg)
+    if not links:
+        return html.escape(FOOTER_ASK)
+    icons = []
+    for name, url in links:
+        href = html.escape(url, quote=True)
+        logo = SUBSCRIBE_LOGOS.get(name)
+        if logo:
+            icons.append(f'<a href="{href}" title="{html.escape(name)}"><img src="{logo_base}{logo}" alt="{html.escape(name)}" '
+                         f'width="40" height="40" style="vertical-align:middle;border-radius:8px"></a>')
+        else:
+            icons.append(f'<a href="{href}">{html.escape(name)}</a>')
+    return (f'<p class="subscribe">{html.escape(FOOTER_ASK)} {FOOTER_CALL}</p>\n'
+            f'<p class="subscribe-links">{" ".join(icons)}</p>')
+
+
 def site_footer(cfg: PublisherConfig) -> str:
-    """The Эгея variant: Neasden links ((url name))."""
+    """The Эгея variant: Neasden keeps HTML tags as they are (checked on a
+    draft, 2026-09-10), so wildcar.ru shows the same logo row, the pictures
+    hot-linked from wildcar.org. No wildcar.org — Neasden text links."""
+    if cfg.wildcar_base:
+        return subscribe_footer_html(cfg, cfg.wildcar_base)
     links = subscribe_links(cfg)
     if not links:
         return FOOTER_ASK
@@ -334,24 +360,9 @@ def site_footer(cfg: PublisherConfig) -> str:
 
 
 def wildcar_footer(cfg: PublisherConfig) -> str:
-    """The wildcar.org variant: the call and a row of logos linking the
-    channels, as raw HTML inside the markdown page (the logo files live in the
-    wildcar-site repo, see SUBSCRIBE_LOGOS). A channel without a logo gets a
-    text link."""
-    links = subscribe_links(cfg)
-    if not links:
-        return FOOTER_ASK
-    icons = []
-    for name, url in links:
-        href = html.escape(url, quote=True)
-        logo = SUBSCRIBE_LOGOS.get(name)
-        if logo:
-            icons.append(f'<a href="{href}" title="{html.escape(name)}"><img src="{logo}" alt="{html.escape(name)}" '
-                         f'width="40" height="40" style="vertical-align:middle;border-radius:8px"></a>')
-        else:
-            icons.append(f'<a href="{href}">{html.escape(name)}</a>')
-    return (f'<p class="subscribe">{html.escape(FOOTER_ASK)} {FOOTER_CALL}</p>\n'
-            f'<p class="subscribe-links">{" ".join(icons)}</p>')
+    """The wildcar.org variant: the logo row as raw HTML inside the markdown
+    page, logo paths relative to the site."""
+    return subscribe_footer_html(cfg)
 
 
 def feed_footer(cfg: PublisherConfig) -> str:

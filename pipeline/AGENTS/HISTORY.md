@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-09-10 · Логотипы каналов и на wildcar.ru
+- What: `site_footer` отдаёт тот же ряд логотипов HTML-тегами с абсолютными адресами картинок на wildcar.org (`subscribe_footer_html`, общий с `wildcar_footer`); без wildcar.org остаются текстовые ссылки Neasden. 349 тестов.
+- Why: владелец посмотрел пост 15:00 и попросил логотипы и на wildcar.ru; черновиком проверено, что Neasden пропускает HTML как есть (черновик удалён через `/@actions/note-delete/`).
+- Files: pipeline/publisher.py, pipeline/tests/test_publisher.py, pipeline/AGENTS/SPEC.md, pipeline/docs/services.md
+- Next: посмотреть пост слота 17:00 МСК на wildcar.ru.
+
 ## 2026-09-10 · Концовка постов: «Подпишитесь:» и четыре канала
 - What: концовка новостей и картины дня теперь «Хотите ежедневно видеть хотя бы одну хорошую новость? Подпишитесь:» и каналы Telegram, Дзен, ВКонтакте, wildcar.org (`subscribe_links`; адреса из конфига, новые `DZEN_CHANNEL_URL`, `VK_COMMUNITY_URL`). В телеграме названия ссылками, во ВКонтакте адреса текстом, на wildcar.ru разметка Neasden, на wildcar.org ряд логотипов (файлы в репозитории сайта, коммит 7eb1621), в ленте Дзена текстовые ссылки. Страница картины дня на wildcar.org тоже получила концовку. Вопрос читателю убран. 348 тестов.
 - Why: владелец попросил единую подпись с логотипами каналов вместо призыва к одному каналу; логотипы взяты качественные: официальный SVG Telegram, глиф VK из Simple Icons, favicon Дзена, аватар сообщества 1080 px.
