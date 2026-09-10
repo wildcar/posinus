@@ -1781,6 +1781,10 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None,
                 # Platforms run in order, so by VK's turn the wildcar.ru page
                 # posted a moment ago is already on record.
                 urls = published_urls(own, news_id)
+                if dry_run and "wildcar_org" in platforms:
+                    # nothing is recorded in a dry run, but this page's URL is known
+                    # in advance — so the preview shows the picture links too
+                    urls.setdefault("wildcar_org", wildcar_page_url(cfg, news_id))
                 item.page_url = page_url_for(urls)
                 item.image_urls = image_urls_for(urls, item.images)
                 try:

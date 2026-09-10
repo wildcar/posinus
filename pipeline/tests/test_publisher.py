@@ -954,6 +954,10 @@ class RunLoopTests(unittest.TestCase):
         publisher.ADAPTERS["site"] = lambda cfg, item, dry: "https://wildcar.ru/all/x/"
         publisher.ADAPTERS["vk"] = lambda cfg, item, dry: (
             seen.setdefault("images", list(item.image_urls)), "https://vk.ru/wall-7_1")[1]
+        # a dry run records nothing, yet previews the links from the known page URL
+        rc = publisher.run(self.cfg, limit=10, dry_run=True, only=None)
+        self.assertEqual(rc, 0)
+        self.assertEqual(seen.pop("images"), ["https://wildcar.org/news/1/1.jpg"])
         rc = publisher.run(self.cfg, limit=10, dry_run=False, only=None)
         self.assertEqual(rc, 0)
         self.assertEqual(seen["images"], ["https://wildcar.org/news/1/1.jpg"])
