@@ -109,12 +109,20 @@ to time: merge duplicates, drop stale entries.
   is in line 1 only when the file has ≥2 lines, else it defaults to `wildcar`). The service
   user cannot read keeper's home, so the owner copies them into `/etc/posinus/pipeline.env`.
 - VK wall posting needs a classic `vk1.` USER token of a group admin (scope
-  photos,wall,groups). A community token fails (`wall.post` 214,
-  `photos.getWallUploadServer` 27); a VK ID `vk2.a.` token fails with 1051 — auth only, no API
-  methods. VK ID will not mint API tokens for new apps and the old endpoint rejects id.vk.ru
-  apps, so the working token comes from the grandfathered Kate Mobile app_id (`2685278`) via
-  the legacy implicit flow (non-expiring). Post with `owner_id=-<id>` plus `from_group=1`.
-  Full recipe: `pipeline/docs/services.md`, «VK: the token type matters».
+  photos,wall,groups). A community token cannot upload wall photos
+  (`photos.getWallUploadServer` 27 — confirmed again by VKCOM/vk-api-schema#242, April 2026,
+  with the photos right set); a VK ID `vk2.a.` token fails with 1051 — auth only, no API
+  methods. **The Kate Mobile route (app_id `2685278`, legacy implicit flow) died on
+  2026-09-08 ~11:00 UTC**: since 2026-09-07 VK meters API use per application and month
+  (100M calls for verified partners, paid access for third parties) and cut Kate Mobile off
+  the next day — every method under that app_id, `users.get` included, answers
+  `9 Flood control`. Not our load (≈50 calls a day), not the host (token-less calls pass
+  from the same IP), not the community. A token re-issued through the same app_id shares
+  the dead quota and will not help. The current method docs list `wall.post` and
+  `photos.getWallUploadServer` as user-token-only, with the `wall`/`photos` rights granted
+  «в исключительных случаях» by request to devsupport@corp.vk.com. What a given key can
+  still do: `pipeline/tools/vk_probe.py`. Post with `owner_id=-<id>` plus `from_group=1`.
+  Details: `pipeline/docs/services.md`, «VK: the token type matters».
 - Taking a published news page off wildcar.org (first done 2026-08-11, news 8949): flip its
   `publication` row to `status='removed'` (never delete rows), remove
   `/var/lib/posinus/wildcar-org/news/<id>/`, regenerate `index.md` and `rss.xml` with the

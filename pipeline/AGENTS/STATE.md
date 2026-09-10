@@ -12,6 +12,25 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- **VK is down since 2026-09-08 ~11:00 UTC: every call with the publisher's token answers
+  `9 Flood control`** — `users.get` included, so it is neither the photo-upload rate nor our
+  load (last success wall-233237778_418 at 10:01 UTC, first refusal 12:02 UTC, ~50 calls a
+  day) nor the host (token-less calls pass from the same IP) nor the community (public,
+  23 members). Cause is VK's: since 2026-09-07 API use is metered per application and
+  month (paid for third parties) and Kate Mobile — the app_id `2685278` our token was minted
+  under — was cut off on 2026-09-08 after its users burnt the quota in 1.5 days. Impact:
+  15 news posts (8–10 Sep) and the 9 and 10 Sep «Картина дня» went out on telegram,
+  wildcar.ru and wildcar.org only; every item still burns 8 VK attempts and notify alarmed
+  twice on 2026-09-10 (`platform:vk` 03:04 UTC, `daypic-platform:vk` 07:17 UTC). Not
+  fixable from this repo: a token re-issued under the same app_id shares the dead quota,
+  and the current docs list `wall.post`/`photos.getWallUploadServer` as user-token-only
+  with the rights granted only via devsupport@corp.vk.com. New `tools/vk_probe.py` reports
+  what a key can still do (postponed link post, deleted again). Owner's decision pending:
+  (a) blank `VK_ACCESS_TOKEN` in `/etc/posinus/pipeline.env` — stops the retries and alarms
+  now; (b) create a community key (Управление → Работа с API) and run the probe: if it can
+  `wall.post`, VK continues as link-card posts (code change: attach the wildcar.ru URL,
+  no photo upload — error 27 rules photos out); (c) ask devsupport for `wall`+`photos` on a
+  registered app; (d) drop VK. Publisher code unchanged.
 - **The 5 and 6 September issues of «Картина дня» were redrawn by hand on 2026-09-06 20:45–20:52 UTC**
   with the new `daypic.py --day` (LIVE at `e6e4bab`, run as the service user after the owner set
   `CODEX_IMAGE_MAIN_MODEL=gpt-5.5` and restarted the router at 20:30 UTC). Both went to all four

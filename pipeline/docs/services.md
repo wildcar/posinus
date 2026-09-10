@@ -266,8 +266,11 @@ each fails with its own error code — worth knowing so the code tells you which
 made:
 
 - **community** token (the one the community admin page hands you, so the easy wrong turn)
-  → `wall.post` error 214 and `photos.getWallUploadServer` error 27, both "method is
-  unavailable with group auth".
+  → `photos.getWallUploadServer` error 27 "method is unavailable with group auth" — no photo
+  upload, full stop (others confirm it in 2026 even with the photos right set,
+  VKCOM/vk-api-schema#242). `wall.post` answered 214 "Access to adding post denied" here in
+  July 2026; others report text and link posts passing with a community key that carries
+  the `wall` right, so that one is worth re-testing with the probe below.
 - **VK ID** token (string starts with `vk2.a.`, issued by the `id.vk.ru` OAuth 2.1 / PKCE
   flow — i.e. "Log in with VK") → error 1051 "method is unavailable with current profile
   type". It authenticates a person; it does not call VK API methods at all.
@@ -284,10 +287,33 @@ The token lands in the address bar after the redirect to `blank.html`. Put it in
 `VK_ACCESS_TOKEN` (with `VK_GROUP_ID`, the positive numeric id). It is broad-scoped and
 long-lived — treat it like a password, keep it only in the env file.
 
-If a user token is ever unavailable, switch VK to a link-card post (attach the wildcar.ru
-article URL, which works with a community token) or blank `VK_ACCESS_TOKEN` to disable VK.
-A failing VK does not hold up Telegram or the site — it is retried `PUB_MAX_ATTEMPTS` times
-and given up on.
+**Dead since 2026-09-08 ~11:00 UTC.** VK started metering API calls per application on
+2026-09-07 (a monthly quota, 100M for verified partners, paid access for third parties) and
+cut Kate Mobile off the next day: every method called with a token of app_id `2685278` —
+`users.get` included — answers `9 Flood control`, whatever the User-Agent, API host
+(`api.vk.ru`/`api.vk.com`) or version. Not our traffic (publisher and daypic together make
+~50 calls a day; the last successful post was wall-233237778_418 at 10:01 UTC, the first
+refusal 12:02 UTC, nothing unusual in between) and not the host: token-less
+`utils.getServerTime` passes from the same IP. A token re-issued through the same app_id
+shares the same exhausted quota. The current method docs list `wall.post` and
+`photos.getWallUploadServer` for user tokens only, with the `wall` and `photos` rights
+«выдаются в исключительных случаях» by request to devsupport@corp.vk.com.
+
+`tools/vk_probe.py` tells what a given key can still do: does the API answer at all, which
+rights the key carries, can it upload a wall photo, can it `wall.post` — tested with a
+POSTPONED post carrying a link attachment, deleted right after, so subscribers see nothing.
+Run it as any user; it asks for the key at a prompt (or takes `VK_PROBE_TOKEN`) and never
+prints it:
+
+    VK_GROUP_ID=233237778 python3 /opt/posinus/pipeline/tools/vk_probe.py
+
+If a user token is unavailable, the options are: a community key in link-card mode — attach
+the wildcar.ru article URL instead of uploading a photo (the card takes its picture from the
+page's `og:image`, which wildcar.ru pages carry; needs a code change in `publish_vk` and the
+daypic adapter) — or blank `VK_ACCESS_TOKEN` to disable VK. With VK disabled the items settle
+on the remaining platforms at once, without the 8 retries, and the `platform:vk` /
+`daypic-platform:vk` alarms stop. A failing VK does not hold up Telegram or the sites — it is
+retried `PUB_MAX_ATTEMPTS` times and given up on.
 
 ## daypic.py
 
