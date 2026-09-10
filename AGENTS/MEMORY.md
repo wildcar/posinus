@@ -120,9 +120,14 @@ to time: merge duplicates, drop stale entries.
   from the same IP), not the community. A token re-issued through the same app_id shares
   the dead quota and will not help. The current method docs list `wall.post` and
   `photos.getWallUploadServer` as user-token-only, with the `wall`/`photos` rights granted
-  «в исключительных случаях» by request to devsupport@corp.vk.com. What a given key can
-  still do: `pipeline/tools/vk_probe.py`. Post with `owner_id=-<id>` plus `from_group=1`.
-  Details: `pipeline/docs/services.md`, «VK: the token type matters».
+  «в исключительных случаях» by request to devsupport@corp.vk.com. The route that works
+  since 2026-09-10 is a COMMUNITY key (community settings → Работа с API; no app, no expiry)
+  with `VK_POST_MODE=link`: such a key carries the `wall` right (the docs page omits it),
+  posts text and a URL in the text (VK cards the first URL), but cannot upload photos (27),
+  attach a link (100 link_photo_sizing_rule) or `wall.delete` (27) — so any probe/test post
+  must be removed by hand in «Отложенные». What a given key can do: `pipeline/tools/vk_probe.py`.
+  Post with `owner_id=-<id>` plus `from_group=1`. Details: `pipeline/docs/services.md`,
+  «VK: the token type matters».
 - Taking a published news page off wildcar.org (first done 2026-08-11, news 8949): flip its
   `publication` row to `status='removed'` (never delete rows), remove
   `/var/lib/posinus/wildcar-org/news/<id>/`, regenerate `index.md` and `rss.xml` with the

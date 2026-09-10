@@ -12,25 +12,25 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
-- **VK is down since 2026-09-08 ~11:00 UTC: every call with the publisher's token answers
-  `9 Flood control`** — `users.get` included, so it is neither the photo-upload rate nor our
-  load (last success wall-233237778_418 at 10:01 UTC, first refusal 12:02 UTC, ~50 calls a
-  day) nor the host (token-less calls pass from the same IP) nor the community (public,
-  23 members). Cause is VK's: since 2026-09-07 API use is metered per application and
-  month (paid for third parties) and Kate Mobile — the app_id `2685278` our token was minted
-  under — was cut off on 2026-09-08 after its users burnt the quota in 1.5 days. Impact:
-  15 news posts (8–10 Sep) and the 9 and 10 Sep «Картина дня» went out on telegram,
-  wildcar.ru and wildcar.org only; every item still burns 8 VK attempts and notify alarmed
-  twice on 2026-09-10 (`platform:vk` 03:04 UTC, `daypic-platform:vk` 07:17 UTC). Not
-  fixable from this repo: a token re-issued under the same app_id shares the dead quota,
-  and the current docs list `wall.post`/`photos.getWallUploadServer` as user-token-only
-  with the rights granted only via devsupport@corp.vk.com. New `tools/vk_probe.py` reports
-  what a key can still do (postponed link post, deleted again). Owner's decision pending:
-  (a) blank `VK_ACCESS_TOKEN` in `/etc/posinus/pipeline.env` — stops the retries and alarms
-  now; (b) create a community key (Управление → Работа с API) and run the probe: if it can
-  `wall.post`, VK continues as link-card posts (code change: attach the wildcar.ru URL,
-  no photo upload — error 27 rules photos out); (c) ask devsupport for `wall`+`photos` on a
-  registered app; (d) drop VK. Publisher code unchanged.
+- **VK: the fix is LIVE at `e9cdf82` (plain `git pull` in /opt/posinus, 2026-09-10 09:35 UTC),
+  waiting for the owner's env edit.** Since 2026-09-08 ~11:00 UTC every call with the old
+  token answers `9 Flood control` — `users.get` included — because VK meters API use per
+  application since 2026-09-07 and cut Kate Mobile off, the app_id our user token was minted
+  under; not our load (~50 calls a day), not the host, not the community. 15 news posts
+  (8–10 Sep) and the 9 and 10 Sep «Картина дня» went out without VK. The owner made a
+  community key and probed it with the new `tools/vk_probe.py`: rights photos, docs,
+  messages, wall, manage, stories, market; `wall.post` from the group passes with text and
+  with a URL in the text, fails with `attachments=<url>` (100 link_photo_sizing_rule) and
+  with photo upload (27), and cannot `wall.delete` (27) — probe posts 420 and 421 sit in
+  «Отложенные» and must be removed by hand. Hence `VK_POST_MODE=link`: no upload, «На
+  сайте: <wildcar.ru page>» before the source line (the first URL gives VK its card, and
+  Эгея pages carry `og:image`; wildcar.org pages do not), page URL read from
+  `publication`/`daypic_publication` right before each send. Dry run on prod as the service
+  user: news 16056 → `mode=link, page=https://wildcar.ru/all/uchyonye-…/`. Owner's part:
+  `VK_ACCESS_TOKEN=<community key>` and `VK_POST_MODE=link` in `/etc/posinus/pipeline.env`
+  (the agent policy refuses that file), delete the two probe posts, then eyeball the first
+  live post: does the card carry the picture. Items still under 8 VK attempts retry in link
+  mode on the next 15-min run; the given-up ones stay as they are.
 - **The 5 and 6 September issues of «Картина дня» were redrawn by hand on 2026-09-06 20:45–20:52 UTC**
   with the new `daypic.py --day` (LIVE at `e6e4bab`, run as the service user after the owner set
   `CODEX_IMAGE_MAIN_MODEL=gpt-5.5` and restarted the router at 20:30 UTC). Both went to all four
