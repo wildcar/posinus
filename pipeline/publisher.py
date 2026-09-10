@@ -69,7 +69,9 @@ import os
 import re
 import shutil
 import sqlite3
+import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -201,6 +203,11 @@ class PublisherConfig:
     vk_group_id: str = ""
     vk_api_version: str = "5.199"
     vk_post_mode: str = "photo"
+    # Photo route for a COMMUNITY key: the wall upload server refuses it (27),
+    # the messages upload server bound to a dialog with this user accepts it,
+    # and wall.post takes the saved photo. Empty = the wall upload server
+    # (user token). The probe lists the community's dialogs.
+    vk_photo_peer_id: str = ""
     # Pacing: NEW items appear on the slot grid — fixed local times in
     # `window_tz`, one fresh item per slot. While the grid is set it replaces
     # both the interval and the window; empty or unparsable slots fall back to
@@ -245,6 +252,7 @@ class PublisherConfig:
         cfg.vk_group_id = env.get("VK_GROUP_ID", cfg.vk_group_id)
         cfg.vk_api_version = env.get("VK_API_VERSION", cfg.vk_api_version)
         cfg.vk_post_mode = (env.get("VK_POST_MODE", cfg.vk_post_mode) or "photo").strip().lower()
+        cfg.vk_photo_peer_id = env.get("VK_PHOTO_PEER_ID", cfg.vk_photo_peer_id).strip()
         if cfg.vk_post_mode not in VK_POST_MODES:
             raise ValueError(f"VK_POST_MODE must be one of {', '.join(VK_POST_MODES)}, got {cfg.vk_post_mode!r}")
         cfg.slots = env.get("PUB_SLOTS", cfg.slots).strip()
@@ -1142,28 +1150,68 @@ def vk_call(cfg: PublisherConfig, method: str, params: dict[str, Any]) -> Any:
     return payload.get("response")
 
 
-def vk_upload_photo(cfg: PublisherConfig, image_path: str) -> str:
-    """Upload a wall photo and return its attachment string (photo{owner}_{id}).
+def vk_jpeg_bytes(image_path: str) -> tuple[str, bytes]:
+    """The picture as JPEG: (file name, bytes).
 
-    Needs a user token of a group admin: photos.getWallUploadServer refuses a
-    community token with error 27."""
-    server = vk_call(cfg, "photos.getWallUploadServer", {"group_id": cfg.vk_group_id})
+    VK's photo upload servers answer a PNG with an empty `photo` (observed
+    2026-09-10, three of three; JPEGs pass) — the same silent refusal the
+    publisher had been logging as «upload server returned no photo» since
+    August. So anything that is not a JPEG is re-encoded through ffmpeg into a
+    temporary file; the media file itself stays as it is for the other
+    platforms. A failed re-encode is an error, not a fallback: uploading the
+    PNG would only fail later."""
+    path = Path(image_path)
+    data = path.read_bytes()
+    if data[:2] == b"\xff\xd8":
+        return path.name, data
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / (path.stem + ".jpg")
+        cmd = [preparer.FFMPEG, "-y", "-nostdin", "-loglevel", "error", "-i", str(path),
+               "-frames:v", "1", "-map_metadata", "-1", "-q:v", "3", str(target)]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, timeout=preparer.FFMPEG_TIMEOUT)
+        except (OSError, subprocess.SubprocessError) as exc:
+            stderr = getattr(exc, "stderr", None) or b""
+            raise PublishError(f"vk: cannot re-encode {path.name} to JPEG: {exc} "
+                               f"{stderr.decode(errors='replace').strip()}") from exc
+        if not target.exists() or target.stat().st_size == 0:
+            raise PublishError(f"vk: ffmpeg produced no JPEG for {path.name}")
+        log.info("vk: %s re-encoded to JPEG for upload (%d bytes)", path.name, target.stat().st_size)
+        return target.name, target.read_bytes()
+
+
+def vk_upload_photo(cfg: PublisherConfig, image_path: str) -> str:
+    """Upload a photo and return its attachment string (photo{owner}_{id}[_{key}]).
+
+    Two routes. The wall upload server (photos.getWallUploadServer +
+    saveWallPhoto) wants a user token of a group admin — a community key gets
+    error 27. The messages upload server (photos.getMessagesUploadServer with
+    the `peer_id` of a dialog the community has, + saveMessagesPhoto) takes a
+    community key, and wall.post accepts the saved photo, access key and all
+    (verified 2026-09-10, post 423). `vk_photo_peer_id` picks the route."""
+    name, image = vk_jpeg_bytes(image_path)
+    if cfg.vk_photo_peer_id:
+        server = vk_call(cfg, "photos.getMessagesUploadServer", {"peer_id": cfg.vk_photo_peer_id})
+        save_method, save_params = "photos.saveMessagesPhoto", {}
+    else:
+        server = vk_call(cfg, "photos.getWallUploadServer", {"group_id": cfg.vk_group_id})
+        save_method, save_params = "photos.saveWallPhoto", {"group_id": cfg.vk_group_id}
     upload_url = server.get("upload_url")
     if not upload_url:
-        raise PublishError("vk: no upload_url from getWallUploadServer")
-    image = Path(image_path).read_bytes()
-    content_type, body = encode_multipart(
-        {}, {"photo": (Path(image_path).name, image, guess_mime(image_path))}
-    )
+        raise PublishError("vk: no upload_url from the upload server")
+    content_type, body = encode_multipart({}, {"photo": (name, image, "image/jpeg")})
     uploaded = _post_json_result(upload_url, body, content_type, HTTP_TIMEOUT)
     if not uploaded.get("photo") or uploaded.get("photo") == "[]":
         raise PublishError(f"vk: upload server returned no photo: {uploaded}")
-    saved = vk_call(cfg, "photos.saveWallPhoto", {
-        "group_id": cfg.vk_group_id,
+    saved = vk_call(cfg, save_method, {
+        **save_params,
         "server": uploaded["server"], "photo": uploaded["photo"], "hash": uploaded["hash"],
     })
     photo = saved[0]
-    return f"photo{photo['owner_id']}_{photo['id']}"
+    attachment = f"photo{photo['owner_id']}_{photo['id']}"
+    if photo.get("access_key"):
+        attachment += f"_{photo['access_key']}"
+    return attachment
 
 
 def publish_vk(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
@@ -1184,8 +1232,9 @@ def publish_vk(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
         item.title, item.paragraphs, item.source_url, item.source_name, VK_FOOTER,
         page_url=item.page_url if link_mode else "")
     if dry_run:
-        log.info("news %s vk [dry-run]: mode=%s, image=%s, page=%s, %d chars", item.news_id,
-                 cfg.vk_post_mode, bool(item.lead_image) and not link_mode, item.page_url or "-", len(message))
+        route = "-" if link_mode or not item.lead_image else ("messages upload" if cfg.vk_photo_peer_id else "wall upload")
+        log.info("news %s vk [dry-run]: mode=%s, image=%s via %s, page=%s, %d chars", item.news_id,
+                 cfg.vk_post_mode, bool(item.lead_image) and not link_mode, route, item.page_url or "-", len(message))
         return "(dry-run)"
     attachment = "" if link_mode or not item.lead_image else vk_upload_photo(cfg, item.lead_image)
     response = vk_call(cfg, "wall.post", {

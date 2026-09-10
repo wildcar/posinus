@@ -277,6 +277,7 @@ class ConfigTests(unittest.TestCase):
     def test_vk_post_mode_from_env(self):
         self.assertEqual(PublisherConfig.from_env({}).vk_post_mode, "photo")
         self.assertEqual(PublisherConfig.from_env({"VK_POST_MODE": " Link "}).vk_post_mode, "link")
+        self.assertEqual(PublisherConfig.from_env({"VK_PHOTO_PEER_ID": " 39 "}).vk_photo_peer_id, "39")
         with self.assertRaises(ValueError):
             PublisherConfig.from_env({"VK_POST_MODE": "card"})
 
@@ -538,6 +539,61 @@ class VkPublishTests(unittest.TestCase):
                 out = publisher.publish_vk(cfg, self.make_item(f.name, "https://wildcar.ru/all/x/"), dry_run=False)
         self.assertEqual(out, "https://vk.ru/wall-7_9")
         self.assertEqual(calls, ["photos.getWallUploadServer", "x", "photos.saveWallPhoto", "wall.post"])
+
+    def test_community_key_route_uploads_through_a_dialog_and_keeps_the_access_key(self):
+        cfg = PublisherConfig(vk_token="tok", vk_group_id="7", vk_post_mode="photo", vk_photo_peer_id="39")
+        calls: list[str] = []
+        sent: dict[str, dict] = {}
+
+        def fake_post(url, data, content_type, timeout):
+            name = url.rsplit("/", 1)[-1]
+            calls.append(name)
+            if name != "x":
+                sent[name] = urllib.parse.parse_qs(data.decode("utf-8"), keep_blank_values=True)
+            if name == "photos.getMessagesUploadServer":
+                return {"response": {"upload_url": "https://up.test/x"}}
+            if name == "x":
+                return {"server": 1, "photo": "[{}]", "hash": "h"}
+            if name == "photos.saveMessagesPhoto":
+                return {"response": [{"owner_id": 39, "id": 457, "access_key": "k9"}]}
+            return {"response": {"post_id": 12}}
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg") as f:
+            f.write(b"\xff\xd8img")
+            f.flush()
+            with mock.patch.object(publisher, "_post_json_result", fake_post):
+                out = publisher.publish_vk(cfg, self.make_item(f.name), dry_run=False)
+        self.assertEqual(out, "https://vk.ru/wall-7_12")
+        self.assertEqual(calls, ["photos.getMessagesUploadServer", "x", "photos.saveMessagesPhoto", "wall.post"])
+        self.assertEqual(sent["photos.getMessagesUploadServer"]["peer_id"][0], "39")
+        self.assertEqual(sent["wall.post"]["attachments"][0], "photo39_457_k9")
+
+    def test_a_png_is_re_encoded_to_jpeg_before_upload(self):
+        # VK's upload servers answer a PNG with an empty photo; the media file
+        # itself must stay a PNG for the other platforms
+        def fake_ffmpeg(cmd, check, capture_output, timeout):
+            Path(cmd[-1]).write_bytes(b"\xff\xd8jpeg-from-png")
+
+        with tempfile.NamedTemporaryFile(suffix=".png") as f:
+            f.write(b"\x89PNG\r\n\x1a\nimg")
+            f.flush()
+            with mock.patch.object(publisher.subprocess, "run", fake_ffmpeg):
+                name, data = publisher.vk_jpeg_bytes(f.name)
+            self.assertEqual(Path(f.name).read_bytes()[:4], b"\x89PNG")
+        self.assertTrue(name.endswith(".jpg"))
+        self.assertEqual(data, b"\xff\xd8jpeg-from-png")
+
+    def test_a_jpeg_goes_up_untouched_and_a_failed_re_encode_is_an_error(self):
+        with tempfile.NamedTemporaryFile(suffix=".jpeg") as f:
+            f.write(b"\xff\xd8as-is")
+            f.flush()
+            self.assertEqual(publisher.vk_jpeg_bytes(f.name), (Path(f.name).name, b"\xff\xd8as-is"))
+        with tempfile.NamedTemporaryFile(suffix=".png") as f:
+            f.write(b"\x89PNG\r\n\x1a\nimg")
+            f.flush()
+            with mock.patch.object(publisher.subprocess, "run", side_effect=OSError("no ffmpeg")):
+                with self.assertRaises(PublishError):
+                    publisher.vk_jpeg_bytes(f.name)
 
     def test_link_mode_posts_text_only_with_our_page_first(self):
         cfg = PublisherConfig(vk_token="tok", vk_group_id="7", vk_post_mode="link")

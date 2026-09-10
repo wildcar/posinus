@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-09-10 · VK: фото с ключа сообщества через сервер сообщений
+- What: в режиме `photo` при заданном `VK_PHOTO_PEER_ID` (id пользователя, с которым у сообщества есть диалог) фото грузится через `photos.getMessagesUploadServer` и `photos.saveMessagesPhoto`, `wall.post` принимает его с access_key. Перед загрузкой не-JPEG перекодируется ffmpeg во временный JPEG: сервер загрузки VK отвечает на PNG пустым `photo`. Проба печатает диалоги сообщества. 3 теста, 337 всего.
+- Why: карточка по ссылке у ключа сообщества выходит без картинки, `wall.parseAttachedLink` ему недоступен (27), og:image записи 422 оказался заглушкой VK. Обход найден опытом: отложенная запись 423 с фото прошла. Пустой `photo` на PNG объясняет и августовские «upload server returned no photo».
+- Files: pipeline/publisher.py, pipeline/tools/vk_probe.py, pipeline/tests/test_publisher.py, pipeline/AGENTS/SPEC.md, pipeline/docs/services.md, pipeline/deploy/pipeline.env.example
+- Next: живой пост с фото от сервисного пользователя с переопределением env; владелец ставит `VK_POST_MODE=photo` и `VK_PHOTO_PEER_ID=39619889`, удаляет отложенные 420, 421, 423.
+
 ## 2026-09-10 · VK: режим поста-ссылки для ключа сообщества
 - What: `VK_POST_MODE=link` в публикаторе: без загрузки фото, в тексте перед источником строка «На сайте: <адрес>» со страницей новости на wildcar.ru (запасной вариант wildcar.org), VK рисует карточку по первой ссылке в тексте. Адрес читается из `publication` и `daypic_publication` перед каждой отправкой, сайт в порядке площадок идёт раньше VK. Проба `tools/vk_probe.py` предупреждает, что ключ сообщества не удаляет отложенные записи. 7 тестов, 334 всего.
 - Why: ключ сообщества по пробе владельца умеет `wall.post` (право wall у него есть), фото не грузит (27), ссылку вложением не принимает (100 link_photo_sizing_rule), ссылку в тексте принимает. Другого ключа после отключения Kate Mobile нет.

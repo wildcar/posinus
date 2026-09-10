@@ -92,6 +92,15 @@ def main() -> int:
         names = ",".join(p.get("name", "?") for p in resp.get("permissions", []))
         print(f"[2] getTokenPermissions -> mask {resp.get('mask')}: {names}")
 
+    resp, err = call(token, "messages.getConversations", count=5)
+    if err:
+        print(f"[2b] messages.getConversations -> {err}")
+    else:
+        peers = [str(i["conversation"]["peer"]["id"]) for i in resp.get("items", [])
+                 if i["conversation"]["peer"].get("type") == "user"]
+        print(f"[2b] dialogs with users: {', '.join(peers) or 'none'} "
+              f"(a community key needs one of them as VK_PHOTO_PEER_ID to upload photos)")
+
     resp, err = call(token, "photos.getWallUploadServer", group_id=group_id)
     if err:
         print(f"[3] photos.getWallUploadServer -> ERROR {err}")
