@@ -618,6 +618,70 @@ class VkPublishTests(unittest.TestCase):
         self.assertEqual(out, "https://vk.ru/wall-7_11")
 
 
+class VkStoryTests(unittest.TestCase):
+    """publish_vk_story against a fake HTTP layer: upload server with the link
+    button, the file upload, stories.save."""
+
+    def make_item(self, image_path, page_url=""):
+        return PreparedNews(
+            news_id=42, title="Картина дня · 10 сентября 2026", paragraphs=["Сегодня день дружбы."],
+            lead_image=image_path, source_url="", source_name="",
+            images=[(image_path, "")] if image_path else [], page_url=page_url,
+        )
+
+    def _fake(self, calls, sent):
+        def fake_post(url, data, content_type, timeout):
+            name = url.rsplit("/", 1)[-1]
+            calls.append(name)
+            if name == "stories.getPhotoUploadServer":
+                sent["server"] = urllib.parse.parse_qs(data.decode("utf-8"))
+                return {"response": {"upload_url": "https://up.test/s"}}
+            if name == "s":
+                sent["upload"] = data
+                return {"response": {"upload_result": "go_upload:abc"}}
+            sent["save"] = urllib.parse.parse_qs(data.decode("utf-8"))
+            return {"response": {"count": 1, "items": [{"owner_id": -7, "id": 456}]}}
+        return fake_post
+
+    def test_story_carries_the_picture_and_a_button_to_our_page(self):
+        cfg = PublisherConfig(vk_token="tok", vk_group_id="7")
+        calls: list[str] = []
+        sent: dict = {}
+        with tempfile.NamedTemporaryFile(suffix=".jpg") as f:
+            f.write(b"\xff\xd8img")
+            f.flush()
+            with mock.patch.object(publisher, "_post_json_result", self._fake(calls, sent)):
+                out = publisher.publish_vk_story(cfg, self.make_item(f.name, "https://wildcar.ru/all/k/"), dry_run=False)
+        self.assertEqual(out, "https://vk.com/story-7_456")
+        self.assertEqual(calls, ["stories.getPhotoUploadServer", "s", "stories.save"])
+        self.assertEqual(sent["server"]["group_id"][0], "7")
+        self.assertEqual(sent["server"]["add_to_news"][0], "1")
+        self.assertEqual(sent["server"]["link_url"][0], "https://wildcar.ru/all/k/")
+        self.assertEqual(sent["server"]["link_text"][0], "more")
+        self.assertIn(b"\xff\xd8img", sent["upload"])
+        self.assertEqual(sent["save"]["upload_results"][0], "go_upload:abc")
+
+    def test_story_without_a_page_has_no_button(self):
+        cfg = PublisherConfig(vk_token="tok", vk_group_id="7")
+        sent: dict = {}
+        with tempfile.NamedTemporaryFile(suffix=".jpg") as f:
+            f.write(b"\xff\xd8img")
+            f.flush()
+            with mock.patch.object(publisher, "_post_json_result", self._fake([], sent)):
+                publisher.publish_vk_story(cfg, self.make_item(f.name), dry_run=False)
+        self.assertNotIn("link_url", sent["server"])
+
+    def test_story_needs_a_picture(self):
+        cfg = PublisherConfig(vk_token="tok", vk_group_id="7")
+        with self.assertRaises(PublishError):
+            publisher.publish_vk_story(cfg, self.make_item(None), dry_run=False)
+
+    def test_the_news_publisher_never_lists_the_story_platform(self):
+        cfg = PublisherConfig(tg_token="t", vk_token="v", vk_group_id="7")
+        self.assertNotIn("vk_story", cfg.enabled_platforms())
+        self.assertIn("vk_story", publisher.ADAPTERS)
+
+
 class SitePublishTests(unittest.TestCase):
     """publish_site against a fake Эгея session: every picture is uploaded and
     the note carries the merged tags, mirroring the wildcar.org page."""

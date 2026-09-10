@@ -212,6 +212,10 @@ class DaypicConfig:
     image_size_wide: str = "1536x1024"   # horizontal: the sites and VK
     site_tags: str = "картина дня"
     wildcar_section: str = "kartina"     # the daily-picture section of wildcar.org
+    # Also publish the vertical picture as a VK community story (24 hours, a
+    # «Подробнее» button to the wildcar.ru page) whenever VK is enabled. The
+    # wall post stays text with a community key, the story carries the picture.
+    vk_story: bool = True
 
     @classmethod
     def from_env(cls, env: dict[str, str] = os.environ) -> "DaypicConfig":
@@ -228,6 +232,7 @@ class DaypicConfig:
         cfg.image_size_wide = env.get("DAYPIC_IMAGE_SIZE_WIDE", cfg.image_size_wide)
         cfg.site_tags = env.get("DAYPIC_SITE_TAGS", cfg.site_tags)
         cfg.wildcar_section = env.get("DAYPIC_WILDCAR_SECTION", cfg.wildcar_section).strip("/")
+        cfg.vk_story = env.get("DAYPIC_VK_STORY", "1").strip().lower() not in ("0", "false", "no", "off", "")
         return cfg
 
 
@@ -863,8 +868,8 @@ def publish_item(
 ) -> bool:
     """Send one issue to every platform still pending; True when it settled.
 
-    Telegram takes the vertical picture, everything else the horizontal one
-    (falling back to the vertical when it is missing). Same shape as the news
+    Telegram and the VK story take the vertical picture, everything else the
+    horizontal one (falling back to the vertical when it is missing). Same shape as the news
     publisher: a platform already 'ok' is skipped, a failing one retries up to
     max_attempts, and the issue finalizes best-effort with whatever platforms
     succeeded, so a broken platform cannot hold the picture of every following
@@ -882,7 +887,7 @@ def publish_item(
     paragraphs = [item_row["caption"]] if item_row["caption"] else []
 
     def item_for(platform: str) -> "publisher.PreparedNews":
-        image = vertical if platform == "telegram" else wide
+        image = vertical if platform in ("telegram", "vk_story") else wide
         return publisher.PreparedNews(
             news_id=item_id, title=title, paragraphs=list(paragraphs),
             lead_image=image, source_url="", source_name="", images=[(image, "")],
@@ -934,6 +939,8 @@ def run(cfg: DaypicConfig, router_cfg: "evaluator.Config", dry_run: bool,
     pub_cfg = publisher.PublisherConfig.from_env()
     pub_cfg.site_tags = cfg.site_tags
     platforms = pub_cfg.enabled_platforms()
+    if cfg.vk_story and "vk" in platforms:
+        platforms.append("vk_story")   # after the sites: the story links the wildcar.ru page
 
     if not dry_run and consume_run_request(pub_cfg.requests_dir):
         ignore_time = True

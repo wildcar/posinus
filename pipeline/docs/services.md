@@ -366,11 +366,16 @@ and given up on.
 JSON reply — an image prompt built from the current date and a random style, plus a
 short Russian description of the day's holidays — draws the picture TWICE from that
 prompt (`generate_image`, default `codex-oauth`: vertical `1024x1536` for telegram,
-horizontal `1536x1024` for the sites and VK) and posts it to all four platforms:
+horizontal `1536x1024` for the sites and VK) and posts it to all five platforms:
 wildcar.org (its own section, `DAYPIC_WILDCAR_SECTION`, default `kartina` — the build
 script syncs it alongside news), telegram, the Эгея site (its own tags,
-`DAYPIC_SITE_TAGS`) and VK, reusing the publisher's adapters and secrets. Every post
-carries «<title слота> · <дата по-русски>» plus the description.
+`DAYPIC_SITE_TAGS`), the VK wall and — since 2026-09-10 — a VK community story (`vk_story`,
+`DAYPIC_VK_STORY=1` by default, on whenever VK is): the vertical picture full-screen for 24
+hours with a «Подробнее» button to the wildcar.ru page, through `stories.getPhotoUploadServer`
++ `stories.save`, which a community key may call. That is where the picture lives on VK while
+the wall post is text (see «VK: the token type matters»). The adapters and secrets are the
+publisher's; `vk_story` is daypic-only, the news publisher never lists it. Every post carries
+«<title слота> · <дата по-русски>» plus the description.
 
 The slots (prompt, system prompt, style list, caption, local generation time, model
 hints, the two sizes) live in the CRAWLER database — `exchange_daypic_slot`, edited on

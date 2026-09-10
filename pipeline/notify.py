@@ -67,7 +67,7 @@ DAYPIC_MAX_ATTEMPTS = int(os.environ.get("DAYPIC_MAX_ATTEMPTS", "4") or 4)
 DAYPIC_FRESH_DAYS = 1
 
 PLATFORM_TITLES = {
-    "telegram": "Telegram", "site": "wildcar.ru", "vk": "ВКонтакте", "wildcar_org": "wildcar.org",
+    "telegram": "Telegram", "site": "wildcar.ru", "vk": "ВКонтакте", "wildcar_org": "wildcar.org", "vk_story": "История ВКонтакте",
 }
 
 SCHEMA_SQL = """

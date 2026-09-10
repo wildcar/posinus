@@ -533,6 +533,30 @@ class RunTests(unittest.TestCase):
         self._run(adapters={"telegram": mock.Mock(return_value="u"), "site": site, "vk": vk})
         self.assertEqual(vk.call_args.args[1].page_url, "https://wildcar.ru/all/kartina/")
 
+    def test_the_vk_story_takes_the_vertical_picture_and_links_the_site_page(self):
+        site = mock.Mock(return_value="https://wildcar.ru/all/kartina/")
+        vk = mock.Mock(return_value="https://vk.ru/wall-1_2")
+        story = mock.Mock(return_value="https://vk.com/story-1_3")
+        self.pub_cfg.site_password = "pw"
+        self.pub_cfg.vk_token, self.pub_cfg.vk_group_id = "vk-token", "1"
+        self._run(adapters={"telegram": mock.Mock(return_value="u"), "site": site, "vk": vk, "vk_story": story})
+        items = self._rows("SELECT * FROM daypic_item")
+        sent = story.call_args.args[1]
+        self.assertEqual(sent.lead_image, items[0]["file_path"])            # vertical
+        self.assertEqual(sent.page_url, "https://wildcar.ru/all/kartina/")  # the button
+        pubs = {p["platform"]: p for p in self._rows("SELECT * FROM daypic_publication")}
+        self.assertEqual(pubs["vk_story"]["status"], "ok")
+        self.assertEqual(pubs["vk_story"]["url"], "https://vk.com/story-1_3")
+        self.assertEqual(items[0]["status"], "published")
+
+    def test_the_vk_story_follows_vk_and_can_be_switched_off(self):
+        story = mock.Mock(return_value="https://vk.com/story-1_3")
+        # no VK at all: no story either
+        self._run(adapters={"telegram": mock.Mock(return_value="u"), "vk_story": story})
+        story.assert_not_called()
+        self.assertEqual(daypic.DaypicConfig.from_env({"DAYPIC_VK_STORY": "0"}).vk_story, False)
+        self.assertEqual(daypic.DaypicConfig.from_env({}).vk_story, True)
+
     def test_the_second_run_of_the_day_does_nothing(self):
         self._run()
         code, counters = self._run()

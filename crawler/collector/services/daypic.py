@@ -19,7 +19,7 @@ from collector.services.pipeline_db import PipelineUnavailable, fetch_all
 
 PLATFORM_TITLES = {
     "telegram": "Telegram", "site": "wildcar.ru", "vk": "ВКонтакте",
-    "wildcar_org": "wildcar.org",
+    "wildcar_org": "wildcar.org", "vk_story": "История ВКонтакте",
 }
 
 # `SELECT *` on purpose, same as the news card: the pipeline owns this schema

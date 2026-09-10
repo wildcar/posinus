@@ -1236,6 +1236,42 @@ def publish_vk(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
     return f"https://vk.ru/wall-{cfg.vk_group_id}_{post_id}"
 
 
+def publish_vk_story(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
+    """A community story: the (vertical) picture full-screen for a day, with a
+    «Подробнее» button leading to our page when there is one.
+
+    The picture-of-the-day's answer to a community key that cannot put a photo
+    on the wall (2026-09-10): stories.getPhotoUploadServer takes such a key, and
+    VK allowed the link button for this community. Not for news — a story holds
+    one vertical picture and next to no text, and is gone after 24 hours.
+    Used by daypic only; the news publisher never lists this platform."""
+    if not item.lead_image:
+        raise PublishError("vk_story: no picture to publish")
+    params: dict[str, Any] = {"add_to_news": 1, "group_id": cfg.vk_group_id}
+    if item.page_url:
+        params.update(link_url=item.page_url, link_text="more")
+    if dry_run:
+        log.info("news %s vk_story [dry-run]: image=%s, link=%s", item.news_id,
+                 Path(item.lead_image).name, item.page_url or "-")
+        return "(dry-run)"
+    server = vk_call(cfg, "stories.getPhotoUploadServer", params)
+    upload_url = server.get("upload_url")
+    if not upload_url:
+        raise PublishError("vk_story: no upload_url from stories.getPhotoUploadServer")
+    name, image = vk_jpeg_bytes(item.lead_image)
+    content_type, body = encode_multipart({}, {"file": (name, image, "image/jpeg")})
+    uploaded = _post_json_result(upload_url, body, content_type, HTTP_TIMEOUT)
+    result = (uploaded.get("response") or {}).get("upload_result") if isinstance(uploaded, dict) else None
+    if not result:
+        raise PublishError(f"vk_story: upload server returned no upload_result: {uploaded}")
+    saved = vk_call(cfg, "stories.save", {"upload_results": result})
+    stories = saved.get("items") or []
+    if not stories:
+        raise PublishError(f"vk_story: stories.save returned no story: {saved}")
+    story = stories[0]
+    return f"https://vk.com/story{story['owner_id']}_{story['id']}"
+
+
 # --------------------------------------------------------------- platform: site
 
 
@@ -1331,6 +1367,7 @@ ADAPTERS: dict[str, Callable[[PublisherConfig, PreparedNews, bool], str]] = {
     "telegram": publish_telegram,
     "site": publish_site,
     "vk": publish_vk,
+    "vk_story": publish_vk_story,   # daypic only, see publish_vk_story
 }
 
 

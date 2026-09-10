@@ -130,7 +130,9 @@ to time: merge duplicates, drop stale entries.
   too; docs 15. Judge a post's picture by its page `og:image` (VK's «Пост из ленты»
   placeholder = no photo). The key cannot `wall.delete` (27): probe posts are removed by
   hand in «Отложенные». VK's photo upload servers silently drop PNGs (empty `photo`, 3 of 3
-  on 2026-09-10) — the adapter re-encodes to JPEG first, for the day a user token is back. What a given key can do: `pipeline/tools/vk_probe.py`.
+  on 2026-09-10) — the adapter re-encodes to JPEG first, for the day a user token is back.
+  What a community key CAN do with a picture: `stories.getPhotoUploadServer` + `stories.save`,
+  link button allowed — hence the daypic `vk_story` platform (owner's choice, 2026-09-10). What a given key can do: `pipeline/tools/vk_probe.py`.
   Post with `owner_id=-<id>` plus `from_group=1`. Details: `pipeline/docs/services.md`,
   «VK: the token type matters».
 - Taking a published news page off wildcar.org (first done 2026-08-11, news 8949): flip its

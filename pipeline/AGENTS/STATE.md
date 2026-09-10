@@ -30,7 +30,12 @@ a publish-ready retelling, and posts them to the platforms.
   live as text; the owner deleted the postponed probes. 15 news posts (8–10 Sep) and the
   9/10 Sep «Картина дня» stay without VK. Pictures come back only with a user token carrying
   `wall`+`photos`: owner's call whether to ask devsupport@corp.vk.com for a Standalone VK ID
-  app, or live with text posts.
+  app, or live with text posts. **Meanwhile the picture of the day reaches VK as a community
+  STORY** (owner's call after the trial story-233237778_456239022, 2026-09-10 ~10:25 UTC):
+  new daypic platform `vk_story` (`DAYPIC_VK_STORY=1` by default when VK is on) — the
+  vertical picture for 24 hours with a «Подробнее» button to the wildcar.ru page; code LIVE
+  via plain `git pull`, first automatic story with the 2026-09-11 08:00 MSK issue (today's
+  issue is settled and gets none). News stay text on VK.
 - **The 5 and 6 September issues of «Картина дня» were redrawn by hand on 2026-09-06 20:45–20:52 UTC**
   with the new `daypic.py --day` (LIVE at `e6e4bab`, run as the service user after the owner set
   `CODEX_IMAGE_MAIN_MODEL=gpt-5.5` and restarted the router at 20:30 UTC). Both went to all four
