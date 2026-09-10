@@ -100,7 +100,10 @@ def main() -> int:
         print("[3] photos.getWallUploadServer -> ok (photo posts possible)")
         verdict["photo_upload"] = "yes"
 
-    publish_date = int(time.time()) + 2 * 24 * 3600
+    publish_date = int(time.time()) + 7 * 24 * 3600
+    print("[4] wall.post: postponed probe posts a week ahead. A community key cannot wall.delete "
+          "(error 27), so with one they stay in «Отложенные» until removed by hand: "
+          f"https://vk.ru/wall-{group_id}?section=postponed")
 
     def try_post(label: str, **params: object) -> bool:
         resp, err = call(token, "wall.post", owner_id=f"-{group_id}", from_group=1,

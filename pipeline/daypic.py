@@ -656,6 +656,14 @@ def publication_state(con: sqlite3.Connection, item_id: int) -> dict[str, tuple[
                 (item_id,))}
 
 
+def published_urls(con: sqlite3.Connection, item_id: int) -> dict[str, str]:
+    """Platform -> URL of the sends of one issue that went through."""
+    return {row["platform"]: row["url"]
+            for row in con.execute(
+                "SELECT platform, url FROM daypic_publication WHERE item_id = ? AND status = 'ok' "
+                "AND url IS NOT NULL", (item_id,))}
+
+
 def finalize(con: sqlite3.Connection, item_id: int) -> None:
     def action() -> None:
         con.execute(
@@ -878,6 +886,8 @@ def publish_item(
         return publisher.PreparedNews(
             news_id=item_id, title=title, paragraphs=list(paragraphs),
             lead_image=image, source_url="", source_name="", images=[(image, "")],
+            # the wildcar.ru page posted earlier in this very loop, for VK's link card
+            page_url=publisher.page_url_for(published_urls(con, item_id)),
         )
 
     state = publication_state(con, item_id)

@@ -523,6 +523,16 @@ class RunTests(unittest.TestCase):
         items = self._rows("SELECT * FROM daypic_item")
         self.assertEqual(vk.call_args.args[1].lead_image, items[0]["file_path_wide"])
 
+    def test_vk_gets_the_wildcar_ru_page_for_its_link_card(self):
+        # site runs before vk inside one loop, and vk's link mode links the
+        # page site has just made (Эгея gives it an og:image, VK a card)
+        site = mock.Mock(return_value="https://wildcar.ru/all/kartina/")
+        vk = mock.Mock(return_value="https://vk.ru/wall-1_2")
+        self.pub_cfg.site_password = "pw"
+        self.pub_cfg.vk_token, self.pub_cfg.vk_group_id = "vk-token", "1"
+        self._run(adapters={"telegram": mock.Mock(return_value="u"), "site": site, "vk": vk})
+        self.assertEqual(vk.call_args.args[1].page_url, "https://wildcar.ru/all/kartina/")
+
     def test_the_second_run_of_the_day_does_nothing(self):
         self._run()
         code, counters = self._run()

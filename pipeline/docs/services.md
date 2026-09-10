@@ -148,7 +148,7 @@ timer runs harmlessly until at least one is configured):
 | `wildcar_org` | writes the page (tags in its YAML front matter, rendered by the Material tags plugin) + pictures into the content dir, regenerates the section index and the Dzen RSS feed, touches the rebuild marker, waits until the page is live (see below) | `WILDCAR_ORG_BASE_URL`; `WILDCAR_ORG_CONTENT_DIR`, `WILDCAR_ORG_SECTION`, `WILDCAR_ORG_WAIT_SECONDS` |
 | `telegram` | `sendPhoto` + HTML caption to @posinus, capped at `TG_TEXT_LIMIT` (1500 — the Дзен autopublisher drops longer posts) and Telegram's own 1024 for photo captions, both counted on the VISIBLE text; a truncated caption links to the full text on wildcar.org | `TELEGRAM_BOT_TOKEN`; `TELEGRAM_CHAT_ID` (default `-1003795927410`), `TELEGRAM_CHANNEL_USERNAME`, `TG_TEXT_LIMIT` |
 | `site` | wildcar.ru on Эгея: login → upload of EVERY picture → `note-process` → `note-publish` → verify. The note mirrors the wildcar.org page (lead picture, text, the rest with captions on the line under the picture); the tags field carries the item's tags, prefixed by `EGEYA_TAGS` when set (empty by default) | `EGEYA_PASSWORD` (login `EGEYA_LOGIN`, default `wildcar`); `EGEYA_BASE_URL`, `EGEYA_TAGS` |
-| `vk` | community wall: photo upload + `wall.post` from the group | `VK_ACCESS_TOKEN` **and** `VK_GROUP_ID`; `VK_API_VERSION` |
+| `vk` | community wall: `wall.post` from the group, with a photo upload (`photo`) or a link card (`link`) | `VK_ACCESS_TOKEN` **and** `VK_GROUP_ID`; `VK_API_VERSION`; `VK_POST_MODE` |
 
 `wildcar_org` runs first in the platform order on purpose: a truncated telegram caption
 links to the full text there, so within one run the page should already be live.
@@ -311,13 +311,32 @@ prints it:
 
     VK_GROUP_ID=233237778 python3 /opt/posinus/pipeline/tools/vk_probe.py
 
-If a user token is unavailable, the options are: a community key in link-card mode — attach
-the wildcar.ru article URL instead of uploading a photo (the card takes its picture from the
-page's `og:image`, which wildcar.ru pages carry; needs a code change in `publish_vk` and the
-daypic adapter) — or blank `VK_ACCESS_TOKEN` to disable VK. With VK disabled the items settle
-on the remaining platforms at once, without the 8 retries, and the `platform:vk` /
-`daypic-platform:vk` alarms stop. A failing VK does not hold up Telegram or the sites — it is
-retried `PUB_MAX_ATTEMPTS` times and given up on.
+**The working recipe since 2026-09-10: a community key in link mode.** Create the key in the
+community: Управление → Дополнительно → Работа с API → Ключи доступа → Создать ключ, tick
+«фотографии» and «управление сообществом», confirm in the app or by SMS. Probed on
+2026-09-10, such a key carries photos, docs, messages, wall, manage, stories, market and:
+
+- `wall.post` from the group passes with plain text and with a URL inside the text (VK
+  builds the card from the first URL; wildcar.ru pages carry `og:image`, wildcar.org pages
+  do not);
+- `wall.post` with `attachments=<url>` fails with 100 «link_photo_sizing_rule. No photo
+  given» even for a page with a large `og:image` — the attachment form wants a photo id the
+  key cannot obtain;
+- `photos.getWallUploadServer` fails with 27, so no photo posts;
+- `wall.delete` fails with 27 too: whatever the probe posts stays in «Отложенные» until an
+  admin removes it by hand.
+
+Put the key in `VK_ACCESS_TOKEN`, set `VK_POST_MODE=link`, keep `VK_GROUP_ID`. The publisher
+then uploads nothing and writes «На сайте: <wildcar.ru page>» before the source line; the
+page URL comes from its own `publication` (`daypic_publication` for the picture of the day),
+read right before each send — the site goes before VK in the platform order, so the page is
+already there. Without any page of ours the post still goes out, with a warning, and VK
+cards the source instead.
+
+Or blank `VK_ACCESS_TOKEN` to disable VK: the items settle on the remaining platforms at
+once, without the 8 retries, and the `platform:vk` / `daypic-platform:vk` alarms stop. A
+failing VK does not hold up Telegram or the sites — it is retried `PUB_MAX_ATTEMPTS` times
+and given up on.
 
 ## daypic.py
 

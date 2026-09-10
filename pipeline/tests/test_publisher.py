@@ -168,6 +168,15 @@ class VkAndSiteTextTests(unittest.TestCase):
         self.assertTrue(msg.endswith("Источник: https://s.test/a\n\n" + publisher.VK_FOOTER))
         self.assertIn("Подпишитесь на сообщество.", publisher.VK_FOOTER)
 
+    def test_vk_message_puts_our_page_before_the_source(self):
+        # VK draws the link card from the FIRST url in the text, so in link
+        # mode our page, not the source, has to come first to give the picture
+        msg = build_vk_message("Т", ["a"], "https://s.test/a", "s.test", publisher.VK_FOOTER,
+                               page_url="https://wildcar.ru/all/x/")
+        self.assertIn("На сайте: https://wildcar.ru/all/x/", msg)
+        self.assertLess(msg.index("https://wildcar.ru/all/x/"), msg.index("https://s.test/a"))
+        self.assertNotIn("На сайте", build_vk_message("Т", ["a"], "https://s.test/a", "s.test"))
+
     def test_site_footer_links_the_telegram_channel(self):
         footer = publisher.site_footer(PublisherConfig())
         text = build_site_text([], ["a"], "https://s.test/a", "s.test", footer)
@@ -264,6 +273,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg.enabled_platforms(), ["telegram", "site", "vk"])
         # VK needs both token and group id
         self.assertEqual(PublisherConfig(vk_token="v").enabled_platforms(), [])
+
+    def test_vk_post_mode_from_env(self):
+        self.assertEqual(PublisherConfig.from_env({}).vk_post_mode, "photo")
+        self.assertEqual(PublisherConfig.from_env({"VK_POST_MODE": " Link "}).vk_post_mode, "link")
+        with self.assertRaises(ValueError):
+            PublisherConfig.from_env({"VK_POST_MODE": "card"})
 
     def test_wildcar_org_goes_first(self):
         # telegram takes its picture link from wildcar.org, so the page must
@@ -488,6 +503,78 @@ class TelegramSendTests(unittest.TestCase):
         self.assertTrue(text.endswith(publisher.TG_FOOTER))
 
 
+class VkPublishTests(unittest.TestCase):
+    """publish_vk against a fake HTTP layer: the photo mode uploads the lead
+    picture, the link mode posts text only and leans on our page for the card."""
+
+    def make_item(self, image_path, page_url=""):
+        return PreparedNews(
+            news_id=7169, title="Т", paragraphs=["Абзац."], lead_image=image_path,
+            source_url="https://s.test/a", source_name="s.test",
+            images=[(image_path, "")] if image_path else [], page_url=page_url,
+        )
+
+    def test_photo_mode_uploads_then_posts(self):
+        cfg = PublisherConfig(vk_token="tok", vk_group_id="7", vk_post_mode="photo")
+        calls: list[str] = []
+
+        def fake_post(url, data, content_type, timeout):
+            calls.append(url.rsplit("/", 1)[-1])
+            if url.endswith("photos.getWallUploadServer"):
+                return {"response": {"upload_url": "https://up.test/x"}}
+            if url == "https://up.test/x":
+                return {"server": 1, "photo": "[{}]", "hash": "h"}
+            if url.endswith("photos.saveWallPhoto"):
+                return {"response": [{"owner_id": -7, "id": 55}]}
+            fields = urllib.parse.parse_qs(data.decode("utf-8"))
+            self.assertEqual(fields["attachments"][0], "photo-7_55")
+            self.assertEqual(fields["owner_id"][0], "-7")
+            return {"response": {"post_id": 9}}
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg") as f:
+            f.write(b"\xff\xd8img")
+            f.flush()
+            with mock.patch.object(publisher, "_post_json_result", fake_post):
+                out = publisher.publish_vk(cfg, self.make_item(f.name, "https://wildcar.ru/all/x/"), dry_run=False)
+        self.assertEqual(out, "https://vk.ru/wall-7_9")
+        self.assertEqual(calls, ["photos.getWallUploadServer", "x", "photos.saveWallPhoto", "wall.post"])
+
+    def test_link_mode_posts_text_only_with_our_page_first(self):
+        cfg = PublisherConfig(vk_token="tok", vk_group_id="7", vk_post_mode="link")
+        sent = {}
+
+        def fake_post(url, data, content_type, timeout):
+            self.assertTrue(url.endswith("wall.post"), url)  # no upload calls at all
+            sent["fields"] = urllib.parse.parse_qs(data.decode("utf-8"), keep_blank_values=True)
+            return {"response": {"post_id": 10}}
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg") as f:
+            f.write(b"\xff\xd8img")
+            f.flush()
+            with mock.patch.object(publisher, "_post_json_result", fake_post):
+                out = publisher.publish_vk(cfg, self.make_item(f.name, "https://wildcar.ru/all/x/"), dry_run=False)
+        self.assertEqual(out, "https://vk.ru/wall-7_10")
+        fields = sent["fields"]
+        self.assertEqual(fields["attachments"][0], "")
+        self.assertEqual(fields["from_group"][0], "1")
+        message = fields["message"][0]
+        self.assertLess(message.index("https://wildcar.ru/all/x/"), message.index("https://s.test/a"))
+
+    def test_link_mode_without_a_page_still_posts_and_warns(self):
+        cfg = PublisherConfig(vk_token="tok", vk_group_id="7", vk_post_mode="link")
+
+        def fake_post(url, data, content_type, timeout):
+            self.assertTrue(url.endswith("wall.post"), url)
+            fields = urllib.parse.parse_qs(data.decode("utf-8"), keep_blank_values=True)
+            self.assertNotIn("На сайте", fields["message"][0])
+            return {"response": {"post_id": 11}}
+
+        with mock.patch.object(publisher, "_post_json_result", fake_post):
+            with self.assertLogs(publisher.log, level="WARNING"):
+                out = publisher.publish_vk(cfg, self.make_item(None), dry_run=False)
+        self.assertEqual(out, "https://vk.ru/wall-7_11")
+
+
 class SitePublishTests(unittest.TestCase):
     """publish_site against a fake Эгея session: every picture is uploaded and
     the note carries the merged tags, mirroring the wildcar.org page."""
@@ -707,6 +794,19 @@ class RunLoopTests(unittest.TestCase):
         con = open_own_db(self.own_path)
         self.assertEqual(con.execute("SELECT status FROM prepared_item WHERE news_id=1").fetchone()["status"], "published")
         con.close()
+
+    def test_vk_gets_the_page_posted_a_moment_earlier(self):
+        # site goes before vk in the platform order, and vk's link mode wants
+        # that page: the loop refreshes page_url before every adapter call
+        self.cfg.vk_token, self.cfg.vk_group_id, self.cfg.vk_post_mode = "v", "7", "link"
+        seen: dict[str, str] = {}
+        publisher.ADAPTERS["telegram"] = lambda cfg, item, dry: "https://t.me/x/1"
+        publisher.ADAPTERS["site"] = lambda cfg, item, dry: "https://wildcar.ru/all/x/"
+        publisher.ADAPTERS["vk"] = lambda cfg, item, dry: (
+            seen.setdefault("page", item.page_url), "https://vk.ru/wall-7_1")[1]
+        rc = publisher.run(self.cfg, limit=10, dry_run=False, only=None)
+        self.assertEqual(rc, 0)
+        self.assertEqual(seen["page"], "https://wildcar.ru/all/x/")
 
     def test_partial_failure_keeps_prepared_then_retries_only_failed(self):
         def ok(cfg, item, dry):

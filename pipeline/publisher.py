@@ -135,6 +135,7 @@ def footer_text(subscribe: str) -> str:
 
 TG_FOOTER = footer_text("Подпишитесь на канал.")
 VK_FOOTER = footer_text("Подпишитесь на сообщество.")
+VK_POST_MODES = ("photo", "link")
 
 # The order to take them in, from the crawler DB: «сила» of each news item plus
 # whatever the operator changed by hand. Preparation time is the fallback and the
@@ -192,10 +193,14 @@ class PublisherConfig:
     wildcar_section: str = "news"
     # How long one run waits for the site-build unit to make the page live.
     wildcar_wait_seconds: int = 90
-    # VK community wall
+    # VK community wall. `vk_post_mode`: "photo" uploads the lead picture and
+    # needs a USER token of a group admin; "link" uploads nothing and lets VK
+    # draw a link card from our own page — all a community key can do, and
+    # since 2026-09-08 (Kate Mobile cut off) the only key there is.
     vk_token: str = ""
     vk_group_id: str = ""
     vk_api_version: str = "5.199"
+    vk_post_mode: str = "photo"
     # Pacing: NEW items appear on the slot grid — fixed local times in
     # `window_tz`, one fresh item per slot. While the grid is set it replaces
     # both the interval and the window; empty or unparsable slots fall back to
@@ -239,6 +244,9 @@ class PublisherConfig:
         cfg.vk_token = env.get("VK_ACCESS_TOKEN", cfg.vk_token)
         cfg.vk_group_id = env.get("VK_GROUP_ID", cfg.vk_group_id)
         cfg.vk_api_version = env.get("VK_API_VERSION", cfg.vk_api_version)
+        cfg.vk_post_mode = (env.get("VK_POST_MODE", cfg.vk_post_mode) or "photo").strip().lower()
+        if cfg.vk_post_mode not in VK_POST_MODES:
+            raise ValueError(f"VK_POST_MODE must be one of {', '.join(VK_POST_MODES)}, got {cfg.vk_post_mode!r}")
         cfg.slots = env.get("PUB_SLOTS", cfg.slots).strip()
         cfg.min_interval_minutes = int(env.get("PUB_MIN_INTERVAL_MINUTES", cfg.min_interval_minutes))
         cfg.max_attempts = int(env.get("PUB_MAX_ATTEMPTS", cfg.max_attempts))
@@ -452,6 +460,11 @@ class PreparedNews:
     # The model's content tags plus NEWS_TAGS, for the platforms with a tag
     # field (Эгея's tags input, the wildcar.org front matter).
     tags: list[str] = field(default_factory=list)
+    # Where the same story already lives on a site of ours (wildcar.ru first,
+    # wildcar.org next), filled by the run loop from the platforms posted so
+    # far. The VK link-card mode puts it first in the text so VK draws the
+    # card — picture included — from that page.
+    page_url: str = ""
 
 
 # ---------------------------------------------------------- content builders
@@ -568,12 +581,19 @@ def build_tg_message(
 
 def build_vk_message(
     title: str, paragraphs: list[str], source_url: str, source_name: str,
-    footer: str = "",
+    footer: str = "", page_url: str = "",
 ) -> str:
-    """Plain-text wall post: title, full retelling, source link, the footer."""
+    """Plain-text wall post: title, full retelling, our page (link mode), the
+    source link, the footer.
+
+    `page_url` goes BEFORE the source on purpose: VK builds the link card from
+    the first URL in the text, and the card is where the picture comes from
+    when nothing is uploaded."""
     blocks = [title]
     if paragraphs:
         blocks.append("\n\n".join(paragraphs))
+    if page_url:
+        blocks.append(f"На сайте: {page_url}")
     if source_url:
         blocks.append(f"Источник: {source_url}")
     blocks.append(footer)
@@ -1147,12 +1167,27 @@ def vk_upload_photo(cfg: PublisherConfig, image_path: str) -> str:
 
 
 def publish_vk(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
+    """Wall post from the community, in one of two modes (`VK_POST_MODE`).
+
+    photo — upload the lead picture and attach it. Needs a user token of a
+            group admin: photos.getWallUploadServer refuses a community key.
+    link  — upload nothing. The text carries the URL of the same story on our
+            site first, and VK draws the link card (picture from the page's
+            og:image) itself. All a community key can do — and since VK cut
+            Kate Mobile off on 2026-09-08 the only key we can get; see
+            docs/services.md «VK: the token type matters»."""
+    link_mode = cfg.vk_post_mode == "link"
+    if link_mode and not item.page_url:
+        log.warning("news %s vk: link mode without a page of ours to link, the card will come from the source",
+                    item.news_id)
     message = build_vk_message(
-        item.title, item.paragraphs, item.source_url, item.source_name, VK_FOOTER)
+        item.title, item.paragraphs, item.source_url, item.source_name, VK_FOOTER,
+        page_url=item.page_url if link_mode else "")
     if dry_run:
-        log.info("news %s vk [dry-run]: image=%s, %d chars", item.news_id, bool(item.lead_image), len(message))
+        log.info("news %s vk [dry-run]: mode=%s, image=%s, page=%s, %d chars", item.news_id,
+                 cfg.vk_post_mode, bool(item.lead_image) and not link_mode, item.page_url or "-", len(message))
         return "(dry-run)"
-    attachment = vk_upload_photo(cfg, item.lead_image) if item.lead_image else ""
+    attachment = "" if link_mode or not item.lead_image else vk_upload_photo(cfg, item.lead_image)
     response = vk_call(cfg, "wall.post", {
         "owner_id": f"-{cfg.vk_group_id}", "from_group": 1,
         "message": message, "attachments": attachment,
@@ -1351,6 +1386,20 @@ def publication_state(con: sqlite3.Connection, news_id: int) -> dict[str, tuple[
     return {row["platform"]: (row["status"], row["attempts"])
             for row in con.execute(
                 "SELECT platform, status, attempts FROM publication WHERE news_id = ?", (news_id,))}
+
+
+def published_urls(con: sqlite3.Connection, news_id: int) -> dict[str, str]:
+    """Platform -> URL for the sends of one news item that went through."""
+    return {row["platform"]: row["url"]
+            for row in con.execute(
+                "SELECT platform, url FROM publication WHERE news_id = ? AND status = 'ok' AND url IS NOT NULL",
+                (news_id,))}
+
+
+def page_url_for(urls: dict[str, str]) -> str:
+    """The page of ours worth linking: wildcar.ru (Эгея sets og:image from
+    the first picture, so VK's card gets one), else wildcar.org, else none."""
+    return urls.get("site") or urls.get("wildcar_org") or ""
 
 
 def last_success_at(con: sqlite3.Connection) -> str | None:
@@ -1632,6 +1681,9 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None,
 
             item = build_item(own, row, cfg.media_dir)
             for platform in pending:
+                # Platforms run in order, so by VK's turn the wildcar.ru page
+                # posted a moment ago is already on record.
+                item.page_url = page_url_for(published_urls(own, news_id))
                 try:
                     url = ADAPTERS[platform](cfg, item, dry_run)
                 except Exception as exc:  # one bad platform must not sink the batch
