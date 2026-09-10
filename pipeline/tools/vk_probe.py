@@ -101,12 +101,9 @@ def main() -> int:
         verdict["photo_upload"] = "yes"
 
     resp, err = call(token, "photos.getMessagesUploadServer")
-    if err:
-        print(f"[3b] photos.getMessagesUploadServer -> ERROR {err}")
-    else:
-        print("[3b] photos.getMessagesUploadServer -> ok: a community key uploads photos here (no peer!), "
-              "the saved photo belongs to the community and wall.post shows it (VK_PHOTO_UPLOAD=messages/auto)")
-        verdict["photo_upload"] = "messages"
+    if not err:
+        print("[3b] photos.getMessagesUploadServer -> ok, but useless for the wall: a photo saved this way "
+              "is accepted by wall.post and silently dropped from the post (2026-09-10, posts 425/426)")
 
     publish_date = int(time.time()) + 7 * 24 * 3600
     print("[4] wall.post: postponed probe posts a week ahead. A community key cannot wall.delete "
@@ -138,7 +135,7 @@ def main() -> int:
     verdict["link_card"] = "attached" if attached_ok else "in text" if in_text_ok else "no"
 
     print("verdict:", json.dumps(verdict, ensure_ascii=False))
-    if verdict.get("wall_post") == "yes" and verdict.get("photo_upload") in ("yes", "messages"):
+    if verdict.get("wall_post") == "yes" and verdict.get("photo_upload") == "yes":
         print("=> full mode: photo upload + wall.post, the publisher works as is (VK_POST_MODE=photo)")
     elif verdict.get("wall_post") == "yes" and verdict.get("link_card") != "no":
         print(f"=> link-card mode: wall.post with the article URL ({verdict['link_card']}), no photo upload")
