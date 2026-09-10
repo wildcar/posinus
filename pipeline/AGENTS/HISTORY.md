@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-09-10 · Подготовка к приложению VK ID: страница-приёмник и инструмент авторизации
+- What: `tools/vk_id_auth.py` (stdlib): ссылка на вход с PKCE (`url --client-id`), обмен кода на токены (`exchange`), продление (`refresh`), проверка методов (`probe`); хранилище `~/.posinus-vk-id.json` с правами 0600. На wildcar.org живёт страница `/auth/vk-id/` без скриптов, как требует VK (репозиторий wildcar-site, d3a1021). В services.md описан путь к пользовательскому токену в 2026 году.
+- Why: владелец решил завести приложение VK ID и просить у devsupport права wall и photos; старые потоки авторизации VK закрыла 25 июня 2024, токены живут час и продлеваются refresh-токеном.
+- Files: pipeline/tools/vk_id_auth.py, pipeline/docs/services.md, ~/repo/wildcar-site/docs/auth/vk-id/index.html
+- Next: владелец создаёт приложение (Web, домен wildcar.org, redirect https://wildcar.org/auth/vk-id/, конфиденциальное, IP 208.92.227.90) и присылает ID; затем письмо в devsupport и хранилище продлеваемого токена в публикаторе.
+
 ## 2026-09-10 · Картина дня уходит историей сообщества VK
 - What: пятая площадка `vk_story` в daypic (`DAYPIC_VK_STORY`, по умолчанию включена при включённом VK): вертикальная картинка историей сообщества на сутки с кнопкой «Подробнее» на страницу wildcar.ru (`stories.getPhotoUploadServer` с `link_url`, загрузка, `stories.save`). Адаптер `publish_vk_story` в publisher.py, в список площадок новостей не входит. Подписи «История ВКонтакте» в notify и в галерее краулера. 6 тестов, 343 в конвейере; краулер 10 daypic-тестов зелёные.
 - Why: ключ сообщества фото на стену не кладёт, а истории грузит и ссылку в них разрешает; пробная история story-233237778_456239022 владельцу подошла.

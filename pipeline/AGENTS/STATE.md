@@ -35,7 +35,10 @@ a publish-ready retelling, and posts them to the platforms.
   new daypic platform `vk_story` (`DAYPIC_VK_STORY=1` by default when VK is on) — the
   vertical picture for 24 hours with a «Подробнее» button to the wildcar.ru page; code LIVE
   via plain `git pull`, first automatic story with the 2026-09-11 08:00 MSK issue (today's
-  issue is settled and gets none). News stay text on VK.
+  issue is settled and gets none). News stay text on VK. **Next step chosen by the owner: a
+  VK ID application, then the devsupport request** — the redirect page
+  https://wildcar.org/auth/vk-id/ is live and `tools/vk_id_auth.py` is ready; waiting for
+  the application ID (see docs/services.md «The road to a user token in 2026»).
 - **The 5 and 6 September issues of «Картина дня» were redrawn by hand on 2026-09-06 20:45–20:52 UTC**
   with the new `daypic.py --day` (LIVE at `e6e4bab`, run as the service user after the owner set
   `CODEX_IMAGE_MAIN_MODEL=gpt-5.5` and restarted the router at 20:30 UTC). Both went to all four

@@ -352,8 +352,23 @@ So with a community key the live setting is `VK_ACCESS_TOKEN=<community key>`,
 site goes before VK in the platform order, so the page is already there. Without any page of
 ours the post still goes out, with a warning. `VK_POST_MODE=photo` with such a key fails on
 the first upload with a hint to switch. Pictures come back only with a user token that
-carries `wall` and `photos` — for a Standalone VK ID app that is a request to
-devsupport@corp.vk.com.
+carries `wall` and `photos`.
+
+**The road to a user token in 2026**: VK closed the legacy Implicit and Authorization Code
+flows on 2024-06-25; a user token now comes only from an application in the VK ID cabinet
+(id.vk.ru → Мои приложения; login through VK Бизнес ID, the business profile must be
+confirmed within 60 days or the app is blocked) via OAuth 2.1 + PKCE. Basic rights come with
+the app, `phone` after the business confirmation, and `wall`, `photos` & co. «в исключительных
+случаях» by a request to devsupport@corp.vk.com naming the application and the use case.
+Access tokens live an hour and roll over through a refresh token (exchange and refresh at
+`POST https://id.vk.ru/oauth2/auth`; a confidential app also sends its `service_token` and
+only from its declared server IP). Limits since 2026-09-07: 10 000 API calls a month for a
+new unverified profile, 100 000 000 after verification — we make ~1 500. The redirect page
+`https://wildcar.org/auth/vk-id/` (a script-free HTML file in the wildcar-site repo, as VK
+demands) is live; `tools/vk_id_auth.py` produces the authorize URL (`url --client-id …`),
+trades the landing URL for tokens (`exchange`), rolls them over (`refresh`) and shows what
+the token can do (`probe`) — its store is `~/.posinus-vk-id.json`, mode 0600. Wiring the
+rolling token into the publisher is the step after the rights are granted.
 
 Or blank `VK_ACCESS_TOKEN` to disable VK: the items settle on the remaining platforms at
 once, without the 8 retries, and the `platform:vk` / `daypic-platform:vk` alarms stop. A
