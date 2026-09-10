@@ -1038,12 +1038,13 @@ def build_wildcar_page(entry: WildcarEntry, zone: ZoneInfo, footer: str = "") ->
 
 
 def build_wildcar_index(entries: list[WildcarEntry], zone: ZoneInfo) -> str:
-    """The section index: one dated link per published item, newest first."""
+    """The section index: one dated link per published item, newest first.
+    On the site the hook hooks/feed.py keeps only the H1 and draws cards
+    instead of the list; the intro sentence went at the owner's request
+    (2026-09-10)."""
     lines = [
         "# Позитивные новости",
         "",
-        "Хорошие новости, которые отобрала и пересказала машина "
-        "[posinus](https://github.com/wildcar/posinus). "
         "Лента для автоматического импорта: [RSS](rss.xml).",
         "",
     ]

@@ -21,8 +21,9 @@ a publish-ready retelling, and posts them to the platforms.
   For the feed order the publisher and daypic now write `date:` (ISO 8601) into each page's
   front matter (LIVE at the next `git pull`, tests 350 OK); older pages fall back to mtime,
   so never rewrite an old page without restoring its mtime. Deployed through
-  `posinus-wildcar-org-build.service`. Not done: paginated archives (the section indexes stay
-  dated link lists), a search-engine sitemap check.
+  `posinus-wildcar-org-build.service`. Second round (~15:10 UTC, owner's review): section
+  indexes are cards too, 20 per page with virtual archive pages `/news/page/N/`; the generated
+  indexes lost their intro sentences; the home banner is gone; footer PNG logos fixed square.
 - **New footer since 2026-09-10 ~11:45 UTC (owner's wording): «Хотите ежедневно видеть хотя бы
   одну хорошую новость? Подпишитесь:» + Telegram · Дзен · ВКонтакте · wildcar.org** — links in
   Telegram, addresses in VK text, a row of logos on wildcar.org (`/assets/logos/`, live on the

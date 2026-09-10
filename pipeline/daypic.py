@@ -768,15 +768,10 @@ def build_wildcar_page(title: str, image_name: str, caption: str, tags: list[str
 
 
 def build_wildcar_index(entries: list[tuple[str, str, str]]) -> str:
-    """The section index; entries are (slug, day, title), newest first."""
-    lines = [
-        "# Картина дня",
-        "",
-        "Каждый день машина рисует картину по праздникам и событиям этого дня "
-        "и публикует её здесь и на площадках проекта "
-        "[posinus](https://github.com/wildcar/posinus).",
-        "",
-    ]
+    """The section index; entries are (slug, day, title), newest first. On the
+    site the hook hooks/feed.py keeps only the H1 and draws cards instead of
+    the list; the intro sentence went at the owner's request (2026-09-10)."""
+    lines = ["# Картина дня", ""]
     for slug, day, title in entries:
         year, month, dom = day.split("-")
         lines.append(f"- {dom}.{month}.{year} — [{title}]({slug}/index.md)")
