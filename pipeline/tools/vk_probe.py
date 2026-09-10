@@ -92,15 +92,6 @@ def main() -> int:
         names = ",".join(p.get("name", "?") for p in resp.get("permissions", []))
         print(f"[2] getTokenPermissions -> mask {resp.get('mask')}: {names}")
 
-    resp, err = call(token, "messages.getConversations", count=5)
-    if err:
-        print(f"[2b] messages.getConversations -> {err}")
-    else:
-        peers = [str(i["conversation"]["peer"]["id"]) for i in resp.get("items", [])
-                 if i["conversation"]["peer"].get("type") == "user"]
-        print(f"[2b] dialogs with users: {', '.join(peers) or 'none'} "
-              f"(a community key needs one of them as VK_PHOTO_PEER_ID to upload photos)")
-
     resp, err = call(token, "photos.getWallUploadServer", group_id=group_id)
     if err:
         print(f"[3] photos.getWallUploadServer -> ERROR {err}")
@@ -108,6 +99,14 @@ def main() -> int:
     else:
         print("[3] photos.getWallUploadServer -> ok (photo posts possible)")
         verdict["photo_upload"] = "yes"
+
+    resp, err = call(token, "photos.getMessagesUploadServer")
+    if err:
+        print(f"[3b] photos.getMessagesUploadServer -> ERROR {err}")
+    else:
+        print("[3b] photos.getMessagesUploadServer -> ok: a community key uploads photos here (no peer!), "
+              "the saved photo belongs to the community and wall.post shows it (VK_PHOTO_UPLOAD=messages/auto)")
+        verdict["photo_upload"] = "messages"
 
     publish_date = int(time.time()) + 7 * 24 * 3600
     print("[4] wall.post: postponed probe posts a week ahead. A community key cannot wall.delete "
@@ -139,8 +138,8 @@ def main() -> int:
     verdict["link_card"] = "attached" if attached_ok else "in text" if in_text_ok else "no"
 
     print("verdict:", json.dumps(verdict, ensure_ascii=False))
-    if verdict.get("wall_post") == "yes" and verdict.get("photo_upload") == "yes":
-        print("=> full mode: photo upload + wall.post, the publisher works as is")
+    if verdict.get("wall_post") == "yes" and verdict.get("photo_upload") in ("yes", "messages"):
+        print("=> full mode: photo upload + wall.post, the publisher works as is (VK_POST_MODE=photo)")
     elif verdict.get("wall_post") == "yes" and verdict.get("link_card") != "no":
         print(f"=> link-card mode: wall.post with the article URL ({verdict['link_card']}), no photo upload")
     elif verdict.get("wall_post") == "yes":

@@ -277,7 +277,10 @@ class ConfigTests(unittest.TestCase):
     def test_vk_post_mode_from_env(self):
         self.assertEqual(PublisherConfig.from_env({}).vk_post_mode, "photo")
         self.assertEqual(PublisherConfig.from_env({"VK_POST_MODE": " Link "}).vk_post_mode, "link")
-        self.assertEqual(PublisherConfig.from_env({"VK_PHOTO_PEER_ID": " 39 "}).vk_photo_peer_id, "39")
+        self.assertEqual(PublisherConfig.from_env({}).vk_photo_upload, "auto")
+        self.assertEqual(PublisherConfig.from_env({"VK_PHOTO_UPLOAD": " Messages "}).vk_photo_upload, "messages")
+        with self.assertRaises(ValueError):
+            PublisherConfig.from_env({"VK_PHOTO_UPLOAD": "dialog"})
         with self.assertRaises(ValueError):
             PublisherConfig.from_env({"VK_POST_MODE": "card"})
 
@@ -540,33 +543,69 @@ class VkPublishTests(unittest.TestCase):
         self.assertEqual(out, "https://vk.ru/wall-7_9")
         self.assertEqual(calls, ["photos.getWallUploadServer", "x", "photos.saveWallPhoto", "wall.post"])
 
-    def test_community_key_route_uploads_through_a_dialog_and_keeps_the_access_key(self):
-        cfg = PublisherConfig(vk_token="tok", vk_group_id="7", vk_post_mode="photo", vk_photo_peer_id="39")
-        calls: list[str] = []
-        sent: dict[str, dict] = {}
-
+    def _fake_vk(self, calls, sent, wall_server_error=None):
         def fake_post(url, data, content_type, timeout):
             name = url.rsplit("/", 1)[-1]
             calls.append(name)
             if name != "x":
                 sent[name] = urllib.parse.parse_qs(data.decode("utf-8"), keep_blank_values=True)
+            if name == "photos.getWallUploadServer":
+                if wall_server_error:
+                    return {"error": {"error_code": 27, "error_msg": wall_server_error}}
+                return {"response": {"upload_url": "https://up.test/x"}}
             if name == "photos.getMessagesUploadServer":
                 return {"response": {"upload_url": "https://up.test/x"}}
             if name == "x":
                 return {"server": 1, "photo": "[{}]", "hash": "h"}
             if name == "photos.saveMessagesPhoto":
-                return {"response": [{"owner_id": 39, "id": 457, "access_key": "k9"}]}
+                return {"response": [{"owner_id": -7, "id": 457, "access_key": "k9"}]}
+            if name == "photos.saveWallPhoto":
+                return {"response": [{"owner_id": -7, "id": 55}]}
             return {"response": {"post_id": 12}}
+        return fake_post
 
+    def test_messages_upload_is_peerless_and_keeps_the_access_key(self):
+        cfg = PublisherConfig(vk_token="tok", vk_group_id="7", vk_post_mode="photo", vk_photo_upload="messages")
+        calls: list[str] = []
+        sent: dict[str, dict] = {}
         with tempfile.NamedTemporaryFile(suffix=".jpg") as f:
             f.write(b"\xff\xd8img")
             f.flush()
-            with mock.patch.object(publisher, "_post_json_result", fake_post):
+            with mock.patch.object(publisher, "_post_json_result", self._fake_vk(calls, sent)):
                 out = publisher.publish_vk(cfg, self.make_item(f.name), dry_run=False)
         self.assertEqual(out, "https://vk.ru/wall-7_12")
         self.assertEqual(calls, ["photos.getMessagesUploadServer", "x", "photos.saveMessagesPhoto", "wall.post"])
-        self.assertEqual(sent["photos.getMessagesUploadServer"]["peer_id"][0], "39")
-        self.assertEqual(sent["wall.post"]["attachments"][0], "photo39_457_k9")
+        # no peer: a photo bound to a user's dialog is dropped from the post by VK
+        self.assertNotIn("peer_id", sent["photos.getMessagesUploadServer"])
+        self.assertEqual(sent["wall.post"]["attachments"][0], "photo-7_457_k9")
+
+    def test_auto_upload_falls_back_to_messages_on_error_27(self):
+        cfg = PublisherConfig(vk_token="tok", vk_group_id="7", vk_post_mode="photo")  # auto
+        calls: list[str] = []
+        with tempfile.NamedTemporaryFile(suffix=".jpg") as f:
+            f.write(b"\xff\xd8img")
+            f.flush()
+            fake = self._fake_vk(calls, {}, wall_server_error="Group authorization failed: method is unavailable with group auth.")
+            with mock.patch.object(publisher, "_post_json_result", fake):
+                publisher.publish_vk(cfg, self.make_item(f.name), dry_run=False)
+            # a user token: the wall server answers and stays in use
+            calls.clear()
+            with mock.patch.object(publisher, "_post_json_result", self._fake_vk(calls, {})):
+                publisher.publish_vk(cfg, self.make_item(f.name), dry_run=False)
+        self.assertEqual(calls, ["photos.getWallUploadServer", "x", "photos.saveWallPhoto", "wall.post"])
+
+    def test_auto_upload_does_not_swallow_other_errors(self):
+        cfg = PublisherConfig(vk_token="tok", vk_group_id="7", vk_post_mode="photo")
+        with tempfile.NamedTemporaryFile(suffix=".jpg") as f:
+            f.write(b"\xff\xd8img")
+            f.flush()
+            fake = self._fake_vk([], {}, wall_server_error="Flood control")
+
+            def flood(url, data, content_type, timeout):
+                return {"error": {"error_code": 9, "error_msg": "Flood control"}}
+            with mock.patch.object(publisher, "_post_json_result", flood):
+                with self.assertRaises(PublishError):
+                    publisher.publish_vk(cfg, self.make_item(f.name), dry_run=False)
 
     def test_a_png_is_re_encoded_to_jpeg_before_upload(self):
         # VK's upload servers answer a PNG with an empty photo; the media file

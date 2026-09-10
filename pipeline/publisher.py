@@ -138,6 +138,7 @@ def footer_text(subscribe: str) -> str:
 TG_FOOTER = footer_text("Подпишитесь на канал.")
 VK_FOOTER = footer_text("Подпишитесь на сообщество.")
 VK_POST_MODES = ("photo", "link")
+VK_PHOTO_UPLOADS = ("auto", "wall", "messages")
 
 # The order to take them in, from the crawler DB: «сила» of each news item plus
 # whatever the operator changed by hand. Preparation time is the fallback and the
@@ -203,11 +204,13 @@ class PublisherConfig:
     vk_group_id: str = ""
     vk_api_version: str = "5.199"
     vk_post_mode: str = "photo"
-    # Photo route for a COMMUNITY key: the wall upload server refuses it (27),
-    # the messages upload server bound to a dialog with this user accepts it,
-    # and wall.post takes the saved photo. Empty = the wall upload server
-    # (user token). The probe lists the community's dialogs.
-    vk_photo_peer_id: str = ""
+    # Where the photo goes up. "wall": photos.getWallUploadServer, user token
+    # only (a community key gets 27). "messages": photos.getMessagesUploadServer
+    # with no peer — a community key may use it, the saved photo belongs to the
+    # community itself and wall.post shows it. "auto": wall first, messages once
+    # the wall server answers 27. (A photo bound to a user's dialog is silently
+    # dropped from the post — 2026-09-10, post 425 — so no peer is ever sent.)
+    vk_photo_upload: str = "auto"
     # Pacing: NEW items appear on the slot grid — fixed local times in
     # `window_tz`, one fresh item per slot. While the grid is set it replaces
     # both the interval and the window; empty or unparsable slots fall back to
@@ -252,7 +255,9 @@ class PublisherConfig:
         cfg.vk_group_id = env.get("VK_GROUP_ID", cfg.vk_group_id)
         cfg.vk_api_version = env.get("VK_API_VERSION", cfg.vk_api_version)
         cfg.vk_post_mode = (env.get("VK_POST_MODE", cfg.vk_post_mode) or "photo").strip().lower()
-        cfg.vk_photo_peer_id = env.get("VK_PHOTO_PEER_ID", cfg.vk_photo_peer_id).strip()
+        cfg.vk_photo_upload = (env.get("VK_PHOTO_UPLOAD", cfg.vk_photo_upload) or "auto").strip().lower()
+        if cfg.vk_photo_upload not in VK_PHOTO_UPLOADS:
+            raise ValueError(f"VK_PHOTO_UPLOAD must be one of {', '.join(VK_PHOTO_UPLOADS)}, got {cfg.vk_photo_upload!r}")
         if cfg.vk_post_mode not in VK_POST_MODES:
             raise ValueError(f"VK_POST_MODE must be one of {', '.join(VK_POST_MODES)}, got {cfg.vk_post_mode!r}")
         cfg.slots = env.get("PUB_SLOTS", cfg.slots).strip()
@@ -1183,18 +1188,31 @@ def vk_jpeg_bytes(image_path: str) -> tuple[str, bytes]:
 def vk_upload_photo(cfg: PublisherConfig, image_path: str) -> str:
     """Upload a photo and return its attachment string (photo{owner}_{id}[_{key}]).
 
-    Two routes. The wall upload server (photos.getWallUploadServer +
-    saveWallPhoto) wants a user token of a group admin — a community key gets
-    error 27. The messages upload server (photos.getMessagesUploadServer with
-    the `peer_id` of a dialog the community has, + saveMessagesPhoto) takes a
-    community key, and wall.post accepts the saved photo, access key and all
-    (verified 2026-09-10, post 423). `vk_photo_peer_id` picks the route."""
+    Two upload servers. The wall one (photos.getWallUploadServer + saveWallPhoto)
+    wants a user token of a group admin — a community key gets error 27. The
+    messages one (photos.getMessagesUploadServer + saveMessagesPhoto), called
+    WITHOUT a peer, takes a community key and hands back a photo owned by the
+    community itself, which wall.post then shows. `vk_photo_upload` picks the
+    server; "auto" tries the wall one and switches to messages on 27. Never
+    bind the upload to a dialog: a photo owned by that user is dropped from the
+    post without a word (2026-09-10, post 425)."""
     name, image = vk_jpeg_bytes(image_path)
-    if cfg.vk_photo_peer_id:
-        server = vk_call(cfg, "photos.getMessagesUploadServer", {"peer_id": cfg.vk_photo_peer_id})
+    route = cfg.vk_photo_upload
+    if route == "auto":
+        try:
+            server = vk_call(cfg, "photos.getWallUploadServer", {"group_id": cfg.vk_group_id})
+            route = "wall"
+        except PublishError as exc:
+            if " 27 " not in f" {exc} ":
+                raise
+            log.info("vk: the wall upload server refuses this key (27), using the messages upload server")
+            route = "messages"
+    if route == "messages":
+        server = vk_call(cfg, "photos.getMessagesUploadServer", {})
         save_method, save_params = "photos.saveMessagesPhoto", {}
     else:
-        server = vk_call(cfg, "photos.getWallUploadServer", {"group_id": cfg.vk_group_id})
+        if cfg.vk_photo_upload != "auto":
+            server = vk_call(cfg, "photos.getWallUploadServer", {"group_id": cfg.vk_group_id})
         save_method, save_params = "photos.saveWallPhoto", {"group_id": cfg.vk_group_id}
     upload_url = server.get("upload_url")
     if not upload_url:
@@ -1232,7 +1250,7 @@ def publish_vk(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
         item.title, item.paragraphs, item.source_url, item.source_name, VK_FOOTER,
         page_url=item.page_url if link_mode else "")
     if dry_run:
-        route = "-" if link_mode or not item.lead_image else ("messages upload" if cfg.vk_photo_peer_id else "wall upload")
+        route = "-" if link_mode or not item.lead_image else f"{cfg.vk_photo_upload} upload"
         log.info("news %s vk [dry-run]: mode=%s, image=%s via %s, page=%s, %d chars", item.news_id,
                  cfg.vk_post_mode, bool(item.lead_image) and not link_mode, route, item.page_url or "-", len(message))
         return "(dry-run)"

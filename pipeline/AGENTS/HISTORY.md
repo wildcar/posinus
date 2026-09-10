@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-09-10 · VK: фото за сообществом, без диалога; VK_PHOTO_UPLOAD вместо VK_PHOTO_PEER_ID
+- What: сервер загрузки выбирает `VK_PHOTO_UPLOAD` (`auto` по умолчанию: стена, после ошибки 27 сервер сообщений; `wall`; `messages`). Сервер сообщений вызывается без peer_id, фото принадлежит сообществу. `VK_PHOTO_PEER_ID` убран. Проба вместо списка диалогов проверяет сам сервер сообщений. 2 теста, 339 всего.
+- Why: запись 425 с фото, привязанным к диалогу владельца, вышла без картинки: VK принял вложение и молча выбросил, фото было за пользователем. Без peer_id `saveMessagesPhoto` отдаёт фото с owner -233237778.
+- Files: pipeline/publisher.py, pipeline/tools/vk_probe.py, pipeline/tests/test_publisher.py, pipeline/AGENTS/SPEC.md, pipeline/docs/services.md, pipeline/deploy/pipeline.env.example
+- Next: живой пост следующей новости с `VK_POST_MODE=photo` в команде и проверка og:image записи; владелец ставит `VK_POST_MODE=photo` в env.
+
 ## 2026-09-10 · VK: фото с ключа сообщества через сервер сообщений
 - What: в режиме `photo` при заданном `VK_PHOTO_PEER_ID` (id пользователя, с которым у сообщества есть диалог) фото грузится через `photos.getMessagesUploadServer` и `photos.saveMessagesPhoto`, `wall.post` принимает его с access_key. Перед загрузкой не-JPEG перекодируется ffmpeg во временный JPEG: сервер загрузки VK отвечает на PNG пустым `photo`. Проба печатает диалоги сообщества. 3 теста, 337 всего.
 - Why: карточка по ссылке у ключа сообщества выходит без картинки, `wall.parseAttachedLink` ему недоступен (27), og:image записи 422 оказался заглушкой VK. Обход найден опытом: отложенная запись 423 с фото прошла. Пустой `photo` на PNG объясняет и августовские «upload server returned no photo».

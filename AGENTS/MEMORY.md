@@ -122,15 +122,15 @@ to time: merge duplicates, drop stale entries.
   `photos.getWallUploadServer` as user-token-only, with the `wall`/`photos` rights granted
   «в исключительных случаях» by request to devsupport@corp.vk.com. The route that works
   since 2026-09-10 is a COMMUNITY key (community settings → Работа с API; no app, no expiry)
-  with `VK_POST_MODE=photo` and `VK_PHOTO_PEER_ID=684651118` (the owner's own VK account,
-  which has a dialog with the community since 2026-09-10 — never a subscriber's dialog, the
-  photo is stored under the peer's id):
-  the key carries the `wall` right (the docs page omits it), the wall upload server refuses
-  it (27) but the messages upload server bound to that dialog takes the photo and `wall.post`
-  accepts it with its access key. It cannot `wall.delete` (27), so any probe/test post must
-  be removed by hand in «Отложенные»; its link cards stay pictureless (`wall.parseAttachedLink`
-  27). VK's photo upload servers silently drop PNGs (empty `photo`, 3 of 3 on 2026-09-10) —
-  the adapter re-encodes to JPEG first. What a given key can do: `pipeline/tools/vk_probe.py`.
+  with `VK_POST_MODE=photo` (`VK_PHOTO_UPLOAD=auto`): the key carries the `wall` right (the
+  docs page omits it), the wall upload server refuses it (27) but the messages upload server
+  called WITHOUT a peer takes the photo, stores it under the community's own id and
+  `wall.post` shows it. Never bind the upload to a dialog (`peer_id`): the photo is then owned
+  by that user and VK drops it from the post silently (post 425, 2026-09-10). The key cannot
+  `wall.delete` (27), so any probe/test post must be removed by hand in «Отложенные»; its
+  link cards stay pictureless (`wall.parseAttachedLink` 27). VK's photo upload servers
+  silently drop PNGs (empty `photo`, 3 of 3 on 2026-09-10) — the adapter re-encodes to JPEG
+  first. What a given key can do: `pipeline/tools/vk_probe.py`.
   Post with `owner_id=-<id>` plus `from_group=1`. Details: `pipeline/docs/services.md`,
   «VK: the token type matters».
 - Taking a published news page off wildcar.org (first done 2026-08-11, news 8949): flip its
