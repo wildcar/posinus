@@ -961,16 +961,25 @@ class WildcarEntry:
     tags: list[str] = field(default_factory=list)
 
 
-def build_front_matter(tags: list[str]) -> str:
-    """YAML front matter carrying the page tags, or nothing when there are none.
+def build_front_matter(tags: list[str], published_at: datetime | None = None) -> str:
+    """YAML front matter: the publication time and the page tags, or nothing
+    when there is neither.
 
-    Material's built-in `tags` plugin (enabled in the site repository's
-    mkdocs.yml) renders these as chips on the page. json.dumps quotes each tag
-    in a YAML-compatible way, whatever characters the model put in it."""
-    if not tags:
+    `date` (ISO 8601 with the offset) is what the site's home feed sorts by —
+    the hook hooks/feed.py in the wildcar-site repo merges news and pictures of
+    the day into one feed, newest first; pages written before the field existed
+    fall back to their mtime there. Material's built-in `tags` plugin (enabled
+    in the site repository's mkdocs.yml) renders the tags as chips on the page.
+    json.dumps quotes each tag in a YAML-compatible way, whatever characters
+    the model put in it."""
+    if not tags and published_at is None:
         return ""
-    lines = ["---", "tags:"]
-    lines += [f"  - {json.dumps(tag, ensure_ascii=False)}" for tag in tags]
+    lines = ["---"]
+    if published_at is not None:
+        lines.append(f"date: {published_at.isoformat(timespec='seconds')}")
+    if tags:
+        lines.append("tags:")
+        lines += [f"  - {json.dumps(tag, ensure_ascii=False)}" for tag in tags]
     lines += ["---", ""]
     return "\n".join(lines) + "\n"
 
@@ -1009,9 +1018,9 @@ def _image_block(filename: str, caption: str) -> str:
 
 
 def build_wildcar_page(entry: WildcarEntry, zone: ZoneInfo, footer: str = "") -> str:
-    """The news page: tags in the front matter, title, lead picture, full text,
-    the rest of the pictures, a date-and-source line, the footer. MkDocs takes
-    the H1 as the page title."""
+    """The news page: publication time and tags in the front matter, title,
+    lead picture, full text, the rest of the pictures, a date-and-source line,
+    the footer. MkDocs takes the H1 as the page title."""
     parts = [f"# {entry.title}"]
     if entry.images:
         parts.append(_image_block(*entry.images[0]))
@@ -1025,7 +1034,7 @@ def build_wildcar_page(entry: WildcarEntry, zone: ZoneInfo, footer: str = "") ->
     parts.append(f"*{tail}*")
     if footer:
         parts.append(footer)
-    return build_front_matter(entry.tags) + "\n\n".join(parts) + "\n"
+    return build_front_matter(entry.tags, entry.published_at) + "\n\n".join(parts) + "\n"
 
 
 def build_wildcar_index(entries: list[WildcarEntry], zone: ZoneInfo) -> str:

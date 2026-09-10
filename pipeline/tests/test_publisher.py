@@ -269,6 +269,13 @@ class TagTests(unittest.TestCase):
         self.assertTrue(fm.endswith("---\n\n"))
         self.assertEqual(publisher.build_front_matter([]), "")
 
+    def test_front_matter_carries_the_publication_time_for_the_site_feed(self):
+        # ISO 8601 with the offset: the wildcar.org home feed sorts by it
+        when = datetime(2026, 9, 10, 14, 1, 19, tzinfo=timezone.utc)
+        self.assertEqual(publisher.build_front_matter([], when), "---\ndate: 2026-09-10T14:01:19+00:00\n---\n\n")
+        self.assertEqual(publisher.build_front_matter(["эко"], when),
+                         '---\ndate: 2026-09-10T14:01:19+00:00\ntags:\n  - "эко"\n---\n\n')
+
     def test_build_item_merges_stored_tags_with_news_tags(self):
         con = open_own_db(":memory:")
         con.execute("INSERT INTO prepared_item (news_id, status, retold_title, retold_body_md, tags) "
@@ -284,7 +291,7 @@ class TagTests(unittest.TestCase):
             images=[], published_at=datetime(2026, 8, 8, tzinfo=timezone.utc),
             tags=["позитивная"])
         page = publisher.build_wildcar_page(entry, ZoneInfo("Europe/Moscow"))
-        self.assertTrue(page.startswith('---\ntags:\n  - "позитивная"\n---\n\n# Т'))
+        self.assertTrue(page.startswith('---\ndate: 2026-08-08T00:00:00+00:00\ntags:\n  - "позитивная"\n---\n\n# Т'))
 
 
 class MultipartTests(unittest.TestCase):
@@ -365,7 +372,8 @@ class WildcarOrgTests(unittest.TestCase):
         self.assertEqual(url, "https://wildcar.org/news/7169/")
         section = Path(self.cfg.wildcar_content_dir) / "news"
         page = (section / "7169" / "index.md").read_text(encoding="utf-8")
-        self.assertTrue(page.startswith("# Заголовок дня."))
+        # the publication time in the front matter (the site's home feed sorts by it), then the H1
+        self.assertRegex(page, r"\A---\ndate: 20\d\d-\d\d-\d\dT\d\d:\d\d:\d\d\+00:00\n---\n\n# Заголовок дня\.")
         self.assertIn("![](1.jpg)", page)
         self.assertIn("*Подпись к фото*", page)
         self.assertIn("Абзац два.", page)

@@ -753,7 +753,7 @@ def wildcar_section_url(cfg: DaypicConfig, pub_cfg: "publisher.PublisherConfig")
 
 
 def build_wildcar_page(title: str, image_name: str, caption: str, tags: list[str] | None = None,
-                       footer: str = "") -> str:
+                       footer: str = "", published_at: datetime | None = None) -> str:
     parts = [f"# {title}"]
     if image_name:
         parts.append(f"![]({urllib.parse.quote(image_name)})")
@@ -762,8 +762,9 @@ def build_wildcar_page(title: str, image_name: str, caption: str, tags: list[str
     if footer:
         parts.append(footer)
     # The same tags Эгея gets (DAYPIC_SITE_TAGS, «картина дня»), as front
-    # matter for the Material tags plugin.
-    return publisher.build_front_matter(tags or []) + "\n\n".join(parts) + "\n"
+    # matter for the Material tags plugin; the publication time orders the
+    # site's home feed (see publisher.build_front_matter).
+    return publisher.build_front_matter(tags or [], published_at) + "\n\n".join(parts) + "\n"
 
 
 def build_wildcar_index(entries: list[tuple[str, str, str]]) -> str:
@@ -815,7 +816,8 @@ def publish_wildcar_org(
         shutil.copyfile(item.lead_image, page_dir / image_name)
     (page_dir / "index.md").write_text(
         build_wildcar_page(item.title, image_name, "\n\n".join(item.paragraphs),
-                           publisher.split_tags(cfg.site_tags), publisher.wildcar_footer(pub_cfg)),
+                           publisher.split_tags(cfg.site_tags), publisher.wildcar_footer(pub_cfg),
+                           published_at=datetime.now(timezone.utc)),
         encoding="utf-8",
     )
     entries = [(slug, row["day"], item.title)] + _wildcar_published_issues(con, exclude_id=row["id"])

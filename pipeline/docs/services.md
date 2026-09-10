@@ -199,6 +199,22 @@ Everything under `news/` in the content dir is regenerated on retries, so a
 half-finished run heals itself. Unlike the other platforms nothing is "sent": deleting a
 page means deleting its directory from the content dir and touching the marker.
 
+The site itself (restyled 2026-09-10 at the owner's request, wildcar-site repo): the home
+page is a **feed** of the latest 30 publications from `news/` and `kartina/` together,
+newest first, rendered at build time by the site's MkDocs hook `hooks/feed.py` — so every
+publication refreshes it through the same rebuild. The hook sorts by the `date` field the
+publisher and daypic write into each page's front matter (ISO 8601 with offset; pages
+written before 2026-09-10 have none and fall back to their mtime, which `rsync -a`
+preserves — never rewrite an old page without restoring its mtime), takes the H1, the first
+picture and the first plain paragraph for the card, and also sets each page's meta
+description and `og:image` (`overrides/main.html`), so VK and Telegram can draw a link card
+with the picture. Sections: «Позитивные новости» (`news/`), «Картина дня» (`kartina/`),
+«Интересное» (`docs/interesting/`, the owner's own articles, listed by the same hook),
+«О проекте», «Контакты» (the four channels). The look follows the VK cover (peach, rose,
+lavender, plum; `docs/assets/stylesheets/posinus.css`); the footer carries the four channel
+logos via `overrides/partials/social.html`. Дзен links on the site go through
+`/dzen/` (see the footer note above).
+
 **Дзен has no posting API** — it polls `https://wildcar.org/news/rss.xml` (every 2–5
 minutes) once the feed is connected in the channel settings, which Дзен allows past 10
 subscribers; until then the channel mirrors telegram via Дзен's autopublisher. The feed

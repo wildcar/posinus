@@ -12,6 +12,17 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- **wildcar.org restyled and restructured 2026-09-10 ~15:00 UTC (owner's request; wildcar-site
+  repo).** Home = a feed of the latest 30 publications from news and pictures of the day
+  together, newest first, rendered at build time by the site's hook `hooks/feed.py`; sections
+  «Позитивные новости», «Картина дня», «Интересное» (owner's own articles: drop a .md into
+  `docs/interesting/`), «О проекте», «Контакты» (four channel logos); palette of the VK cover,
+  footer logos, Open Graph tags on every page (news pages: first picture + first paragraph).
+  For the feed order the publisher and daypic now write `date:` (ISO 8601) into each page's
+  front matter (LIVE at the next `git pull`, tests 350 OK); older pages fall back to mtime,
+  so never rewrite an old page without restoring its mtime. Deployed through
+  `posinus-wildcar-org-build.service`. Not done: paginated archives (the section indexes stay
+  dated link lists), a search-engine sitemap check.
 - **New footer since 2026-09-10 ~11:45 UTC (owner's wording): «Хотите ежедневно видеть хотя бы
   одну хорошую новость? Подпишитесь:» + Telegram · Дзен · ВКонтакте · wildcar.org** — links in
   Telegram, addresses in VK text, a row of logos on wildcar.org (`/assets/logos/`, live on the
