@@ -148,7 +148,7 @@ timer runs harmlessly until at least one is configured):
 | `wildcar_org` | writes the page (tags in its YAML front matter, rendered by the Material tags plugin) + pictures into the content dir, regenerates the section index and the Dzen RSS feed, touches the rebuild marker, waits until the page is live (see below) | `WILDCAR_ORG_BASE_URL`; `WILDCAR_ORG_CONTENT_DIR`, `WILDCAR_ORG_SECTION`, `WILDCAR_ORG_WAIT_SECONDS` |
 | `telegram` | `sendPhoto` + HTML caption to @posinus, capped at `TG_TEXT_LIMIT` (1500 — the Дзен autopublisher drops longer posts) and Telegram's own 1024 for photo captions, both counted on the VISIBLE text; a truncated caption links to the full text on wildcar.org | `TELEGRAM_BOT_TOKEN`; `TELEGRAM_CHAT_ID` (default `-1003795927410`), `TELEGRAM_CHANNEL_USERNAME`, `TG_TEXT_LIMIT` |
 | `site` | wildcar.ru on Эгея: login → upload of EVERY picture → `note-process` → `note-publish` → verify. The note mirrors the wildcar.org page (lead picture, text, the rest with captions on the line under the picture); the tags field carries the item's tags, prefixed by `EGEYA_TAGS` when set (empty by default) | `EGEYA_PASSWORD` (login `EGEYA_LOGIN`, default `wildcar`); `EGEYA_BASE_URL`, `EGEYA_TAGS` |
-| `vk` | community wall: `wall.post` from the group, with a photo upload (`photo`) or a link card (`link`) | `VK_ACCESS_TOKEN` **and** `VK_GROUP_ID`; `VK_API_VERSION`; `VK_POST_MODE`; `VK_PHOTO_UPLOAD` |
+| `vk` | community wall: `wall.post` from the group, with a photo upload (`photo`) or a link card (`link`) | `VK_ACCESS_TOKEN` **and** `VK_GROUP_ID`; `VK_API_VERSION`; `VK_POST_MODE` |
 
 `wildcar_org` runs first in the platform order on purpose: a truncated telegram caption
 links to the full text there, so within one run the page should already be live.
@@ -329,24 +329,31 @@ community: Управление → Дополнительно → Работа 
 - the link card such a key gets stays without a picture: VK fetches one only through
   `wall.parseAttachedLink`, which answers 27 too (post 422 of 2026-09-10 carries VK's
   generic «Пост из ленты ВКонтакте» placeholder as its og:image);
-- **photos DO go up through the messages upload server**: `photos.getMessagesUploadServer`
-  called WITHOUT a peer, then `photos.saveMessagesPhoto`, hands back a photo owned by the
-  community itself (`photo-233237778_…_<access_key>`) and `wall.post` shows it. Bind the
-  upload to a dialog (`peer_id`) and the photo is stored under that user; `wall.post` accepts
-  the attachment and then drops it without a word — post 425 of 2026-09-10 went out as text.
-  The upload servers answer a PNG with an empty `photo` every time (3 of 3; JPEGs pass), so
-  the adapter re-encodes anything that is not a JPEG through ffmpeg first — that empty
-  `photo` is also what the «upload server returned no photo» errors of August–September were.
+- **no photo reaches the wall by any other route either** (all tried 2026-09-10): a photo
+  saved through `photos.getMessagesUploadServer` + `saveMessagesPhoto` — bound to a dialog and
+  owned by that user (post 425), or peerless and owned by the community itself (post 426) —
+  is accepted by `wall.post` and dropped from the post without a word (the post page's
+  `og:image` is VK's «Пост из ленты» placeholder; posts with real photos carry the photo
+  there). `attachments=<url>` fails with 100 «link_photo_sizing_rule. No photo given» for
+  every host (wildcar.ru, t.me, Wikipedia): the attachment form wants the photo that
+  `wall.parseAttachedLink` produces, and that method answers 27. `docs.getWallUploadServer`
+  answers 15 «User can't upload docs to this group» (the community has no Документы section;
+  an image document would show as a file card anyway). `stories.getPhotoUploadServer` does
+  work — a story, not a wall post.
+- VK's photo upload servers answer a PNG with an empty `photo` every time (3 of 3; JPEGs
+  pass), so the adapter re-encodes anything that is not a JPEG through ffmpeg first — that
+  empty `photo` is also what the «upload server returned no photo» errors of August–September
+  were. It matters again the day a user token is back.
 
-So the live setting is `VK_ACCESS_TOKEN=<community key>`, `VK_POST_MODE=photo`, `VK_GROUP_ID`
-as before, and `VK_PHOTO_UPLOAD` left at `auto`: the adapter asks the wall upload server,
-gets 27 and switches to the messages one (one spare call per run; `messages` skips it, `wall`
-is the user-token setting). Posts look exactly as they did with the user token.
-`VK_POST_MODE=link` is the fallback: the publisher uploads nothing and writes «На сайте:
-<wildcar.ru page>» before the source line, the page URL taken from its own `publication`
-(`daypic_publication` for the picture of the day) right before each send — the site goes
-before VK in the platform order, so the page is already there. Without any page of ours the
-post still goes out, with a warning.
+So with a community key the live setting is `VK_ACCESS_TOKEN=<community key>`,
+`VK_POST_MODE=link`, `VK_GROUP_ID` as before: the publisher uploads nothing and writes «На
+сайте: <wildcar.ru page>» before the source line, the page URL taken from its own
+`publication` (`daypic_publication` for the picture of the day) right before each send — the
+site goes before VK in the platform order, so the page is already there. Without any page of
+ours the post still goes out, with a warning. `VK_POST_MODE=photo` with such a key fails on
+the first upload with a hint to switch. Pictures come back only with a user token that
+carries `wall` and `photos` — for a Standalone VK ID app that is a request to
+devsupport@corp.vk.com.
 
 Or blank `VK_ACCESS_TOKEN` to disable VK: the items settle on the remaining platforms at
 once, without the 8 retries, and the `platform:vk` / `daypic-platform:vk` alarms stop. A

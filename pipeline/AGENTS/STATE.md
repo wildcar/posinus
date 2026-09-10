@@ -12,25 +12,25 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
-- **VK posts with pictures again, through a community key — code LIVE at `5227365`, the env
-  switch is the owner's.** Since 2026-09-08 ~11:00 UTC every call with the old user token
-  answers `9 Flood control` (VK meters API use per application since 2026-09-07 and cut Kate
-  Mobile off, the app_id that token was minted under; not our load, not the host). The owner
-  made a community key and probed it (`tools/vk_probe.py`): `wall.post` from the group passes,
-  photo upload via the wall server is refused (27), `wall.delete` too (27), and a link card
-  stays pictureless because `wall.parseAttachedLink` is refused as well (posts 421/422/424,
-  the link mode). The way through, found 2026-09-10 10:00 UTC: the messages upload server bound
-  to a dialog the community has (`photos.getMessagesUploadServer` + `saveMessagesPhoto`),
-  whose photo `wall.post` accepts — `VK_POST_MODE=photo` + `VK_PHOTO_PEER_ID`. The dialog must
-  be the owner's own (user 684651118, who wrote to the community for this; the first probe
-  used a subscriber's dialog by mistake, 901 without a dialog); VK's upload servers also drop
-  PNGs silently (empty `photo`, the «upload server returned no photo» errors of August), so
-  the adapter re-encodes to JPEG. Verified live: news 16237 → wall-233237778_425 posted with
-  `VK_POST_MODE=photo VK_PHOTO_PEER_ID=684651118` on the command line (the env file still says
-  `link`, so the 10:00 timer run posted 16260 as text). Owner's part: set `VK_POST_MODE=photo`
-  and `VK_PHOTO_PEER_ID=684651118` in `/etc/posinus/pipeline.env`, remove the probe posts 420,
-  421, 423 from «Отложенные» (the key cannot), and eyeball 425 for the picture. 15 news
-  posts (8–10 Sep) and the 9/10 Sep «Картина дня» stay without VK.
+- **VK posts text only now, through a community key in `VK_POST_MODE=link` (env set by the
+  owner 2026-09-10 ~09:30 UTC; code LIVE at `262bd54`, plain `git pull`).** Since 2026-09-08
+  ~11:00 UTC every call with the old user token answers `9 Flood control` (VK meters API use
+  per application since 2026-09-07 and cut Kate Mobile off, the app_id that token was minted
+  under; not our load, not the host). A community key posts from the group but puts no
+  picture on the wall by ANY route (all tried live 2026-09-10): wall upload 27;
+  messages-upload photos accepted and silently dropped whether owned by a dialog user (post
+  425) or by the community (post 426); `attachments=<url>` 100 «No photo given» for every
+  host since `wall.parseAttachedLink` is 27; docs 15 (no Документы section); the link card
+  VK draws for a URL in the text has no picture (421, 422, 424). Verified by the post page's
+  `og:image`: VK's placeholder on 422/425/426, the real photo on 418/415/405. Photo mode with
+  such a key now fails on the first upload with «set VK_POST_MODE=link». Kept from the day:
+  the link mode (page URL first in the text, from `publication`/`daypic_publication`), the
+  PNG→JPEG re-encode before upload (VK's upload servers drop PNGs silently — the August
+  «no photo» errors), `tools/vk_probe.py`. Posts 424 (timer), 425 and 426 (manual tests) are
+  live as text; the owner deleted the postponed probes. 15 news posts (8–10 Sep) and the
+  9/10 Sep «Картина дня» stay without VK. Pictures come back only with a user token carrying
+  `wall`+`photos`: owner's call whether to ask devsupport@corp.vk.com for a Standalone VK ID
+  app, or live with text posts.
 - **The 5 and 6 September issues of «Картина дня» were redrawn by hand on 2026-09-06 20:45–20:52 UTC**
   with the new `daypic.py --day` (LIVE at `e6e4bab`, run as the service user after the owner set
   `CODEX_IMAGE_MAIN_MODEL=gpt-5.5` and restarted the router at 20:30 UTC). Both went to all four
