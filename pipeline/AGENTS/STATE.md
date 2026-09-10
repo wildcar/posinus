@@ -19,7 +19,12 @@ a publish-ready retelling, and posts them to the platforms.
   links in the Дзен feed; the picture of the day
   carries it too, on every platform. Addresses come from the env (`DZEN_CHANNEL_URL`,
   `VK_COMMUNITY_URL` new, defaults set). Code LIVE via plain `git pull`; first live post with
-  it: the 15:00 MSK slot. Already published pages keep the old footer.
+  it: the 15:00 MSK slot. Already published pages keep the old footer. **On the sites the
+  Дзен logo links via `https://wildcar.org/dzen/`** (meta refresh; wildcar-site 4136906):
+  RU AdList hides every element linking to dzen.ru on other sites, the owner saw three logos
+  out of four (~14:05 UTC). The two wildcar.org pages already carrying the row (news 15787,
+  16078) were patched by hand and rebuilt; the one wildcar.ru note with the row (16078, the
+  17:00 MSK slot) still links to dzen.ru directly.
 - **VK posts text only now, through a community key in `VK_POST_MODE=link` (env set by the
   owner 2026-09-10 ~09:30 UTC; code LIVE at `262bd54`, plain `git pull`).** Since 2026-09-08
   ~11:00 UTC every call with the old user token answers `9 Flood control` (VK meters API use

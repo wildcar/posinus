@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-09-10 · Логотип Дзена скрывал блокировщик: ссылка через wildcar.org/dzen/
+- What: на сайтах ряд логотипов ведёт на Дзен через страницу-переадресацию `https://wildcar.org/dzen/` (meta refresh, репозиторий wildcar-site 4136906), константа `DZEN_VIA_SITE` в `subscribe_footer_html`; телеграм, текст ВКонтакте и лента Дзена по-прежнему с прямым адресом. Две уже выложенные страницы wildcar.org с рядом (15787, 16078) поправлены руками и пересобраны.
+- Why: владелец увидел три логотипа из четырёх на обоих сайтах; картинка отдавалась нормально (200, PNG 150×150), а прятало её правило RU AdList `~dzen.ru,~sportsdzen.ru##[href*="https://dzen.ru"]` — любой элемент со ссылкой на dzen.ru на чужом сайте, стандартный русский список uBlock Origin, AdBlock Plus и Яндекс Браузера.
+- Files: pipeline/publisher.py, pipeline/tests/test_publisher.py, pipeline/AGENTS/SPEC.md, pipeline/docs/services.md, ~/repo/wildcar-site/docs/dzen/index.html
+- Next: посмотреть пост 19:00 МСК на wildcar.ru с блокировщиком; заметка 16078 на wildcar.ru осталась с прямой ссылкой.
+
 ## 2026-09-10 · VK ID: токен получен, прав wall/photos нет, письмо в devsupport готово
 - What: владелец вошёл по первой ссылке; обмен кода прошёл только после того, как он положил «Сервисный ключ доступа» в pipeline.env (`VK_ID_SERVICE_TOKEN`; без него `invalid_grant: service_token is missing`). Токен пользователя 684651118 в `/var/lib/posinus/pipeline/vk-id.json`, `refresh` работает, но scope только `vkid.personal_info`: `photos.getWallUploadServer` → 15, `account.getAppPermissions` → 1051. Черновик письма за правами — `docs/vk-id-devsupport.md`; `VK_ID_SERVICE_TOKEN` описан в pipeline.env.example.
 - Why: VK ID выдаёт `wall` и `photos` только по запросу в devsupport; страница входа принимает эти scope и до одобрения, но в токен они не попадают.

@@ -137,6 +137,14 @@ SUBSCRIBE_LOGOS = {
     "ВКонтакте": "/assets/logos/vk.svg",
     "wildcar.org": "/assets/logos/wildcar.png",
 }
+# On our own pages the Дзен logo links through this redirect page on wildcar.org
+# (wildcar-site repo, docs/dzen/index.html, a meta refresh to DZEN_CHANNEL_URL's
+# default). RU AdList — the default Russian filter list of uBlock Origin, AdBlock
+# Plus and the Yandex Browser blocker — hides every element whose href contains
+# https://dzen.ru anywhere outside dzen.ru itself
+# (`~dzen.ru,~sportsdzen.ru##[href*="https://dzen.ru"]`), logo and all: the owner
+# saw three logos out of four (2026-09-10).
+DZEN_VIA_SITE = "/dzen/"
 VK_POST_MODES = ("photo", "link")
 
 # The order to take them in, from the crawler DB: «сила» of each news item plus
@@ -330,12 +338,15 @@ def subscribe_footer_html(cfg: PublisherConfig, logo_base: str = "") -> str:
     files live on wildcar.org (the wildcar-site repo, SUBSCRIBE_LOGOS);
     `logo_base` is that site's address when the HTML is shown elsewhere —
     wildcar.org's own pages take the paths as they are. A channel without a
-    logo gets a text link."""
+    logo gets a text link. The Дзен link goes through wildcar.org's redirect
+    page so ad blockers leave it alone (DZEN_VIA_SITE)."""
     links = subscribe_links(cfg)
     if not links:
         return html.escape(FOOTER_ASK)
     icons = []
     for name, url in links:
+        if name == "Дзен" and cfg.wildcar_base:
+            url = cfg.wildcar_base + DZEN_VIA_SITE
         href = html.escape(url, quote=True)
         logo = SUBSCRIBE_LOGOS.get(name)
         if logo:

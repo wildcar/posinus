@@ -220,6 +220,10 @@ class VkAndSiteTextTests(unittest.TestCase):
         self.assertIn('<p class="subscribe">Хотите ежедневно видеть хотя бы одну хорошую новость? Подпишитесь:</p>', text)
         self.assertIn('<a href="https://t.me/posinus" title="Telegram"><img src="https://wildcar.org/assets/logos/telegram.svg"', text)
         self.assertIn('<a href="https://wildcar.org/" title="wildcar.org"><img src="https://wildcar.org/assets/logos/wildcar.png"', text)
+        # the Дзен logo links through our redirect page: RU AdList hides any
+        # element linking to dzen.ru on other sites (owner's report, 2026-09-10)
+        self.assertIn('<a href="https://wildcar.org/dzen/" title="Дзен"><img src="https://wildcar.org/assets/logos/dzen.png"', text)
+        self.assertNotIn("dzen.ru", text)
         self.assertTrue(text.endswith("</p>"))
 
     def test_site_footer_falls_back_to_neasden_links_without_wildcar_org(self):
@@ -416,7 +420,8 @@ class WildcarOrgTests(unittest.TestCase):
         # wildcar.org: the call, then a row of logos linking the channels
         self.assertIn('<p class="subscribe">Хотите ежедневно видеть хотя бы одну хорошую новость? Подпишитесь:</p>', page)
         self.assertIn('<a href="https://t.me/posinus" title="Telegram"><img src="/assets/logos/telegram.svg"', page)
-        self.assertIn('<a href="https://dzen.ru/posinus" title="Дзен"><img src="/assets/logos/dzen.png"', page)
+        self.assertIn('<a href="https://wildcar.org/dzen/" title="Дзен"><img src="/assets/logos/dzen.png"', page)
+        self.assertNotIn('href="https://dzen.ru', page)   # RU AdList would hide the logo
         self.assertIn('<a href="https://vk.com/positivenus" title="ВКонтакте"><img src="/assets/logos/vk.svg"', page)
         self.assertIn('title="wildcar.org"><img src="/assets/logos/wildcar.png"', page)
         self.assertLess(page.find("Источник"), page.find("Хотите ежедневно"))

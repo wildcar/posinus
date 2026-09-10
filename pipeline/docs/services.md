@@ -161,8 +161,14 @@ the channel. Telegram gets the names as links, VK names plus addresses in plain 
 Telegram SVG, the VK glyph from Simple Icons, the Дзен favicon, the community avatar);
 wildcar.ru gets them as raw HTML with absolute wildcar.org URLs (Neasden keeps HTML tags as
 they are — checked on a draft on 2026-09-10; a draft is removed with
-`/@actions/note-delete/`, note-id + token). Pages already published keep the footer they
-went out with.
+`/@actions/note-delete/`, note-id + token). On both sites the Дзен logo links to
+`https://wildcar.org/dzen/` (a meta-refresh page in the wildcar-site repo, `docs/dzen/`)
+rather than to dzen.ru: RU AdList, the default Russian list of uBlock Origin, AdBlock Plus
+and the Yandex Browser blocker, carries `~dzen.ru,~sportsdzen.ru##[href*="https://dzen.ru"]`,
+so every element linking to dzen.ru is hidden on any other site — the owner saw three logos
+out of four (2026-09-10; the image itself was served fine). Telegram, the VK text and the
+Дзен feed keep the direct address. Pages already published keep the footer they went out
+with.
 
 `wildcar_org` runs first in the platform order on purpose: a truncated telegram caption
 links to the full text there, so within one run the page should already be live.
