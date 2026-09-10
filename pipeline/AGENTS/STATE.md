@@ -22,7 +22,7 @@ a publish-ready retelling, and posts them to the platforms.
   it: the 15:00 MSK slot. Already published pages keep the old footer. **On the sites the
   Дзен logo links via `https://wildcar.org/dzen/`** (meta refresh; wildcar-site 4136906):
   RU AdList hides every element linking to dzen.ru on other sites, the owner saw three logos
-  out of four (~14:05 UTC). The two wildcar.org pages already carrying the row (news 15787,
+  out of four (~14:05 UTC; the owner confirmed the fix in the browser ~14:20 UTC). The two wildcar.org pages already carrying the row (news 15787,
   16078) were patched by hand and rebuilt; the one wildcar.ru note with the row (16078, the
   17:00 MSK slot) still links to dzen.ru directly.
 - **VK posts text only now, through a community key in `VK_POST_MODE=link` (env set by the
