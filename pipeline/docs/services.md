@@ -269,8 +269,12 @@ made:
   → `photos.getWallUploadServer` error 27 "method is unavailable with group auth" — no photo
   upload, full stop (others confirm it in 2026 even with the photos right set,
   VKCOM/vk-api-schema#242). `wall.post` answered 214 "Access to adding post denied" here in
-  July 2026; others report text and link posts passing with a community key that carries
-  the `wall` right, so that one is worth re-testing with the probe below.
+  July 2026. A fresh key probed on 2026-09-10 carries photos, docs, messages, **wall**,
+  manage, stories, market (the docs page lists no `wall` right for community keys, the API
+  disagrees), and `wall.post` with `attachments=<url>` got as far as the link check: error
+  100 «link_photo_sizing_rule. No photo given», i.e. VK could not picture the wildcar.ru
+  front page. Article pages on wildcar.ru carry `og:image` (Эгея sets it from the first
+  picture); wildcar.org pages carry none — a link card must point at wildcar.ru.
 - **VK ID** token (string starts with `vk2.a.`, issued by the `id.vk.ru` OAuth 2.1 / PKCE
   flow — i.e. "Log in with VK") → error 1051 "method is unavailable with current profile
   type". It authenticates a person; it does not call VK API methods at all.
