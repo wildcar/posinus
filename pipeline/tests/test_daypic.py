@@ -544,10 +544,22 @@ class RunTests(unittest.TestCase):
         sent = story.call_args.args[1]
         self.assertEqual(sent.lead_image, items[0]["file_path"])            # vertical
         self.assertEqual(sent.page_url, "https://wildcar.ru/all/kartina/")  # the button
+        # the wall post: wildcar.org is off here, so no direct picture link either
+        self.assertEqual(vk.call_args.args[1].image_urls, [])
         pubs = {p["platform"]: p for p in self._rows("SELECT * FROM daypic_publication")}
         self.assertEqual(pubs["vk_story"]["status"], "ok")
         self.assertEqual(pubs["vk_story"]["url"], "https://vk.com/story-1_3")
         self.assertEqual(items[0]["status"], "published")
+
+    def test_the_vk_wall_post_opens_with_the_wildcar_org_picture_link(self):
+        vk = mock.Mock(return_value="https://vk.ru/wall-1_2")
+        self.pub_cfg.wildcar_base = "https://wildcar.org"
+        self.pub_cfg.vk_token, self.pub_cfg.vk_group_id = "vk-token", "1"
+        with mock.patch.object(daypic, "publish_wildcar_org", return_value="https://wildcar.org/kartina/2026-07-29/"):
+            self._run(adapters={"telegram": mock.Mock(return_value="u"), "vk": vk, "vk_story": mock.Mock(return_value="s")})
+        items = self._rows("SELECT * FROM daypic_item")
+        wide = Path(items[0]["file_path_wide"]).name
+        self.assertEqual(vk.call_args.args[1].image_urls, [f"https://wildcar.org/kartina/2026-07-29/{wide}"])
 
     def test_the_vk_story_follows_vk_and_can_be_switched_off(self):
         story = mock.Mock(return_value="https://vk.com/story-1_3")

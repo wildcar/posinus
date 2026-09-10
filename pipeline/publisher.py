@@ -467,6 +467,12 @@ class PreparedNews:
     # far. The VK link-card mode puts it first in the text so VK draws the
     # card — picture included — from that page.
     page_url: str = ""
+    # Direct URLs of the pictures on wildcar.org (the page directory serves the
+    # files as they are), filled the same way. The VK link mode puts them on the
+    # first lines of the post: a community key cannot attach a photo, but the
+    # web client turns such a link into one when the admin edits the post by
+    # hand (owner, 2026-09-10).
+    image_urls: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------- content builders
@@ -583,15 +589,17 @@ def build_tg_message(
 
 def build_vk_message(
     title: str, paragraphs: list[str], source_url: str, source_name: str,
-    footer: str = "", page_url: str = "",
+    footer: str = "", page_url: str = "", image_urls: list[str] | None = None,
 ) -> str:
-    """Plain-text wall post: title, full retelling, our page (link mode), the
-    source link, the footer.
+    """Plain-text wall post: the picture links (link mode), title, full
+    retelling, our page (link mode), the source link, the footer.
 
-    `page_url` goes BEFORE the source on purpose: VK builds the link card from
-    the first URL in the text, and the card is where the picture comes from
-    when nothing is uploaded."""
-    blocks = [title]
+    `image_urls` open the post, one per line, so the admin editing the post by
+    hand has them at the top — the web client makes photos out of them, the API
+    with a community key cannot. `page_url` goes BEFORE the source on purpose:
+    VK builds the link card from the first page URL in the text."""
+    blocks = ["\n".join(image_urls)] if image_urls else []
+    blocks.append(title)
     if paragraphs:
         blocks.append("\n\n".join(paragraphs))
     if page_url:
@@ -1222,10 +1230,12 @@ def publish_vk(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
                     item.news_id)
     message = build_vk_message(
         item.title, item.paragraphs, item.source_url, item.source_name, VK_FOOTER,
-        page_url=item.page_url if link_mode else "")
+        page_url=item.page_url if link_mode else "",
+        image_urls=item.image_urls if link_mode else None)
     if dry_run:
-        log.info("news %s vk [dry-run]: mode=%s, image=%s, page=%s, %d chars", item.news_id,
-                 cfg.vk_post_mode, bool(item.lead_image) and not link_mode, item.page_url or "-", len(message))
+        log.info("news %s vk [dry-run]: mode=%s, image=%s, page=%s, picture links=%d, %d chars", item.news_id,
+                 cfg.vk_post_mode, bool(item.lead_image) and not link_mode, item.page_url or "-",
+                 len(item.image_urls) if link_mode else 0, len(message))
         return "(dry-run)"
     attachment = "" if link_mode or not item.lead_image else vk_upload_photo(cfg, item.lead_image)
     response = vk_call(cfg, "wall.post", {
@@ -1477,6 +1487,16 @@ def page_url_for(urls: dict[str, str]) -> str:
     """The page of ours worth linking: wildcar.ru (Эгея sets og:image from
     the first picture, so VK's card gets one), else wildcar.org, else none."""
     return urls.get("site") or urls.get("wildcar_org") or ""
+
+
+def image_urls_for(urls: dict[str, str], images: list[tuple[str, str]]) -> list[str]:
+    """Direct URLs of the item's pictures on wildcar.org: the page directory
+    serves each copied file under its own name. Empty until that page is
+    posted (or when the platform is off)."""
+    page = urls.get("wildcar_org")
+    if not page:
+        return []
+    return [page + urllib.parse.quote(Path(path).name) for path, _ in images]
 
 
 def last_success_at(con: sqlite3.Connection) -> str | None:
@@ -1760,7 +1780,9 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None,
             for platform in pending:
                 # Platforms run in order, so by VK's turn the wildcar.ru page
                 # posted a moment ago is already on record.
-                item.page_url = page_url_for(published_urls(own, news_id))
+                urls = published_urls(own, news_id)
+                item.page_url = page_url_for(urls)
+                item.image_urls = image_urls_for(urls, item.images)
                 try:
                     url = ADAPTERS[platform](cfg, item, dry_run)
                 except Exception as exc:  # one bad platform must not sink the batch

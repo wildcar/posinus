@@ -349,11 +349,13 @@ community: Управление → Дополнительно → Работа 
   were. It matters again the day a user token is back.
 
 So with a community key the live setting is `VK_ACCESS_TOKEN=<community key>`,
-`VK_POST_MODE=link`, `VK_GROUP_ID` as before: the publisher uploads nothing and writes «На
-сайте: <wildcar.ru page>» before the source line, the page URL taken from its own
-`publication` (`daypic_publication` for the picture of the day) right before each send — the
-site goes before VK in the platform order, so the page is already there. Without any page of
-ours the post still goes out, with a warning. `VK_POST_MODE=photo` with such a key fails on
+`VK_POST_MODE=link`, `VK_GROUP_ID` as before: the publisher uploads nothing, opens the post
+with the direct URLs of the pictures on wildcar.org (one per line — the admin editing the
+post by hand turns them into photos through the web client, PNG included; the API cannot)
+and writes «На сайте: <wildcar.ru page>» before the source line. Both come from its own
+`publication` (`daypic_publication` for the picture of the day), read right before each
+send — the sites go before VK in the platform order, so the pages are already there.
+Without any page of ours the post still goes out, with a warning and without the links. `VK_POST_MODE=photo` with such a key fails on
 the first upload with a hint to switch. Pictures come back only with a user token that
 carries `wall` and `photos`.
 

@@ -24,7 +24,9 @@ a publish-ready retelling, and posts them to the platforms.
   VK draws for a URL in the text has no picture (421, 422, 424). Verified by the post page's
   `og:image`: VK's placeholder on 422/425/426, the real photo on 418/415/405. Photo mode with
   such a key now fails on the first upload with «set VK_POST_MODE=link». Kept from the day:
-  the link mode (page URL first in the text, from `publication`/`daypic_publication`), the
+  the link mode (direct picture URLs on wildcar.org as the first lines — the owner turns them
+  into photos by editing the post by hand — then the page URL before the source, all from
+  `publication`/`daypic_publication`), the
   PNG→JPEG re-encode before upload (VK's upload servers drop PNGs silently — the August
   «no photo» errors), `tools/vk_probe.py`. Posts 424 (timer), 425 and 426 (manual tests) are
   live as text; the owner deleted the postponed probes. 15 news posts (8–10 Sep) and the

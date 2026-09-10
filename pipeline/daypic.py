@@ -888,11 +888,14 @@ def publish_item(
 
     def item_for(platform: str) -> "publisher.PreparedNews":
         image = vertical if platform in ("telegram", "vk_story") else wide
+        urls = published_urls(con, item_id)
         return publisher.PreparedNews(
             news_id=item_id, title=title, paragraphs=list(paragraphs),
             lead_image=image, source_url="", source_name="", images=[(image, "")],
-            # the wildcar.ru page posted earlier in this very loop, for VK's link card
-            page_url=publisher.page_url_for(published_urls(con, item_id)),
+            # the pages posted earlier in this very loop: wildcar.ru for VK's link
+            # card, wildcar.org for the direct picture link on the first line
+            page_url=publisher.page_url_for(urls),
+            image_urls=publisher.image_urls_for(urls, [(image, "")]),
         )
 
     state = publication_state(con, item_id)

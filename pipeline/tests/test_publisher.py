@@ -177,6 +177,21 @@ class VkAndSiteTextTests(unittest.TestCase):
         self.assertLess(msg.index("https://wildcar.ru/all/x/"), msg.index("https://s.test/a"))
         self.assertNotIn("На сайте", build_vk_message("Т", ["a"], "https://s.test/a", "s.test"))
 
+    def test_vk_message_opens_with_the_picture_links(self):
+        # the admin edits the post by hand and the web client makes photos of
+        # them, so they sit on the very first lines, before the title
+        msg = build_vk_message("Т", ["a"], "https://s.test/a", "s.test", publisher.VK_FOOTER,
+                               page_url="https://wildcar.ru/all/x/",
+                               image_urls=["https://wildcar.org/news/7/1.jpg", "https://wildcar.org/news/7/2.png"])
+        self.assertTrue(msg.startswith("https://wildcar.org/news/7/1.jpg\nhttps://wildcar.org/news/7/2.png\n\nТ\n\n"))
+        self.assertTrue(build_vk_message("Т", ["a"], "https://s.test/a", "s.test", image_urls=[]).startswith("Т"))
+
+    def test_image_urls_come_from_the_wildcar_org_page(self):
+        images = [("/media/7/1.jpg", ""), ("/media/7/фото 2.png", "")]
+        self.assertEqual(publisher.image_urls_for({"wildcar_org": "https://wildcar.org/news/7/"}, images),
+                         ["https://wildcar.org/news/7/1.jpg", "https://wildcar.org/news/7/%D1%84%D0%BE%D1%82%D0%BE%202.png"])
+        self.assertEqual(publisher.image_urls_for({"site": "https://wildcar.ru/all/x/"}, images), [])
+
     def test_site_footer_links_the_telegram_channel(self):
         footer = publisher.site_footer(PublisherConfig())
         text = build_site_text([], ["a"], "https://s.test/a", "s.test", footer)
@@ -594,13 +609,16 @@ class VkPublishTests(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".jpg") as f:
             f.write(b"\xff\xd8img")
             f.flush()
+            item = self.make_item(f.name, "https://wildcar.ru/all/x/")
+            item.image_urls = ["https://wildcar.org/news/7169/1.jpg"]
             with mock.patch.object(publisher, "_post_json_result", fake_post):
-                out = publisher.publish_vk(cfg, self.make_item(f.name, "https://wildcar.ru/all/x/"), dry_run=False)
+                out = publisher.publish_vk(cfg, item, dry_run=False)
         self.assertEqual(out, "https://vk.ru/wall-7_10")
         fields = sent["fields"]
         self.assertEqual(fields["attachments"][0], "")
         self.assertEqual(fields["from_group"][0], "1")
         message = fields["message"][0]
+        self.assertTrue(message.startswith("https://wildcar.org/news/7169/1.jpg\n\n"))
         self.assertLess(message.index("https://wildcar.ru/all/x/"), message.index("https://s.test/a"))
 
     def test_link_mode_without_a_page_still_posts_and_warns(self):
@@ -910,10 +928,35 @@ class RunLoopTests(unittest.TestCase):
         publisher.ADAPTERS["telegram"] = lambda cfg, item, dry: "https://t.me/x/1"
         publisher.ADAPTERS["site"] = lambda cfg, item, dry: "https://wildcar.ru/all/x/"
         publisher.ADAPTERS["vk"] = lambda cfg, item, dry: (
-            seen.setdefault("page", item.page_url), "https://vk.ru/wall-7_1")[1]
+            seen.setdefault("page", item.page_url), seen.setdefault("images", list(item.image_urls)),
+            "https://vk.ru/wall-7_1")[2]
         rc = publisher.run(self.cfg, limit=10, dry_run=False, only=None)
         self.assertEqual(rc, 0)
         self.assertEqual(seen["page"], "https://wildcar.ru/all/x/")
+        self.assertEqual(seen["images"], [])   # wildcar_org is off in this setup: no page, no picture links
+
+    def test_vk_gets_direct_picture_links_once_wildcar_org_is_up(self):
+        # wildcar_org runs first and serves the copied files under the page
+        # URL; vk's link mode opens the post with those links
+        media = Path(self.tmp.name) / "media" / "1"
+        media.mkdir(parents=True)
+        (media / "1.jpg").write_bytes(b"\xff\xd8img")
+        own = open_own_db(self.own_path)
+        own.execute("INSERT INTO illustration (news_id, position, file_path) VALUES (1, 1, ?)", (str(media / "1.jpg"),))
+        own.commit()
+        own.close()
+        self.cfg.media_dir = str(Path(self.tmp.name) / "media")
+        self.cfg.wildcar_base = "https://wildcar.org"
+        self.cfg.vk_token, self.cfg.vk_group_id, self.cfg.vk_post_mode = "v", "7", "link"
+        seen: dict[str, list[str]] = {}
+        publisher.ADAPTERS["wildcar_org"] = lambda cfg, item, dry: "https://wildcar.org/news/1/"
+        publisher.ADAPTERS["telegram"] = lambda cfg, item, dry: "https://t.me/x/1"
+        publisher.ADAPTERS["site"] = lambda cfg, item, dry: "https://wildcar.ru/all/x/"
+        publisher.ADAPTERS["vk"] = lambda cfg, item, dry: (
+            seen.setdefault("images", list(item.image_urls)), "https://vk.ru/wall-7_1")[1]
+        rc = publisher.run(self.cfg, limit=10, dry_run=False, only=None)
+        self.assertEqual(rc, 0)
+        self.assertEqual(seen["images"], ["https://wildcar.org/news/1/1.jpg"])
 
     def test_partial_failure_keeps_prepared_then_retries_only_failed(self):
         def ok(cfg, item, dry):
