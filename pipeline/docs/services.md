@@ -386,8 +386,20 @@ new unverified profile, 100 000 000 after verification — we make ~1 500. The r
 `https://wildcar.org/auth/vk-id/` (a script-free HTML file in the wildcar-site repo, as VK
 demands) is live; `tools/vk_id_auth.py` produces the authorize URL (`url --client-id …`),
 trades the landing URL for tokens (`exchange`), rolls them over (`refresh`) and shows what
-the token can do (`probe`) — its store is `~/.posinus-vk-id.json`, mode 0600. Wiring the
-rolling token into the publisher is the step after the rights are granted.
+the token can do (`probe`) — its store defaults to `~/.posinus-vk-id.json`, mode 0600; on
+the server it is `/var/lib/posinus/pipeline/vk-id.json`, owned by the service user, and
+every subcommand runs as that user with `pipeline.env` sourced.
+
+Done on 2026-09-10 with the owner's application **54692110** («Позитивные новости», Web,
+confidential, IP 208.92.227.90): the authorize page accepts `scope=wall photos groups`
+before the rights are approved, but the token comes back with `vkid.personal_info` only.
+The exchange of a confidential app fails with `invalid_grant: service_token is missing`
+until `VK_ID_SERVICE_TOKEN` («Сервисный ключ доступа» from the app cabinet) is in the env —
+the tool sends it in the request body, for `exchange` and `refresh` alike; both work. With
+that token `users.get` and `groups.getById` answer, `account.getAppPermissions` is 1051 (not
+for VK ID tokens) and `photos.getWallUploadServer` is 15 «cannot be called with current
+scopes». The request for `wall` and `photos` is drafted in `docs/vk-id-devsupport.md`.
+Wiring the rolling token into the publisher is the step after the rights are granted.
 
 Or blank `VK_ACCESS_TOKEN` to disable VK: the items settle on the remaining platforms at
 once, without the 8 retries, and the `platform:vk` / `daypic-platform:vk` alarms stop. A

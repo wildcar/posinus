@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-09-10 · VK ID: токен получен, прав wall/photos нет, письмо в devsupport готово
+- What: владелец вошёл по первой ссылке; обмен кода прошёл только после того, как он положил «Сервисный ключ доступа» в pipeline.env (`VK_ID_SERVICE_TOKEN`; без него `invalid_grant: service_token is missing`). Токен пользователя 684651118 в `/var/lib/posinus/pipeline/vk-id.json`, `refresh` работает, но scope только `vkid.personal_info`: `photos.getWallUploadServer` → 15, `account.getAppPermissions` → 1051. Черновик письма за правами — `docs/vk-id-devsupport.md`; `VK_ID_SERVICE_TOKEN` описан в pipeline.env.example.
+- Why: VK ID выдаёт `wall` и `photos` только по запросу в devsupport; страница входа принимает эти scope и до одобрения, но в токен они не попадают.
+- Files: pipeline/docs/vk-id-devsupport.md, pipeline/docs/services.md, pipeline/deploy/pipeline.env.example, pipeline/AGENTS/STATE.md
+- Next: владелец отправляет письмо; после прав — хранилище продлеваемого токена в публикаторе и возврат `VK_POST_MODE=photo`. Сервисный ключ один раз попал в вывод команды агента (`${VAR:-no}`), владельцу предложено перевыпустить.
+
 ## 2026-09-10 · Приложение VK ID 54692110: ссылки на вход выданы
 - What: владелец создал приложение VK ID (ID 54692110). От имени служебного пользователя сгенерированы две ссылки авторизации: с правами `wall photos groups` (хранилище `/var/lib/posinus/pipeline/vk-id.json`) и запасная только с `vkid.personal_info` (`vk-id-base.json`) на случай, если VK не пустит с неодобренными правами. Оба хранилища 0600.
 - Why: обмен кода на токены должен идти с этого сервера (208.92.227.90) и от служебного пользователя — там же будет жить продлеваемый токен публикатора; конфиденциальному приложению нужен `VK_ID_SERVICE_TOKEN` из pipeline.env.
