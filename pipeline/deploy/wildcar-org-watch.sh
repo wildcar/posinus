@@ -28,10 +28,13 @@ STAMP="$SITE_OUT/sitemap.xml"
 # docs/news and docs/kartina are the publisher's, rsynced in by every build;
 # their timestamps are the publisher's, and their directories change with
 # every rebuild, so they are pruned — otherwise the watch would chase its
-# own tail. `find` here may be bfs, so the -newermt stamp is ISO 8601.
+# own tail. hooks/__pycache__ is written by the build itself when MkDocs
+# imports the hook (and by any staging build), so it is pruned too.
+# `find` here may be bfs, so the -newermt stamp is ISO 8601.
 watch() {
     find "$SITE_REPO/docs" "$SITE_REPO/hooks" "$SITE_REPO/overrides" "$SITE_REPO/mkdocs.yml" \
-        \( -path "$SITE_REPO/docs/news" -o -path "$SITE_REPO/docs/kartina" \) -prune -o "$@" -print -quit
+        \( -path "$SITE_REPO/docs/news" -o -path "$SITE_REPO/docs/kartina" -o -name __pycache__ \) -prune \
+        -o "$@" -print -quit
 }
 
 changed=$(watch -newer "$STAMP")
