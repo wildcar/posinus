@@ -9,10 +9,11 @@ Two kinds, and the difference matters:
 
 - `--digest`: one sentence a day. «Вчера вышло 2 поста, проблем нет.»
 - `--check`: an alarm, and only for things that are actually wrong — a platform
-  that failed three times running, a whole day with no post inside an open
-  window, an empty queue for three days, a «Картина дня» whose generation gave
-  the day up or whose platform keeps refusing it. An empty channel is an
-  editorial failure too, and it deserves the same volume as a broken platform.
+  that failed three times running and has accepted nothing since, a whole day
+  with no post inside an open window, an empty queue for three days, a «Картина
+  дня» whose generation gave the day up or whose platform keeps refusing it. An
+  empty channel is an editorial failure too, and it deserves the same volume as
+  a broken platform.
 
 The bar for an alarm is high on purpose: noise makes the channel worthless in a
 week, and then the one message that mattered gets ignored with the rest.
@@ -52,6 +53,12 @@ PLATFORM_FAIL_ATTEMPTS = 3
 # one from before the VK token was fixed, 24 attempts, last touched days ago.
 # Without this window the first alarm the operator ever got would have been a
 # false one, which is how notification channels start being ignored.
+# The window alone was not enough. On 2026-09-11 at 07:09 MSK the operator got
+# «ВКонтакте не принимает посты» 19 hours after the last refusal and 11 accepted
+# posts later: the given-up rows of the dead Kate Mobile token were still inside
+# the 24 hours, and the 12-hour repeat raised them again. Hence the second rule,
+# in both platform queries: a platform whose newest `ok` row is younger than its
+# newest `error` row is working, and its failed rows are history, not a fault.
 PLATFORM_FAIL_WINDOW_HOURS = 24
 SILENT_HOURS = 24          # no post at all for this long, inside an open window
 EMPTY_QUEUE_DAYS = 3
@@ -193,7 +200,9 @@ def daypic_alarms(con: sqlite3.Connection, now: datetime) -> list[Alarm]:
     for row in con.execute(
         "SELECT p.platform, COUNT(*) AS items, MAX(p.attempts) AS attempts, MAX(p.error) AS error, "
         "MAX(i.day) AS day FROM daypic_publication AS p JOIN daypic_item AS i ON i.id = p.item_id "
-        "WHERE p.status = 'error' AND p.attempts >= ? AND p.updated_at >= ? GROUP BY p.platform",
+        "WHERE p.status = 'error' AND p.attempts >= ? AND p.updated_at >= ? GROUP BY p.platform "
+        "HAVING MAX(p.updated_at) > COALESCE((SELECT MAX(o.updated_at) FROM daypic_publication AS o "
+        "WHERE o.platform = p.platform AND o.status = 'ok'), '')",
         (PLATFORM_FAIL_ATTEMPTS, fresh),
     ):
         platform = PLATFORM_TITLES.get(row["platform"], row["platform"])
@@ -214,10 +223,14 @@ def collect_alarms(con: sqlite3.Connection, cfg: publisher.PublisherConfig, now:
     alarms: list[Alarm] = []
 
     fresh = (now - timedelta(hours=PLATFORM_FAIL_WINDOW_HOURS)).isoformat()
+    # HAVING: a platform that accepted a post after its last refusal works now;
+    # the failed rows are items given up on, not a live fault (see the window note).
     for row in con.execute(
         "SELECT platform, COUNT(*) AS items, MAX(attempts) AS attempts, MAX(error) AS error "
-        "FROM publication WHERE status = 'error' AND attempts >= ? AND updated_at >= ? "
-        "GROUP BY platform",
+        "FROM publication AS e WHERE status = 'error' AND attempts >= ? AND updated_at >= ? "
+        "GROUP BY platform "
+        "HAVING MAX(updated_at) > COALESCE((SELECT MAX(o.updated_at) FROM publication AS o "
+        "WHERE o.platform = e.platform AND o.status = 'ok'), '')",
         (PLATFORM_FAIL_ATTEMPTS, fresh),
     ):
         title = PLATFORM_TITLES.get(row["platform"], row["platform"])

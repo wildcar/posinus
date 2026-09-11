@@ -527,11 +527,15 @@ Gotchas:
 ## notify.py
 
 Two timers, one script. `posinus-notify.timer` runs `notify.py` hourly and sends an alarm only
-for a platform that failed at least three times, a full day with no post inside an open window,
+for a platform that failed at least three times within a day and has accepted nothing since (a
+platform whose newest `ok` row is younger than its newest `error` row is working; the failed rows
+are items given up on — on 2026-09-11 the dead token's rows raised «ВКонтакте не принимает посты»
+19 hours after the last refusal, 11 accepted posts later), a full day with no post inside an open window,
 a queue empty for three days, a «Картина дня» whose generation gave the day up (the slot's
 latest `daypic_item` is `error` with `DAYPIC_MAX_ATTEMPTS` attempts and no older than
 yesterday — a still-retrying failure is not an alarm, a slot switched off after a bad morning
-is not one forever) or a platform refusing the picture three times within a day.
+is not one forever) or a platform refusing the picture three times within a day, under the
+same «accepted nothing since» rule.
 `posinus-notify-digest.timer` sends one sentence at 09:00 Moscow time, with «Не вышла:
 Картина дня» appended when yesterday's issue did not go out. The same alarm is not repeated
 within 12 hours (`notification` table). The daypic tables belong to `daypic.py`; when they do

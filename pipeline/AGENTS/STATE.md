@@ -12,6 +12,11 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- **notify no longer calls a working platform broken (2026-09-11 ~10:30 UTC, LIVE):** the
+  platform alarms fire only when the platform's newest `error` row is younger than its newest
+  `ok` row. Trigger: the owner got «ВКонтакте не принимает посты» at 07:09 MSK, 19 hours after
+  the last `9 Flood control` of the dead Kate Mobile token and 11 accepted link-mode posts
+  later. Nothing else was running against VK (journal, processes, cron checked).
 - **wildcar.org restyled and restructured 2026-09-10 ~15:00 UTC (owner's request; wildcar-site
   repo).** Home = a feed of the latest 30 publications from news and pictures of the day
   together, newest first, rendered at build time by the site's hook `hooks/feed.py`; sections

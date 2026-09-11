@@ -107,6 +107,24 @@ class NotifyTests(unittest.TestCase):
 
         self.assertEqual(notify.collect_alarms(self.con, self.cfg, self.now), [])
 
+    def test_a_platform_accepting_posts_again_is_not_an_alarm(self):
+        """2026-09-11, 07:09 MSK: «ВКонтакте не принимает посты» 19 hours after the last refusal
+        and 11 accepted posts later — the dead token's given-up rows were still inside the window."""
+        self._prepared(9)
+        self._publication(1, "vk", "error", attempts=8, when="2026-07-25T08:45:00+00:00", error="9 Flood control")
+        self._publication(2, "vk", "ok", when="2026-07-25T09:40:00+00:00")
+
+        self.assertEqual(notify.collect_alarms(self.con, self.cfg, self.now), [])
+
+    def test_a_refusal_after_the_last_accepted_post_is_still_an_alarm(self):
+        self._prepared(9)
+        self._publication(2, "vk", "ok", when="2026-07-25T09:40:00+00:00")
+        self._publication(1, "vk", "error", attempts=3, when="2026-07-25T11:00:00+00:00", error="код 214")
+
+        alarms = notify.collect_alarms(self.con, self.cfg, self.now)
+
+        self.assertEqual([alarm.kind for alarm in alarms], ["platform:vk"])
+
     def test_a_silent_day_inside_an_open_window_is_an_alarm(self):
         self._prepared(1)
         self._publication(2, "telegram", "ok", when="2026-07-24T06:00:00+00:00")
@@ -183,6 +201,17 @@ class NotifyTests(unittest.TestCase):
         self.assertEqual([alarm.kind for alarm in alarms], ["daypic-platform:vk"])
         self.assertIn("ВКонтакте не принимает картину дня за 25 июля 2026", alarms[0].text)
         self.assertIn("214", alarms[0].text)
+
+    def test_a_daypic_accepted_after_the_refusal_silences_the_platform_alarm(self):
+        self._quiet_news()
+        self._daypic_tables()
+        old = self._daypic_item("2026-07-24", "published")
+        self._daypic_publication(old, "vk", "error", attempts=8, when="2026-07-24T14:00:00+00:00",
+                                 error="9 Flood control")
+        new = self._daypic_item("2026-07-25", "published")
+        self._daypic_publication(new, "vk", "ok", when="2026-07-25T05:15:00+00:00")
+
+        self.assertEqual(notify.collect_alarms(self.con, self.cfg, self.now), [])
 
     def test_without_daypic_tables_nothing_breaks(self):
         """An installation that never ran daypic.py has no such tables."""
