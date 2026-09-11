@@ -1,0 +1,14 @@
+[Unit]
+Description=Request a wildcar.org rebuild when its hand-edited sources changed
+# «Интересное», the static pages, the hook and the theme live in keeper's site
+# checkout and are edited by hand; the publisher rebuilds only after its own
+# publications. See deploy/wildcar-org-watch.sh.
+
+[Service]
+Type=oneshot
+User=keeper
+Group=keeper
+# The request mailbox is group posinus, mode 2770: the marker goes there.
+SupplementaryGroups=posinus
+ExecStart=/bin/bash /opt/posinus/pipeline/deploy/wildcar-org-watch.sh
+NoNewPrivileges=true

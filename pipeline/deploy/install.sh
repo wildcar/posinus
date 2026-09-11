@@ -142,6 +142,8 @@ install -m 0644 "$REPO_DIR/deploy/posinus-daypic.timer" /etc/systemd/system/posi
 install -m 0644 "$REPO_DIR/deploy/posinus-apply-edits.service" /etc/systemd/system/posinus-apply-edits.service
 # wildcar.org rebuild: no timer either, the publisher touches the marker file.
 install -m 0644 "$REPO_DIR/deploy/posinus-wildcar-org-build.service" /etc/systemd/system/posinus-wildcar-org-build.service
+install -m 0644 "$REPO_DIR/deploy/posinus-wildcar-org-watch.service" /etc/systemd/system/posinus-wildcar-org-watch.service
+install -m 0644 "$REPO_DIR/deploy/posinus-wildcar-org-watch.timer" /etc/systemd/system/posinus-wildcar-org-watch.timer
 for unit in posinus-evaluator-run.path posinus-preparer-run.path posinus-publisher-run.path \
             posinus-evaluator-backfill-run.path posinus-apply-edits-run.path \
             posinus-wildcar-org-build.path posinus-daypic-run.path; do
@@ -160,6 +162,7 @@ systemctl enable --now posinus-notify-digest.timer
 systemctl enable --now posinus-apply-edits-run.path
 systemctl enable --now posinus-retention.timer
 systemctl enable --now posinus-wildcar-org-build.path
+systemctl enable --now posinus-wildcar-org-watch.timer
 systemctl enable --now posinus-daypic.timer
 systemctl enable --now posinus-daypic-run.path
 

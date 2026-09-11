@@ -195,6 +195,16 @@ different venv), so the handshake goes through files:
 3. The publisher polls `https://wildcar.org/news/<news_id>/` for up to
    `WILDCAR_ORG_WAIT_SECONDS` (90) and only then reports the platform `ok`.
 
+The hand-edited part of the site — «Интересное» (`docs/interesting/`, the owner's articles,
+one folder per article), the static pages, `hooks/`, `overrides/`, `mkdocs.yml` — is rebuilt
+by the same unit, but nothing in the pipeline knows when it changes. So
+`posinus-wildcar-org-watch.timer` (every 2 minutes, user keeper, `SupplementaryGroups=posinus`)
+runs `deploy/wildcar-org-watch.sh`: when something there is newer than the last build (the
+mtime of `/var/www/wildcar.org/sitemap.xml`, which mkdocs writes last) and nothing has changed
+in the last 90 seconds (a folder being copied in is half there), it touches the same marker
+and the .path unit builds. `docs/news` and `docs/kartina` are pruned: the build itself rsyncs
+them. Since 2026-09-11 the home feed shows the articles too (site hook `hooks/feed.py`).
+
 Everything under `news/` in the content dir is regenerated on retries, so a
 half-finished run heals itself. Unlike the other platforms nothing is "sent": deleting a
 page means deleting its directory from the content dir and touching the marker.

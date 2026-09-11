@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-09-11 · wildcar.org: статьи в ленте на главной; пересборка сайта по изменению ручных исходников
+- What: хук сайта включает статьи из `docs/interesting/` в ленту на главной карточкой «Статья» (первая картинка, дата, первый абзац) и даёт их страницам description и og:image, как новостям; список раздела и лента считаются одним обходом (`article_pages`: папка с index.md или одиночный .md). Новый `deploy/wildcar-org-watch.sh` + `posinus-wildcar-org-watch.{service,timer}` (keeper, группа posinus, раз в 2 минуты): если в docs/ (кроме news и kartina), hooks/, overrides/ или mkdocs.yml есть что-то новее `sitemap.xml` последней сборки и ничего не менялось 90 с, ставит маркер пересборки. install.sh ставит и включает юниты.
+- Why: владелец спросил, попадёт ли статья в ленту, и попросил, чтобы новые статьи попадали туда сами; на другие площадки статьи не нужны.
+- Files: pipeline/deploy/wildcar-org-watch.sh, posinus-wildcar-org-watch.service, posinus-wildcar-org-watch.timer, install.sh, docs/services.md, AGENTS/SPEC.md; wildcar-site: hooks/feed.py, README.md
+- Next: —
+
 ## 2026-09-11 · wildcar.org: первая статья в «Интересном», меню берёт заголовок из H1
 - What: владелец положил статью папкой `docs/interesting/AI-picture-style-part-1/` (index.md + 19 JPEG, 3,5 МБ после сжатия с 36 МБ PNG). Хук сайта получил `on_nav`: папка статьи в меню подписана её H1, а не именем папки, как делает awesome-nav. В README сайта раздел «Adding an article» со схемой «папка на статью». Шапка статьи без ограждений `---` исправлена (иначе строка `date:` печаталась в тексте, а заголовок терялся). Сайт пересобран, статья живая.
 - Why: просьба владельца; имя файла с пробелами и латинское имя папки в меню были единственными огрехами.

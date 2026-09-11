@@ -13,9 +13,12 @@ a publish-ready retelling, and posts them to the platforms.
 ## Now
 
 - **First article in «Интересное» (2026-09-11 ~12:15 UTC, live):** the owner's folder
-  `docs/interesting/AI-picture-style-part-1/` (index.md + JPEGs). Site hook `on_nav` titles an
-  article folder by its H1; README of wildcar-site documents the folder-per-article scheme. The
-  article folder is committed too (wildcar-site c906fe7, ~12:20 UTC).
+  `docs/interesting/AI-picture-style-part-1/` (index.md + JPEGs, committed: wildcar-site c906fe7).
+  Site hook `on_nav` titles an article folder by its H1; README of wildcar-site documents the
+  folder-per-article scheme. **Since ~12:45 UTC articles are in the home feed** (card «Статья»)
+  and **`posinus-wildcar-org-watch.timer` rebuilds the site by itself** when the hand-edited
+  sources (docs/ minus news/kartina, hooks/, overrides/, mkdocs.yml) are newer than the last
+  build and quiet for 90 s — the owner drops a folder, the site follows within minutes.
 - **notify no longer calls a working platform broken (2026-09-11 ~10:30 UTC, LIVE):** the
   platform alarms fire only when the platform's newest `error` row is younger than its newest
   `ok` row. Trigger: the owner got «ВКонтакте не принимает посты» at 07:09 MSK, 19 hours after

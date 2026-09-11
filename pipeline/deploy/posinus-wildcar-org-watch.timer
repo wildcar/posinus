@@ -1,0 +1,10 @@
+[Unit]
+Description=Look for changed wildcar.org sources every 2 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+RandomizedDelaySec=20s
+
+[Install]
+WantedBy=timers.target
