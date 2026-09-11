@@ -12,6 +12,10 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- **First article in «Интересное» (2026-09-11 ~12:15 UTC, live):** the owner's folder
+  `docs/interesting/AI-picture-style-part-1/` (index.md + JPEGs). Site hook `on_nav` titles an
+  article folder by its H1; README of wildcar-site documents the folder-per-article scheme. The
+  folder itself is still uncommitted in the site repo (the owner's to commit).
 - **notify no longer calls a working platform broken (2026-09-11 ~10:30 UTC, LIVE):** the
   platform alarms fire only when the platform's newest `error` row is younger than its newest
   `ok` row. Trigger: the owner got «ВКонтакте не принимает посты» at 07:09 MSK, 19 hours after
