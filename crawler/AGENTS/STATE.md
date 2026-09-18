@@ -6,6 +6,17 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 ## Now
 
+- **Since 2026-09-18 ~21:27 UTC the «Картина дня» slot runs on OpenRouter**: chat
+  `openrouter` / `openai/gpt-5.6-sol` (medium, search on), picture `openrouter` /
+  `openai/gpt-image-2.5-sunburst`. The router's `codex-oauth` provider is switched off, so
+  the slot had been failing. Migration `0018` moves any slot still on codex-oauth (chat model
+  mapped to its `openai/…` OpenRouter id, picture to sunburst) and is committed at `7f270a7`;
+  on prod the same change was applied by hand through `manage.py shell` because the
+  classifier refused `migrate` + web restart — `0018` is still unapplied in
+  `django_migrations` on prod and posinus-web still serves the old form placeholders until
+  the next `update-ubuntu.sh` run (the migration is a no-op on the already-moved row).
+  Verified live: a dry run of tomorrow's issue got a real prompt from gpt-5.6-sol with the
+  19 September holidays found on the web. 163 tests.
 - Since 2026-08-26 the translation service names the application to the model router:
   `app_url=https://wildcar.org`, `app_name=Positive news` (settings
   `POSINUS_APP_URL`/`POSINUS_APP_NAME`; empty drops the field). Goes live with the next
@@ -195,7 +206,8 @@ Operate a single-host multilingual news crawler whose source list improves from 
   chat call's reasoning effort and a «Поиск в интернете» checkbox, and the `day` slot is
   set to codex-oauth `gpt-5.5`/medium with search on: its prompts now send the model to
   look the date up in the web (Russian holidays first) and ask for a small cheerful
-  visual surprise hidden in the picture.
+  visual surprise hidden in the picture. Since 2026-09-18 (migration `0018`) the slot is on
+  OpenRouter — see the top of «Now».
 
 ## Next
 

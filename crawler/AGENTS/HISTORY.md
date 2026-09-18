@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-09-18 · Слот «Картины дня» переведён с codex-oauth на OpenRouter
+- What: миграция `0018` переводит слоты с провайдером `codex-oauth` на `openrouter`: чат-модель — на её OpenRouter-идентификатор (`gpt-5.6-sol` → `openai/gpt-5.6-sol`, `gpt-5.5` → `openai/gpt-5.5`, …), картинка — на `openai/gpt-image-2.5-sunburst`; обратная миграция возвращает. Подсказки формы и текст страницы называют openrouter. 163 теста.
+- Why: провайдер `codex-oauth` в роутере выключен, слот оставался без промпта и картинки. Парная правка конвейера — в его HISTORY.
+- Files: crawler/collector/migrations/0018_daypicslot_openrouter.py, collector/forms.py, collector/models.py, templates/collector/daypic.html, tests/test_daypic_page.py
+- Next: прогнать `update-ubuntu.sh` (миграция и перезапуск веба); строка на проде уже переведена через `manage.py shell`, миграция там ничего не изменит.
+
 ## 2026-08-26 · Перевод новостей называет роутеру приложение
 - What: `call_chat` передаёт `app_url`/`app_name` (настройки `POSINUS_APP_URL`/`POSINUS_APP_NAME`, по умолчанию `https://dzen.ru/posinus` и `Positive news`); пустое значение убирает поле из запроса. 163 теста.
 - Why: роутер с 26 августа принимает идентичность приложения и передаёт её провайдерам. Идентичность одна на весь posinus, процессы различает `external_user_id`; значения выбрал владелец.

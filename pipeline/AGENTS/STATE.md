@@ -12,6 +12,25 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- **All picture calls go through OpenRouter since 2026-09-18 ~21:26 UTC (LIVE at `7f270a7`,
+  `git pull` in /opt/posinus; the scripts run in place).** The router's `codex-oauth` provider
+  is switched off (every `chat`/`generate_image` to it answers «Provider 'codex-oauth' is
+  disabled»), so the vision check, the generated illustrations and «Картина дня» had been
+  failing. New defaults, no prod env change needed (`/etc/posinus/pipeline.env` sets none of
+  these keys): generation `openrouter` / `openai/gpt-image-2.5-sunburst` (a MANUAL registry
+  row with `images_api` added 2026-09-18; ~$0.005 a picture, JPEG, 1024x1536 and 1536x1024
+  verified through the router), vision check `openrouter` / `z-ai/glm-5.3-flash` (7/7 correct
+  in the live comparison, incl. the Google badge and a UPI logo; gpt-5.6-luna dropped a real
+  surgery photo), daypic chat `openrouter` / `openai/gpt-5.6-sol` (adopted 2026-09-18; slot
+  moved by crawler migration `0018`, applied by hand on prod). Params are spelled per
+  provider (`evaluator.reasoning_params`, `evaluator.image_params`): OpenRouter reads
+  `reasoning: {effort}` and `aspect_ratio` + `output_format: jpeg`, codex-oauth
+  `reasoning_effort` and `size`; daypic measures JPEG frames too. Verified live: a prod dry
+  run of the 2026-09-19 issue got a real prompt from gpt-5.6-sol with web-found holidays
+  ($0.11 for the chat call — sol is $2/$10 per M plus search; luna at $0.2/$1.2 is the cheap
+  alternative if that matters). To check: the first preparer run after 21:26 UTC (router
+  `request_logs`: news-preparer → openrouter glm image-to-text, sunburst text-to-image) and
+  tomorrow's daypic issue at 05:00 UTC. 359 tests.
 - **First article in «Интересное» (2026-09-11 ~12:15 UTC, live):** the owner's folder
   `docs/interesting/AI-picture-style-part-1/` (index.md + JPEGs, committed: wildcar-site c906fe7).
   Site hook `on_nav` titles an article folder by its H1; README of wildcar-site documents the

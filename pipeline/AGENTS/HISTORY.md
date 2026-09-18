@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-09-18 · Картинки и vision-проверка через OpenRouter вместо выключенного codex-oauth
+- What: умолчания конвейера — генерация `openrouter`/`openai/gpt-image-2.5-sunburst` (ручная строка реестра роутера с `images_api`, ~$0,005 за картинку, JPEG), vision-проверка `openrouter`/`z-ai/glm-5.3-flash`, чат «Картины дня» через слот — `openai/gpt-5.6-sol`. Параметры пишутся по-провайдерски (`evaluator.reasoning_params`/`image_params`: OpenRouter — `reasoning:{effort}`, `aspect_ratio` + `output_format:jpeg`; codex-oauth — `reasoning_effort`, `size`); `daypic._image_size` меряет и JPEG. 359 тестов. LIVE at `7f270a7` (git pull, скрипты работают по месту).
+- Why: владелец выключил провайдер `codex-oauth` в роутере — проверка, иллюстрации и «Картина дня» падали. GLM выбран по живому сравнению (7/7 верно, luna ошиблась на фото операции); без закреплённой модели запрос на OpenRouter уходит в `openrouter/auto`, который отвечает текстом. Парная правка краулера — миграция `0018`.
+- Files: pipeline/evaluator.py, preparer.py, daypic.py, deploy/pipeline.env.example, tests/test_{evaluator,preparer,daypic}.py, AGENTS/SPEC.md, docs/services.md; AGENTS/ENV.md, AGENTS/MEMORY.md
+- Next: проверить первый прогон preparer после 21:26 UTC и выпуск «Картины дня» 19 сентября; ради экономии слот можно перевести на `openai/gpt-5.6-luna`.
+
 ## 2026-09-11 · wildcar.org: статьи в ленте на главной; пересборка сайта по изменению ручных исходников
 - What: хук сайта включает статьи из `docs/interesting/` в ленту на главной карточкой «Статья» (первая картинка, дата, первый абзац) и даёт их страницам description и og:image, как новостям; список раздела и лента считаются одним обходом (`article_pages`: папка с index.md или одиночный .md). Новый `deploy/wildcar-org-watch.sh` + `posinus-wildcar-org-watch.{service,timer}` (keeper, группа posinus, раз в 2 минуты): если в docs/ (кроме news и kartina), hooks/, overrides/ или mkdocs.yml есть что-то новее `sitemap.xml` последней сборки и ничего не менялось 90 с, ставит маркер пересборки. install.sh ставит и включает юниты.
 - Why: владелец спросил, попадёт ли статья в ленту, и попросил, чтобы новые статьи попадали туда сами; на другие площадки статьи не нужны.
