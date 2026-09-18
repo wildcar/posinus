@@ -83,6 +83,15 @@ to time: merge duplicates, drop stale entries.
 
 ## Project facts — pipeline
 
+- Since 2026-09-18 every picture call of the pipeline goes through OpenRouter (owner's
+  decision after switching the router's `codex-oauth` provider off): generation
+  `openai/gpt-image-2.5-sunburst` (~$0.005 a picture, JPEG, honours `aspect_ratio`), the
+  vision check `z-ai/glm-5.3-flash` (kept all 4 real photos and dropped both junk samples in
+  the 2026-09-18 comparison, GPT-5.6-luna misjudged one), the daypic chat
+  `openai/gpt-5.6-sol`. Why: OpenRouter's images-endpoint models must be MANUAL registry
+  rows with `images_api` and must be pinned by `model_id` — the router's price scan never
+  picks them and `openrouter/auto` answers text. Details: `AGENTS/ENV.md`.
+
 - DeepSeek raised V4 API prices up to 4x and switched to peak/off-peak billing on
   2026-08-16/17 (v4-pro output $3.96/M peak, $1.98 off-peak; $0.87 before). The evaluator's
   model cost went from ~$0.3 to ~$1.5–2 a day. Why: judge model-choice questions against the

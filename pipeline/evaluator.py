@@ -284,6 +284,52 @@ def app_identity(cfg: Config) -> dict[str, str]:
     return identity
 
 
+# Provider spellings of two knobs the router passes through verbatim and
+# reports as `ignored_params` when a provider does not know the name. The
+# callers say what they want (an effort, a WxH frame) and this pair says it the
+# way each provider's adapter reads it — codex-oauth takes `reasoning_effort`
+# and `size`; OpenRouter takes `reasoning: {effort}` and, on its /images
+# endpoint, `aspect_ratio` (the pixel size is the model's own choice there).
+OPENROUTER = "openrouter"
+
+
+def reasoning_params(provider: str, effort: str) -> dict[str, Any]:
+    """The router params that ask `provider` for this reasoning effort; {} for none."""
+    if not effort:
+        return {}
+    if provider == OPENROUTER:
+        return {"reasoning": {"effort": effort}}
+    return {"reasoning_effort": effort}
+
+
+def aspect_ratio(size: str) -> str:
+    """`1024x1536` -> `2:3`; the size itself when it is not WxH."""
+    width, sep, height = size.lower().partition("x")
+    if not sep or not width.strip().isdigit() or not height.strip().isdigit():
+        return size
+    w, h = int(width), int(height)
+    if w <= 0 or h <= 0:
+        return size
+    from math import gcd
+    g = gcd(w, h)
+    return f"{w // g}:{h // g}"
+
+
+def image_params(provider: str, size: str) -> dict[str, Any]:
+    """The router params that ask `provider` for a picture of this WxH frame.
+
+    OpenRouter's images endpoint reads the frame as an aspect ratio and is asked
+    for JPEG outright: the platforms take JPEG everywhere, and the reply travels
+    inline as base64 in one MCP message, where a PNG at the model's native
+    resolution (4 MB and up) does not fit. Other providers get the size as is.
+    """
+    if not size:
+        return {}
+    if provider == OPENROUTER:
+        return {"aspect_ratio": aspect_ratio(size), "output_format": "jpeg"}
+    return {"size": size}
+
+
 def build_chat_arguments(cfg: Config, messages: list[dict[str, str]]) -> dict[str, Any]:
     """Router hints are optional: empty ones are omitted, the router decides."""
     arguments: dict[str, Any] = {

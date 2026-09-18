@@ -64,9 +64,12 @@ def test_the_migration_seeds_the_day_slot_switched_off():
 
 @pytest.mark.django_db
 def test_the_day_slot_asks_the_web_for_the_date_and_hides_a_surprise():
-    """Migration 0015: codex-oauth gpt-5.5, medium reasoning, search on."""
+    """Migration 0015 set codex-oauth gpt-5.5, medium reasoning, search on;
+    0018 moved the call to OpenRouter (gpt-5.5 -> openai/gpt-5.5) and the
+    picture to openai/gpt-image-2.5-sunburst."""
     slot = DaypicSlot.objects.get(pk="day")
-    assert (slot.chat_provider, slot.chat_model) == ("codex-oauth", "gpt-5.5")
+    assert (slot.chat_provider, slot.chat_model) == ("openrouter", "openai/gpt-5.5")
+    assert (slot.image_provider, slot.image_model) == ("", "")  # 0015 left the picture to the pipeline default
     assert slot.chat_reasoning_effort == "medium"
     assert slot.chat_web_search
     assert "Веб-поиска у тебя нет" not in slot.system_prompt

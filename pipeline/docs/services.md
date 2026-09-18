@@ -94,7 +94,7 @@ sudo -u posinus-pipeline bash -c 'set -a; . /etc/posinus/pipeline.env; set +a; \
 ```
 
 Every downloaded picture is shown to a vision model (the router's `chat` tool with the
-image attached, provider `IMAGE_CHECK_PROVIDER`, default `codex-oauth`) which answers
+image attached, provider `IMAGE_CHECK_PROVIDER`, default `openrouter` / `z-ai/glm-5.3-flash`) which answers
 `keep` or `drop`: the `ignored_image` blacklist matches by URL and catches a source's
 logo only after an operator has seen it published, while the model catches it the first
 time by looking. A `drop` verdict deletes the picture with its file; a router failure or
@@ -109,8 +109,12 @@ then gets one generated from its stored retelling, as at preparation time.
 
 A news item that still has zero pictures after download (none in the article, or all of
 them blacklisted/filtered/dropped by the vision check) gets one generated from the retelling: the router's
-`generate_image` tool, provider `IMAGE_PROVIDER` (default `codex-oauth`; empty turns the
-feature off, `IMAGE_MODEL` pins a model). The file is stored as a normal illustration
+`generate_image` tool, provider `IMAGE_PROVIDER` (default `openrouter`; empty turns the
+feature off, `IMAGE_MODEL` pins a model — default `openai/gpt-image-2.5-sunburst`, and on
+OpenRouter it must stay pinned: its images-endpoint models are manual registry rows the router
+does not rank, so an unpinned request lands on `openrouter/auto`, which answers with text).
+The frame travels as the provider spells it (`evaluator.image_params`: `size` for
+codex-oauth, `aspect_ratio` + `output_format: jpeg` for OpenRouter). The file is stored as a normal illustration
 with `source_url = generated://<model_id>`, so provenance stays visible in the DB. A
 generation failure never fails the preparation — the item publishes without a picture,
 as it always did. A dry run only logs that it would generate.
@@ -126,11 +130,14 @@ Config (in `/etc/posinus/pipeline.env`):
   pipeline scripts; the router forwards it to providers that take one, URL wins.
 - `PREPARER_ROUTER_USER_ID` (default `news-preparer`) — `external_user_id` of the retelling
   calls, so the router does not bill them to `news-evaluator`.
-- `IMAGE_PROVIDER` (default `codex-oauth`), `IMAGE_MODEL` (empty → router picks) — image
-  generation for items with zero pictures.
-- `IMAGE_CHECK_PROVIDER` (default `codex-oauth`), `IMAGE_CHECK_MODEL` (default
-  `gpt-5.6-terra`, owner's pick 2026-08-26; empty → router picks) — the vision check of
-  downloaded pictures; empty provider turns it off.
+- `IMAGE_PROVIDER` (default `openrouter`), `IMAGE_MODEL` (default
+  `openai/gpt-image-2.5-sunburst`, owner's pick 2026-09-18) — image generation for items
+  with zero pictures.
+- `IMAGE_CHECK_PROVIDER` (default `openrouter`), `IMAGE_CHECK_MODEL` (default
+  `z-ai/glm-5.3-flash` since 2026-09-18: it matched GPT on every real photo and both junk
+  samples in the live comparison, at ~1/20 of the price; before that codex-oauth
+  `gpt-5.6-terra`) — the vision check of downloaded pictures; empty provider turns it off.
+  The `low` reasoning effort is spelled per provider (`evaluator.reasoning_params`).
 
 ## publisher.py
 
@@ -443,8 +450,9 @@ and given up on.
 «Картина дня»: once a day (per slot) the script asks the router's chat model for one
 JSON reply — an image prompt built from the current date and a random style, plus a
 short Russian description of the day's holidays — draws the picture TWICE from that
-prompt (`generate_image`, default `codex-oauth`: vertical `1024x1536` for telegram,
-horizontal `1536x1024` for the sites and VK) and posts it to all five platforms:
+prompt (`generate_image`, default `openrouter` / `openai/gpt-image-2.5-sunburst`: vertical
+`1024x1536` for telegram, horizontal `1536x1024` for the sites and VK — on OpenRouter the
+frame is sent as `aspect_ratio` `2:3`/`3:2` with `output_format: jpeg`) and posts it to all five platforms:
 wildcar.org (its own section, `DAYPIC_WILDCAR_SECTION`, default `kartina` — the build
 script syncs it alongside news), telegram, the Эгея site (its own tags,
 `DAYPIC_SITE_TAGS`), the VK wall and — since 2026-09-10 — a VK community story (`vk_story`,
@@ -501,16 +509,19 @@ preferring for a consumer that only wants the picture.
 Gotchas:
 
 - the slot owns the chat call: provider, model, `chat_reasoning_effort` and
-  `chat_web_search`. With search on (the `day` slot runs codex-oauth `gpt-5.5`,
-  reasoning `medium`) the prompt scaffolding also tells the model in words to look
-  the date up, Russian holidays first. Editing any of it is an operator action on the
+  `chat_web_search`. With search on (the `day` slot runs OpenRouter `openai/gpt-5.6-sol`,
+  reasoning `medium`, since migration `0018` on 2026-09-18; codex-oauth `gpt-5.5`, later
+  `gpt-5.6-sol`, before that) the prompt scaffolding also tells the model in words to look
+  the date up, Russian holidays first. The effort is spelled per provider
+  (`reasoning: {effort}` on OpenRouter, `reasoning_effort` on codex-oauth). Editing any of it is an operator action on the
   web page, not a deploy;
 - the style is random but never repeats within the slot's current month (checked
   against `daypic_item`); when the list runs out, any style goes;
-- **the orientation must be in the prompt, not only in `params.size`**: codex-oauth
+- **the orientation must be in the prompt, not only in the params**: codex-oauth
   drops the requested size (the first issue went out with a landscape picture in
-  telegram because of it — see `../../AGENTS/ENV.md`). `ORIENTATIONS` prepends one
-  sentence per rendition, and the saved PNG is measured afterwards: a mismatch logs
+  telegram because of it — see `../../AGENTS/ENV.md`); OpenRouter honours
+  `aspect_ratio` (verified 2026-09-18). `ORIENTATIONS` prepends one sentence per
+  rendition, and the saved PNG or JPEG is measured afterwards: a mismatch logs
   «asked for a vertical frame, got 1536x1024» and still publishes;
 - a failed generation retries on the next 15-minute timer run, at most
   `DAYPIC_MAX_ATTEMPTS` (4) per day — generation costs money and a broken day must end.

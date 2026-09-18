@@ -125,14 +125,21 @@ class PreparerConfig:
     max_images: int = MAX_IMAGES
     # A news item that ends up with zero pictures gets one generated from the
     # retelling. Empty image_provider switches the feature off; empty
-    # image_model lets the router pick within the provider.
-    image_provider: str = "codex-oauth"
-    image_model: str = ""
+    # image_model lets the router pick within the provider. Since 2026-09-18
+    # both picture calls go through OpenRouter (the router's codex-oauth
+    # provider is switched off): the model is pinned because OpenRouter's
+    # images-endpoint models are manual registry rows the price scan does not
+    # rank — an unpinned request lands on `openrouter/auto`, which answers with
+    # text.
+    image_provider: str = "openrouter"
+    image_model: str = "openai/gpt-image-2.5-sunburst"
     # Downloaded pictures are shown to a vision model that weeds out what the
     # URL blacklist and the size filters cannot see: source logos, banners,
-    # badges. Same off-switch convention as the pair above.
-    image_check_provider: str = "codex-oauth"
-    image_check_model: str = "gpt-5.6-terra"
+    # badges. Same off-switch convention as the pair above. GLM kept every real
+    # photo and dropped both junk samples in the 2026-09-18 comparison, at a
+    # fraction of the GPT price.
+    image_check_provider: str = "openrouter"
+    image_check_model: str = "z-ai/glm-5.3-flash"
 
     @classmethod
     def from_env(cls, env: dict[str, str] = os.environ) -> "PreparerConfig":
@@ -441,7 +448,7 @@ def review_illustrations(
             "text": IMAGE_CHECK_PROMPT.format(title=title),
             "images_b64": [base64.b64encode(data).decode()],
             "image_mime": mime,
-            "params": {"reasoning_effort": "low"},
+            "params": evaluator.reasoning_params(cfg.image_check_provider, "low"),
         }
         arguments.update(evaluator.app_identity(router_cfg))
         if cfg.image_check_provider:
@@ -551,6 +558,8 @@ IMAGE_PROMPT = (
 )
 IMAGE_PROMPT_LEAD_CHARS = 600
 
+# The generated illustration's frame: horizontal, like the prompt says.
+ILLUSTRATION_SIZE = "1536x1024"
 _IMAGE_MAGIC = ((b"\x89PNG", ".png"), (b"\xff\xd8", ".jpg"), (b"RIFF", ".webp"), (b"GIF8", ".gif"))
 
 
@@ -587,6 +596,11 @@ def generate_illustration(
         arguments["provider"] = cfg.image_provider
     if cfg.image_model:
         arguments["model_id"] = cfg.image_model
+    # The prompt asks for a horizontal picture in words; the frame goes in the
+    # params too, spelled for the provider (see evaluator.image_params).
+    params = evaluator.image_params(cfg.image_provider, ILLUSTRATION_SIZE)
+    if params:
+        arguments["params"] = params
     try:
         reply = evaluator.call_tool(router_cfg.router_url, "generate_image", arguments,
                                     token=router_cfg.router_token or None)

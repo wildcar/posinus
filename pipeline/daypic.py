@@ -117,7 +117,8 @@ CREATE TABLE IF NOT EXISTS daypic_publication (
 
 # The prompt scaffolding around the operator's slot prompt. The slot can turn
 # on the router's web search (chat_web_search; codex-oauth runs its native
-# search tool), but the date discipline still matters either way: searched or
+# search tool, OpenRouter its server-side web_search tool or the web plugin),
+# but the date discipline still matters either way: searched or
 # remembered, the day must stay the passed date and not drift to a neighbouring
 # one. The reply format is owned here, not by the slot text: the code is what
 # parses it.
@@ -205,9 +206,12 @@ class DaypicConfig:
     daypic_dir: str = "/var/lib/posinus/pipeline/daypic"
     tz: str = "Europe/Moscow"
     max_attempts: int = 4
-    # Router hints when the slot leaves its own fields empty.
-    image_provider: str = "codex-oauth"
-    image_model: str = ""
+    # Router hints when the slot leaves its own fields empty. Since 2026-09-18
+    # OpenRouter (codex-oauth is switched off at the router); the model is
+    # pinned because the images-endpoint rows are manual and unranked — see
+    # preparer.PreparerConfig.
+    image_provider: str = "openrouter"
+    image_model: str = "openai/gpt-image-2.5-sunburst"
     image_size: str = "1024x1536"        # vertical: telegram and the pickup file
     image_size_wide: str = "1536x1024"   # horizontal: the sites and VK
     site_tags: str = "картина дня"
@@ -395,17 +399,18 @@ def build_prompt(
     the issue is worth more than the prose.
     """
     # Reasoning effort and web search ride the params next to temperature and
-    # max_tokens; the router drops what a provider does not understand (it
-    # reports them as ignored_params), so a slot pointed at a plainer provider
-    # keeps working.
+    # max_tokens, the effort spelled for the provider that will read it
+    # (evaluator.reasoning_params); the router drops what a provider does not
+    # understand (it reports them as ignored_params), so a slot pointed at a
+    # plainer provider keeps working.
+    provider = slot.chat_provider or router_cfg.provider
     params = dict(router_cfg.params)
-    if slot.chat_reasoning_effort:
-        params["reasoning_effort"] = slot.chat_reasoning_effort
+    params.update(evaluator.reasoning_params(provider, slot.chat_reasoning_effort))
     if slot.chat_web_search:
         params["web_search"] = True
     cfg = replace(
         router_cfg,
-        provider=slot.chat_provider or router_cfg.provider,
+        provider=provider,
         model_id=slot.chat_model or router_cfg.model_id,
         params=params,
     )
@@ -443,28 +448,37 @@ def build_prompt(
 # ------------------------------------------------------------- image stage
 
 
-# The orientation has to be in the PROMPT, not only in `params.size`. The
+# The orientation has to be in the PROMPT, not only in the params. The
 # codex-oauth backend drops the requested size: on 2026-07-30 the router asked
 # `1024x1536` and got 1536x1024 back, twice (router request_logs 8618, 8570) —
 # it is the model that picks the canvas when it emits the image_generation call,
 # and it reads the prompt. Saying it in words produced a real 1024x1536 frame,
-# so both channels are used now: the size for providers that honour it, the
-# sentence for the one that does not.
+# so both channels are used now: the frame in the params, spelled for the
+# provider (`size`, or `aspect_ratio` on OpenRouter — evaluator.image_params),
+# and the sentence for the one that does not listen to params.
 ORIENTATIONS = {
     "vertical": "Вертикальный портретный кадр, ориентация 2:3: высота больше ширины.",
     "horizontal": "Горизонтальный кадр, ориентация 3:2: ширина больше высоты.",
 }
 
 
-def _png_size(data: bytes) -> tuple[int, int] | None:
-    """(width, height) of a PNG, or None when these are not PNG bytes.
+def _image_size(data: bytes) -> tuple[int, int] | None:
+    """(width, height) of a PNG or a baseline/progressive JPEG, else None.
 
-    Enough to tell portrait from landscape without a decoder: the provider
-    returns PNG, and the check exists to catch the day the orientation silently
-    flips again."""
-    if not data.startswith(b"\x89PNG\r\n\x1a\n") or len(data) < 24:
-        return None
-    return (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big"))
+    Enough to tell portrait from landscape without a decoder: the providers
+    return PNG (codex-oauth) or JPEG (OpenRouter, asked for it), and the check
+    exists to catch the day the orientation silently flips again."""
+    if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 24:
+        return (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big"))
+    if data.startswith(b"\xff\xd8"):
+        offset = 2
+        while offset + 9 < len(data) and data[offset] == 0xFF:
+            marker = data[offset + 1]
+            if marker in (0xC0, 0xC1, 0xC2):  # SOF0/1/2: height then width
+                return (int.from_bytes(data[offset + 7:offset + 9], "big"),
+                        int.from_bytes(data[offset + 5:offset + 7], "big"))
+            offset += 2 + int.from_bytes(data[offset + 2:offset + 4], "big")
+    return None
 
 
 def generate_picture(
@@ -490,8 +504,9 @@ def generate_picture(
             arguments["provider"] = provider
         if model:
             arguments["model_id"] = model
-        if size:
-            arguments["params"] = {"size": size}
+        params = evaluator.image_params(provider, size)
+        if params:
+            arguments["params"] = params
         try:
             reply = evaluator.call_tool(router_cfg.router_url, "generate_image", arguments,
                                         token=router_cfg.router_token or None)
@@ -511,7 +526,7 @@ def generate_picture(
         raise DaypicError(f"изображение неправдоподобно маленькое ({len(data)} байт)")
     # Warn rather than fail: a wrongly-framed picture still beats no issue, and
     # the log line is what tells the operator the backend changed its mind.
-    measured = _png_size(data)
+    measured = _image_size(data)
     if measured is not None:
         got = "vertical" if measured[1] > measured[0] else "horizontal"
         if orientation in ORIENTATIONS and got != orientation:

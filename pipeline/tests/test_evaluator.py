@@ -40,6 +40,30 @@ def full_scores(value: int = 5) -> dict[str, int]:
     return {key: value for key in AXIS_KEYS}
 
 
+class ProviderParamTests(unittest.TestCase):
+    """Two knobs the router passes through verbatim, spelled per provider."""
+
+    def test_reasoning_effort_spelling(self):
+        self.assertEqual(evaluator.reasoning_params("codex-oauth", "low"), {"reasoning_effort": "low"})
+        self.assertEqual(evaluator.reasoning_params("openrouter", "medium"), {"reasoning": {"effort": "medium"}})
+        self.assertEqual(evaluator.reasoning_params("", "low"), {"reasoning_effort": "low"})
+        self.assertEqual(evaluator.reasoning_params("openrouter", ""), {})
+
+    def test_aspect_ratio_reduces_the_frame(self):
+        self.assertEqual(evaluator.aspect_ratio("1024x1536"), "2:3")
+        self.assertEqual(evaluator.aspect_ratio("1536x1024"), "3:2")
+        self.assertEqual(evaluator.aspect_ratio("1600x900"), "16:9")
+        self.assertEqual(evaluator.aspect_ratio("1024X1024"), "1:1")
+        self.assertEqual(evaluator.aspect_ratio("auto"), "auto")
+        self.assertEqual(evaluator.aspect_ratio("0x100"), "0x100")
+
+    def test_image_params_spelling(self):
+        self.assertEqual(evaluator.image_params("codex-oauth", "1024x1536"), {"size": "1024x1536"})
+        self.assertEqual(evaluator.image_params("openrouter", "1024x1536"),
+                         {"aspect_ratio": "2:3", "output_format": "jpeg"})
+        self.assertEqual(evaluator.image_params("openrouter", ""), {})
+
+
 class ExtractJsonTests(unittest.TestCase):
     def test_plain_object(self):
         self.assertEqual(extract_json_object('{"a": 1}'), {"a": 1})

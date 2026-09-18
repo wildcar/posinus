@@ -114,8 +114,8 @@ class DaypicSlotForm(forms.ModelForm):
             "chat_provider": forms.TextInput(attrs={"placeholder": "пусто — deepseek (умолчание конвейера)"}),
             "chat_model": forms.TextInput(attrs={"placeholder": "пусто — deepseek-v4-pro (умолчание конвейера)"}),
             "chat_reasoning_effort": forms.TextInput(attrs={"placeholder": "например medium; пусто — умолчание провайдера"}),
-            "image_provider": forms.TextInput(attrs={"placeholder": "пусто — codex-oauth (умолчание конвейера)"}),
-            "image_model": forms.TextInput(attrs={"placeholder": "пусто — выбирает роутер"}),
+            "image_provider": forms.TextInput(attrs={"placeholder": "пусто — openrouter (умолчание конвейера)"}),
+            "image_model": forms.TextInput(attrs={"placeholder": "пусто — openai/gpt-image-2.5-sunburst (умолчание конвейера)"}),
             "image_size": forms.TextInput(attrs={"placeholder": "1024x1536"}),
             "image_size_wide": forms.TextInput(attrs={"placeholder": "1536x1024"}),
         }

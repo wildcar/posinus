@@ -67,6 +67,18 @@ site content the pipeline produced.
 - Router Bearer token: `AUTH_TOKEN` in `/opt/model-router-mcp/.env` (root-readable via sudo).
   The crawler reads it as `POSINUS_ROUTER_AUTH_TOKEN`, the pipeline as `ROUTER_AUTH_TOKEN`.
   `pipeline/deploy/install.sh` copies it in automatically. Never commit it.
+- OpenRouter through the router (in use for pictures and the vision check since
+  2026-09-18, when the owner switched the `codex-oauth` provider off): the adapter passes
+  `reasoning: {"effort": ...}` (not `reasoning_effort`), `web_search: true` (server tool,
+  then the web plugin), and on its `/images` endpoint `aspect_ratio` + `output_format`
+  (`size` is ignored). Images-endpoint models (`openai/gpt-image-2.5-sunburst`,
+  `meta/muse-image`, …) are absent from OpenRouter's `GET /models`, so they are MANUAL
+  registry rows with capability `images_api` (`POST /api/registry/models`), and a request
+  without `model_id` never reaches them — it lands on `openrouter/auto`, which answers
+  with text. Chat models are adopted from the catalog
+  (`POST /api/registry/catalog/openrouter/adopt`, body `{"model_ids": [...]}`); a model
+  not in the registry fails with «Unknown model_id». Credits: `GET
+  https://openrouter.ai/api/v1/credits` with the key from the router's `.env`.
 - The `codex-oauth` provider DROPS the requested image size (learned 2026-07-30). The
   router passes `params.size` into the `image_generation` tool correctly — router
   `request_logs` 8618 asked `1024x1536` — and the picture came back 1536x1024 anyway,

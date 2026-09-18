@@ -179,6 +179,22 @@ class PromptTests(unittest.TestCase):
         self.assertIn("интернете", seen["request"])
         self.assertIn("российским", seen["request"])
 
+    def test_reasoning_is_spelled_for_the_slot_provider(self):
+        """OpenRouter reads `reasoning: {effort}`; codex-oauth reads `reasoning_effort`."""
+        seen = {}
+
+        def fake_chat(chat_cfg, messages):
+            seen["params"] = dict(chat_cfg.params)
+            return CHAT_REPLY
+
+        slot = make_slot(chat_provider="openrouter", chat_model="openai/gpt-5.6-sol",
+                         chat_reasoning_effort="medium", chat_web_search=True)
+        with mock.patch.object(evaluator, "chat", side_effect=fake_chat):
+            daypic.build_prompt(evaluator.Config(), slot, NOW.astimezone(MSK), "")
+        self.assertEqual(seen["params"]["reasoning"], {"effort": "medium"})
+        self.assertNotIn("reasoning_effort", seen["params"])
+        self.assertTrue(seen["params"]["web_search"])
+
     def test_a_slot_without_search_sends_neither_param_nor_the_line(self):
         cfg = evaluator.Config()
         seen = {}
@@ -232,6 +248,40 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual(model, "gpt-image-2")
         sizes = [call_args.args[2]["params"]["size"] for call_args in call.call_args_list]
         self.assertEqual(sizes, ["1024x1536", "1536x1024"])
+
+    def test_openrouter_gets_the_frame_as_an_aspect_ratio_and_jpeg(self):
+        """The images endpoint reads `aspect_ratio`, not `size`; JPEG keeps the
+        inline base64 reply under the MCP message cap."""
+        cfg = daypic.DaypicConfig(daypic_dir=self.tmp.name)  # the defaults: OpenRouter
+        self.assertEqual((cfg.image_provider, cfg.image_model),
+                         ("openrouter", "openai/gpt-image-2.5-sunburst"))
+        jpeg = (b"\xff\xd8\xff\xc0" + (17).to_bytes(2, "big") + b"\x08"
+                + (1536).to_bytes(2, "big") + (1024).to_bytes(2, "big") + b"x" * 4000)
+        reply = {"image_b64": [base64.b64encode(jpeg).decode()], "model_id": "openai/gpt-image-2.5-sunburst"}
+        with mock.patch.object(evaluator, "call_tool", return_value=reply) as call:
+            vertical, wide, model = daypic.generate_pictures(cfg, self.router, make_slot(), "prompt", DAY)
+        params = [args.args[2]["params"] for args in call.call_args_list]
+        self.assertEqual(params, [{"aspect_ratio": "2:3", "output_format": "jpeg"},
+                                  {"aspect_ratio": "3:2", "output_format": "jpeg"}])
+        self.assertEqual([args.args[2]["model_id"] for args in call.call_args_list],
+                         ["openai/gpt-image-2.5-sunburst"] * 2)
+        self.assertEqual(Path(vertical).name, f"{DAY}-day.jpg")
+        self.assertEqual(Path(wide).name, f"{DAY}-day-wide.jpg")
+
+    def test_a_jpeg_frame_is_measured_too(self):
+        """A landscape JPEG where a portrait was asked for is logged like a PNG."""
+        landscape = (b"\xff\xd8\xff\xe0" + (16).to_bytes(2, "big") + b"JFIF" + b"\x00" * 10
+                     + b"\xff\xc2" + (17).to_bytes(2, "big") + b"\x08"
+                     + (1024).to_bytes(2, "big") + (1536).to_bytes(2, "big") + b"x" * 4000)
+        self.assertEqual(daypic._image_size(landscape), (1536, 1024))
+        self.assertIsNone(daypic._image_size(b"RIFF" + b"\x00" * 40))
+        cfg = daypic.DaypicConfig(daypic_dir=self.tmp.name)
+        reply = {"image_b64": [base64.b64encode(landscape).decode()], "model_id": "m"}
+        with mock.patch.object(evaluator, "call_tool", return_value=reply):
+            with self.assertLogs("posinus-daypic", level="WARNING") as logs:
+                daypic.generate_picture(cfg, self.router, make_slot(), "prompt", DAY,
+                                        "1024x1536", "vertical")
+        self.assertIn("asked for a vertical frame, got 1536x1024", "\n".join(logs.output))
 
     def test_the_orientation_travels_in_the_prompt_too(self):
         """codex-oauth drops params.size, so the frame has to be said in words."""

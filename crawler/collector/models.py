@@ -435,7 +435,7 @@ class DaypicSlot(models.Model):
     chat_provider = models.CharField(max_length=100, blank=True)
     chat_model = models.CharField(max_length=200, blank=True)
     # Chat-call knobs the router forwards to providers that understand them
-    # (codex-oauth does): the reasoning effort and the native web-search tool.
+    # (openrouter and codex-oauth do): the reasoning effort and the web-search tool.
     # Blank/off leaves the provider's own default.
     chat_reasoning_effort = models.CharField(max_length=20, blank=True)
     chat_web_search = models.BooleanField(default=False)

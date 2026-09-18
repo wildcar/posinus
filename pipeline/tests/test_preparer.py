@@ -560,7 +560,11 @@ class GenerateIllustrationTests(unittest.TestCase):
         self.assertEqual(entry["caption"], "")
         self.assertEqual(entry["source_url"], "generated://gpt-image-2")
         self.assertEqual(calls["tool"], "generate_image")
-        self.assertEqual(calls["arguments"]["provider"], "codex-oauth")
+        self.assertEqual(calls["arguments"]["provider"], "openrouter")
+        self.assertEqual(calls["arguments"]["model_id"], "openai/gpt-image-2.5-sunburst")
+        # A horizontal frame, spelled the way OpenRouter's images endpoint reads it.
+        self.assertEqual(calls["arguments"]["params"],
+                         {"aspect_ratio": "3:2", "output_format": "jpeg"})
         self.assertEqual(calls["arguments"]["external_user_id"], "news-preparer")
         self.assertEqual(calls["arguments"]["app_url"], "https://wildcar.org")
         self.assertEqual(calls["arguments"]["app_name"], "Positive news")
@@ -638,7 +642,9 @@ class ReviewIllustrationsTests(unittest.TestCase):
             self.assertTrue(Path(photo["path"]).exists())
         self.assertEqual([tool for tool, _ in calls], ["chat", "chat"])
         first = calls[0][1]
-        self.assertEqual(first["provider"], "codex-oauth")
+        self.assertEqual(first["provider"], "openrouter")
+        self.assertEqual(first["model_id"], "z-ai/glm-5.3-flash")
+        self.assertEqual(first["params"], {"reasoning": {"effort": "low"}})
         self.assertEqual(first["image_mime"], "image/jpeg")
         self.assertEqual(calls[1][1]["image_mime"], "image/png")
         self.assertEqual(first["external_user_id"], "news-preparer")
