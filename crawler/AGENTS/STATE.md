@@ -11,10 +11,10 @@ Operate a single-host multilingual news crawler whose source list improves from 
   `openai/gpt-image-2.5-sunburst`. The router's `codex-oauth` provider is switched off, so
   the slot had been failing. Migration `0018` moves any slot still on codex-oauth (chat model
   mapped to its `openai/…` OpenRouter id, picture to sunburst) and is committed at `7f270a7`;
-  on prod the same change was applied by hand through `manage.py shell` because the
-  classifier refused `migrate` + web restart — `0018` is still unapplied in
-  `django_migrations` on prod and posinus-web still serves the old form placeholders until
-  the next `update-ubuntu.sh` run (the migration is a no-op on the already-moved row).
+  on prod the row was first moved by hand through `manage.py shell` (the classifier refused
+  `migrate` + web restart), then the owner ran `update-ubuntu.sh`: **LIVE at `4b7f0f8`,
+  `0018` recorded in `django_migrations` at 21:42:16 UTC, posinus-web restarted 21:42:28 UTC**,
+  slot row `openrouter` / `openai/gpt-5.6-sol` + `openrouter` / `openai/gpt-image-2.5-sunburst`.
   Verified live: a dry run of tomorrow's issue got a real prompt from gpt-5.6-sol with the
   19 September holidays found on the web. 163 tests.
 - Since 2026-08-26 the translation service names the application to the model router:
