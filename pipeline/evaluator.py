@@ -41,6 +41,8 @@ AXIS_COUNT = 20
 MAX_MODEL_ATTEMPTS = 3
 MAX_BODY_CHARS = 8000
 MAX_COMMENT_CHARS = 500
+OPENROUTER = "openrouter"
+FINAL_CHECK_MODES = ("chat", "decide", "shadow")
 DB_LOCK_RETRIES = 4
 MCP_PROTOCOL_VERSION = "2025-03-26"
 
@@ -250,6 +252,21 @@ class Config:
     # Selected news gets a second look from the model as a publishing editor
     # before the verdict is written; "inappropriate" overrides the thresholds.
     final_check: bool = True
+    # Who gives that second look. `chat`: the scoring model answers a JSON
+    # yes/no (the original path). `decide`: a decision model (TypeSafe Jev via
+    # the router's `decide` tool) answers five noul questions with
+    # probabilities, and the thresholds below turn them into a verdict.
+    # `shadow`: `chat` decides, `decide` runs beside it, and both verdicts land
+    # in `final_check_shadow` in the pipeline's own DB — the calibration week.
+    final_check_mode: str = "chat"
+    decide_provider: str = OPENROUTER
+    decide_model: str = "~typesafe/jev-latest"
+    # P(appropriate) at or above this reads as appropriate, and any red flag at
+    # or above the flag threshold vetoes on its own. Both are noul probabilities.
+    decide_threshold: float = 0.5
+    decide_flag_threshold: float = 0.5
+    # The pipeline-owned DB (shared with the preparer), home of the shadow table.
+    own_db_path: str = runlog.DEFAULT_DB
 
     @classmethod
     def from_env(cls, env: dict[str, str] = os.environ) -> "Config":
@@ -271,6 +288,18 @@ class Config:
         cfg.final_check = env.get("EVALUATOR_FINAL_CHECK", "").strip().lower() not in (
             "off", "0", "no", "false"
         )
+        mode = env.get("EVALUATOR_FINAL_CHECK_MODE", cfg.final_check_mode).strip().lower()
+        if mode not in FINAL_CHECK_MODES:
+            log.warning("EVALUATOR_FINAL_CHECK_MODE=%r is unknown, using 'chat'", mode)
+            mode = "chat"
+        cfg.final_check_mode = mode
+        cfg.decide_provider = env.get("EVALUATOR_DECIDE_PROVIDER", cfg.decide_provider)
+        cfg.decide_model = env.get("EVALUATOR_DECIDE_MODEL", cfg.decide_model)
+        if value := env.get("EVALUATOR_DECIDE_THRESHOLD"):
+            cfg.decide_threshold = float(value)
+        if value := env.get("EVALUATOR_DECIDE_FLAG_THRESHOLD"):
+            cfg.decide_flag_threshold = float(value)
+        cfg.own_db_path = env.get("EVALUATOR_DB_PATH", cfg.own_db_path)
         return cfg
 
 
@@ -290,7 +319,6 @@ def app_identity(cfg: Config) -> dict[str, str]:
 # way each provider's adapter reads it — codex-oauth takes `reasoning_effort`
 # and `size`; OpenRouter takes `reasoning: {effort}` and, on its /images
 # endpoint, `aspect_ratio` (the pixel size is the model's own choice there).
-OPENROUTER = "openrouter"
 
 
 def reasoning_params(provider: str, effort: str) -> dict[str, Any]:
@@ -771,6 +799,280 @@ def final_check(cfg: Config, news: sqlite3.Row) -> tuple[bool, str, dict[str, An
     raise EvaluationInvalid(last_error)
 
 
+# ------------------------------------------------ final check: decision model
+
+
+# The same editorial question as FINAL_CHECK_SYSTEM, asked of a decision model
+# (TypeSafe Jev through the router's `decide` tool). Not a chat: each question
+# comes back as a probability, and the verdict is computed here, in code. One
+# umbrella question plus one noul per exclusion rule of the chat prompt, so a
+# veto can name the rule that fired instead of a free-text sentence the model
+# would have written. Instructions are English — the model's best language;
+# the news itself travels as it is — and every question spells out its
+# boundary cases, because the model answers the question as written.
+FINAL_CHECK_QUESTIONS: dict[str, dict[str, Any]] = {
+    "appropriate": {
+        "type": "noul",
+        "instructions": (
+            "Is this news story appropriate for a feed of positive news, where "
+            "readers come for joy, inspiration and kind stories? Judge the story, "
+            "not the writing quality."
+        ),
+        "criteria": {
+            "true": (
+                "A story of overcoming with a happy ending; a rescue that "
+                "succeeded; kind deeds; discoveries and achievements; beauty; "
+                "funny or heart-warming incidents."
+            ),
+            "false": (
+                "An obituary; a story whose main event is a death, a fatal accident "
+                "or a grave illness; a disaster, war, crime or conflict without a "
+                "happy resolution; political campaigning; advertising or a press "
+                "release promoting a product or company."
+            ),
+        },
+    },
+    "death_central": {
+        "type": "noul",
+        "instructions": (
+            "Is the main event of this story a death, a fatal accident, or a "
+            "grave illness of a person or animal? An obituary or a tribute to "
+            "someone who has just died counts as yes, even when the tone is warm. "
+            "A successful rescue in which everyone survived counts as no."
+        ),
+    },
+    "unresolved_harm": {
+        "type": "noul",
+        "instructions": (
+            "Does this story report a disaster, war, crime, violence or conflict "
+            "that has not been resolved with a happy outcome within the story? "
+            "A rescue, recovery or reconciliation that succeeded counts as no."
+        ),
+    },
+    "political": {
+        "type": "noul",
+        "instructions": (
+            "Is this story political campaigning or a politically divisive "
+            "message: praising or attacking politicians, parties, governments or "
+            "ideologies, or agitating on a polarizing issue? A government "
+            "programme reported neutrally counts as no."
+        ),
+    },
+    "advertising": {
+        "type": "noul",
+        "instructions": (
+            "Is this story advertising: a press release, sponsored content or "
+            "promotion of a product, service, brand or company? A scientific or "
+            "engineering achievement reported as news counts as no, even when a "
+            "company is named."
+        ),
+    },
+}
+
+# Russian names for the red flags in a veto reason (operator-facing, event `reason`).
+FINAL_CHECK_FLAG_TITLES = {
+    "death_central": "смерть или тяжёлая болезнь в центре события",
+    "unresolved_harm": "беда без счастливой развязки",
+    "political": "политическая агитация",
+    "advertising": "реклама",
+}
+
+
+def build_decide_state(news: sqlite3.Row) -> dict[str, str]:
+    """The story as structured state: the model judges the object as a whole."""
+    body = (news["body_text"] or "").strip()
+    if len(body) > MAX_BODY_CHARS:
+        body = body[:MAX_BODY_CHARS]
+    return {"title": (news["title"] or "").strip(), "text": body}
+
+
+def decide(cfg: Config, questions: dict[str, Any], state: Any) -> dict[str, Any]:
+    """Call the router's `decide` tool; the reply carries `answers`, cost, usage."""
+    arguments: dict[str, Any] = {
+        "external_user_id": cfg.router_user or cfg.selector_name,
+        "questions": questions,
+        "state": state,
+        **app_identity(cfg),
+    }
+    if cfg.decide_model:
+        arguments["model_id"] = cfg.decide_model
+    if cfg.decide_provider:
+        arguments["provider"] = cfg.decide_provider
+    started = time.monotonic()
+    reply = call_tool(cfg.router_url, "decide", arguments, cfg.router_token)
+    if not isinstance(reply, dict):
+        raise McpError(f"decide: unexpected reply {reply!r}")
+    reply["elapsed_ms"] = int((time.monotonic() - started) * 1000)
+    return reply
+
+
+def _noul(answers: dict[str, Any], name: str) -> float:
+    answer = answers.get(name)
+    value = answer.get("noul") if isinstance(answer, dict) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise EvaluationInvalid(f"в ответе нет вероятности noul для вопроса {name}")
+    if not 0.0 <= float(value) <= 1.0:
+        raise EvaluationInvalid(f"вероятность {name} вне диапазона 0..1: {value}")
+    return float(value)
+
+
+def judge_decide_answers(
+    cfg: Config, answers: Any
+) -> tuple[bool, str, dict[str, float]]:
+    """Turn the five probabilities into a verdict and a Russian reason.
+
+    Appropriate when P(appropriate) reaches `decide_threshold` and no red flag
+    reaches `decide_flag_threshold`. The flags are judged independently — the
+    model promises no arithmetic between a question and its negation — so a
+    confident flag vetoes even when the umbrella question says yes.
+    """
+    if not isinstance(answers, dict):
+        raise EvaluationInvalid("в ответе нет объекта answers")
+    probs = {name: _noul(answers, name) for name in FINAL_CHECK_QUESTIONS}
+    fired = [
+        name for name in FINAL_CHECK_FLAG_TITLES
+        if probs[name] >= cfg.decide_flag_threshold
+    ]
+    appropriate = probs["appropriate"] >= cfg.decide_threshold and not fired
+    parts = [f"уместность {probs['appropriate']:.2f}"]
+    parts += [f"{FINAL_CHECK_FLAG_TITLES[name]} {probs[name]:.2f}" for name in fired]
+    reason = ("модель решений: " if appropriate else "модель решений забраковала: ") + ", ".join(parts)
+    return appropriate, reason, probs
+
+
+def final_check_decide(cfg: Config, news: sqlite3.Row) -> tuple[bool, str, dict[str, Any]]:
+    """The final check through the decision model. Same return shape as final_check.
+
+    No retry loop: the answer is probabilities, not prose, so there is nothing
+    the model could «fix» on a second attempt. A malformed reply is
+    EvaluationInvalid, a router failure McpError, as with the chat path.
+    """
+    reply = decide(cfg, FINAL_CHECK_QUESTIONS, build_decide_state(news))
+    appropriate, reason, probs = judge_decide_answers(cfg, reply.get("answers"))
+    reply["probabilities"] = probs
+    return appropriate, reason, reply
+
+
+# --------------------------------------------------- final check: shadow log
+
+
+SHADOW_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS final_check_shadow (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    news_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    chat_model TEXT NOT NULL DEFAULT '',
+    chat_appropriate INTEGER,              -- 1/0; the verdict that was written
+    chat_reason TEXT NOT NULL DEFAULT '',
+    chat_cost_usd REAL,
+    decide_model TEXT NOT NULL DEFAULT '',
+    decide_appropriate INTEGER,            -- 1/0; NULL when the call failed
+    decide_reason TEXT NOT NULL DEFAULT '',
+    probabilities TEXT NOT NULL DEFAULT '{}',
+    decide_cost_usd REAL,
+    decide_ms INTEGER,
+    error TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_final_check_shadow_news ON final_check_shadow(news_id);
+"""
+
+
+def open_shadow_db(path: str) -> sqlite3.Connection | None:
+    """The shadow table lives in the pipeline-owned DB, beside the run log."""
+    con = runlog.open_runlog(path)
+    if con is None:
+        return None
+    try:
+        con.executescript(SHADOW_SCHEMA_SQL)
+        con.commit()
+    except sqlite3.Error as exc:
+        log.warning("cannot create final_check_shadow at %s: %s", path, exc)
+        con.close()
+        return None
+    return con
+
+
+def shadow_final_check(
+    cfg: Config, con: sqlite3.Connection | None, news: sqlite3.Row,
+    chat_appropriate: bool, chat_reason: str, chat_reply: dict[str, Any],
+) -> bool | None:
+    """Run the decision model beside the chat verdict and record both.
+
+    Returns the decision model's verdict, or None when it failed. Nothing here
+    may break the run: the chat verdict is the one being written, this is the
+    measurement.
+    """
+    decide_appropriate: bool | None = None
+    reason, probs, reply, error = "", {}, {}, ""
+    try:
+        decide_appropriate, reason, reply = final_check_decide(cfg, news)
+        probs = reply.get("probabilities") or {}
+    except (EvaluationInvalid, McpError, urllib.error.URLError) as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        log.warning("news %s: shadow decide failed: %s", news["news_id"], error)
+    if con is not None:
+        try:
+            with con:
+                con.execute(
+                    "INSERT INTO final_check_shadow (news_id, created_at, title, chat_model, "
+                    "chat_appropriate, chat_reason, chat_cost_usd, decide_model, "
+                    "decide_appropriate, decide_reason, probabilities, decide_cost_usd, "
+                    "decide_ms, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        news["news_id"], datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                        (news["title"] or "")[:200], chat_reply.get("model_id") or cfg.model_id,
+                        int(chat_appropriate), chat_reason, chat_reply.get("cost_usd"),
+                        reply.get("served_model_id") or reply.get("model_id") or cfg.decide_model,
+                        None if decide_appropriate is None else int(decide_appropriate),
+                        reason, json.dumps(probs, ensure_ascii=False), reply.get("cost_usd"),
+                        reply.get("elapsed_ms"), error[:500],
+                    ),
+                )
+        except sqlite3.Error as exc:
+            log.warning("news %s: cannot record the shadow verdict: %s", news["news_id"], exc)
+    if decide_appropriate is not None:
+        log.info(
+            "news %s: shadow decide %s chat (%s vs %s): %s",
+            news["news_id"], "agrees with" if decide_appropriate == chat_appropriate else "DISAGREES with",
+            decide_appropriate, chat_appropriate, reason,
+        )
+    return decide_appropriate
+
+
+def shadow_report(path: str, out=sys.stdout) -> int:
+    """Print how the two final checks compared so far: totals, then every disagreement."""
+    con = open_shadow_db(path)
+    if con is None:
+        print(f"cannot open {path}", file=sys.stderr)
+        return 1
+    try:
+        total, failed, agree, disagree = con.execute(
+            "SELECT COUNT(*), SUM(decide_appropriate IS NULL), "
+            "SUM(decide_appropriate = chat_appropriate), "
+            "SUM(decide_appropriate IS NOT NULL AND decide_appropriate <> chat_appropriate) "
+            "FROM final_check_shadow"
+        ).fetchone()
+        costs = con.execute(
+            "SELECT COALESCE(SUM(chat_cost_usd), 0), COALESCE(SUM(decide_cost_usd), 0), "
+            "COALESCE(AVG(decide_ms), 0) FROM final_check_shadow WHERE decide_appropriate IS NOT NULL"
+        ).fetchone()
+        print(f"shadow rows: {total}, decide failed: {failed or 0}, "
+              f"agree: {agree or 0}, disagree: {disagree or 0}", file=out)
+        print(f"cost: chat ${costs[0]:.4f}, decide ${costs[1]:.4f}; decide avg {costs[2]:.0f} ms", file=out)
+        rows = con.execute(
+            "SELECT news_id, created_at, title, chat_appropriate, chat_reason, "
+            "decide_appropriate, decide_reason, probabilities, error FROM final_check_shadow "
+            "WHERE decide_appropriate IS NULL OR decide_appropriate <> chat_appropriate "
+            "ORDER BY id"
+        ).fetchall()
+        for row in rows:
+            print(json.dumps({key: row[key] for key in row.keys()}, ensure_ascii=False), file=out)
+        return 0
+    finally:
+        con.close()
+
+
 # ---------------------------------------------------------------- pipeline
 
 
@@ -897,6 +1199,11 @@ def run(cfg: Config, profile: SelectionProfile, limit: int, dry_run: bool,
         log.info("queue: %d news to evaluate (limit %d, profile %s)", len(queue), limit, profile.name)
 
         done, failed, selected, vetoed, total_cost, no_topic = 0, 0, 0, 0, 0.0, 0
+        shadow_agree, shadow_disagree, shadow_failed = 0, 0, 0
+        shadow_con = None
+        if cfg.final_check and cfg.final_check_mode == "shadow" and not dry_run:
+            shadow_con = open_shadow_db(cfg.own_db_path)
+        check = final_check_decide if cfg.final_check_mode == "decide" else final_check
         for news in queue:
             title = (news["title"] or "")[:60]
             try:
@@ -918,7 +1225,7 @@ def run(cfg: Config, profile: SelectionProfile, limit: int, dry_run: bool,
             veto_reason = ""
             if decision == "positive" and cfg.final_check:
                 try:
-                    appropriate, check_reason, check_reply = final_check(cfg, news)
+                    appropriate, check_reason, check_reply = check(cfg, news)
                 except EvaluationInvalid as exc:
                     failed += 1
                     log.error("news %s: final check failed, stays in queue: %s", news["news_id"], exc)
@@ -933,6 +1240,16 @@ def run(cfg: Config, profile: SelectionProfile, limit: int, dry_run: bool,
                     veto_reason = check_reason or "модель сочла новость неуместной для канала"
                     vetoed += 1
                     log.info("news %s: final check vetoed: %s", news["news_id"], veto_reason)
+                if cfg.final_check_mode == "shadow" and not dry_run:
+                    shadow_verdict = shadow_final_check(
+                        cfg, shadow_con, news, appropriate, check_reason, check_reply
+                    )
+                    if shadow_verdict is None:
+                        shadow_failed += 1
+                    elif shadow_verdict == appropriate:
+                        shadow_agree += 1
+                    else:
+                        shadow_disagree += 1
             selected += decision == "positive"
             no_topic += bool(topic_keys) and topic == PLACEHOLDER_TOPIC
             if dry_run:
@@ -961,9 +1278,14 @@ def run(cfg: Config, profile: SelectionProfile, limit: int, dry_run: bool,
             counters.update(queue=len(queue), evaluated=done, selected=selected,
                             vetoed=vetoed, failed=failed, cost_usd=round(total_cost, 4),
                             without_topic=no_topic)
+            if shadow_con is not None:
+                counters.update(shadow_agree=shadow_agree, shadow_disagree=shadow_disagree,
+                                shadow_failed=shadow_failed)
         return 0 if failed == 0 else 1
     finally:
         con.close()
+        if shadow_con is not None:
+            shadow_con.close()
 
 
 def run_backfill(cfg: Config, profile: SelectionProfile, dry_run: bool, rescore_all: bool = False,
@@ -1054,6 +1376,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="ignore the thresholds stored in the crawler DB and use the built-in ones",
     )
+    parser.add_argument(
+        "--shadow-report",
+        action="store_true",
+        help="print how the chat and decision-model final checks compared (shadow mode); no model calls",
+    )
     parser.add_argument("--verbose", action="store_true", help="debug logging")
     args = parser.parse_args(argv)
 
@@ -1063,6 +1390,8 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stderr,
     )
     cfg = Config.from_env()
+    if args.shadow_report:
+        return shadow_report(cfg.own_db_path)
     if args.builtin_profile:
         profile = DEFAULT_PROFILE
     else:
@@ -1089,6 +1418,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         settings.update(model=cfg.model_id, provider=cfg.provider, batch=args.limit,
                         final_check=cfg.final_check)
+        if cfg.final_check and cfg.final_check_mode != "chat":
+            settings.update(final_check_mode=cfg.final_check_mode, decide_model=cfg.decide_model)
     with runlog.record(service, runlog.DEFAULT_DB, settings) as counters:
         if args.backfill:
             return run_backfill(cfg, profile, dry_run=False, rescore_all=args.rescore_all, counters=counters)

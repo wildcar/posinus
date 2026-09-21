@@ -40,6 +40,7 @@ each event records the model that actually answered).
 ```bash
 python3 -m unittest discover -s tests        # unit tests (no network, no DB)
 python3 evaluator.py --backfill --dry-run    # re-verdict old scored news, print only
+python3 evaluator.py --shadow-report         # chat vs decision-model final check, from the shadow table
 python3 preparer.py --dry-run --news-id N    # prepare one selected news, print only
 python3 preparer.py --ignore-image URL       # blacklist an image (e.g. a source's logo)
 python3 preparer.py --review-images          # vision-check queued pictures, drop the junk

@@ -36,6 +36,10 @@ tables, so all prepared artifacts and publication state live here, keyed by `new
 - `illustration(id, news_id, position, file_path, caption, source_url, downloaded_at)`
 - `publication(news_id, platform, status, url, error, attempts, updated_at)` — one row per
   `(news_id, platform)`; `status` is `ok` or `error`.
+- `final_check_shadow(id, news_id, created_at, title, chat_*, decide_*, probabilities, error)`
+  — written by the evaluator in `EVALUATOR_FINAL_CHECK_MODE=shadow`: the chat verdict that
+  was written beside the decision model's verdict, probabilities, cost and latency of both.
+  Read it with `evaluator.py --shadow-report`. Created on first use.
 
 The DB runs in WAL with a 30-second busy timeout, so a reader cannot block the write
 that records an already-sent post. That write retries on a lock and, if it still fails,
@@ -577,6 +581,7 @@ sudo journalctl -u posinus-preparer.service -n 50
 sudo journalctl -u posinus-publisher.service -n 50
 
 # run one batch right now
+sudo systemctl start posinus-evaluator.service
 sudo systemctl start posinus-preparer.service
 sudo systemctl start posinus-publisher.service
 
@@ -597,6 +602,11 @@ for r in c.execute("SELECT status, COUNT(*) n FROM prepared_item GROUP BY status
 for r in c.execute("SELECT news_id, platform, status, attempts FROM publication ORDER BY updated_at DESC LIMIT 10"):
     print(r['news_id'], r['platform'], r['status'], 'attempts=' + str(r['attempts']))
 PY
+```
+
+```bash
+# how the chat and decision-model final checks compare (shadow mode)
+sudo -u posinus-pipeline python3 /opt/posinus/pipeline/evaluator.py --shadow-report
 ```
 
 Edits to `/etc/posinus/pipeline.env` apply on the next timer run — no

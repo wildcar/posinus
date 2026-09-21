@@ -55,6 +55,11 @@ site content the pipeline produced.
 - model-router-mcp: MCP server for model access, unit `model-router-mcp.service`, Streamable
   HTTP endpoint `http://127.0.0.1:8088/mcp/`, deployed at `/opt/model-router-mcp`, sources at
   `~/repo/model-router-mcp`. Registered deepseek models: `deepseek-v4-pro`, `deepseek-v4-flash`. DeepSeek retired `deepseek-chat` and `deepseek-reasoner` around 2026-07-25 and its API now rejects both names; `bootstrap.py` in model-router-mcp still seeds the retired pair, so the working entry is a manual registry row.
+- Decision model in the router (since 2026-09-21): tool `decide` (task `text-to-decisions`,
+  OpenRouter `POST /systemone`), registry rows `typesafe/jev-1.13` and the alias
+  `~typesafe/jev-latest` (the reply's `served_model_id` names the dated release). Input
+  tokens only are billed, $0.042 per M, ~0.25 s. Text only, no images; 64k-token context.
+  The pipeline's final check uses it in `decide`/`shadow` modes.
 - wildcar.org: static MkDocs (Material) site served by nginx from `/var/www/wildcar.org` on
   THIS host (vhost `web.wildcar.org`; hel-vps terminates TLS for `wildcar.org` and proxies
   here). Sources at `~/repo/wildcar-site`, venv `~/.venvs/mkdocs`, built by keeper. The
