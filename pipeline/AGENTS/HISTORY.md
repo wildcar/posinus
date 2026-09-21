@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-09-21 · Финальный контроль через модель решений TypeSafe Jev: режимы chat/decide/shadow
+- What: `EVALUATOR_FINAL_CHECK_MODE`: `chat` (как было), `decide` — инструмент `decide` роутера, пять noul-вопросов (уместность + четыре красных флага: смерть в центре, беда без развязки, агитация, реклама), вердикт по порогам `EVALUATOR_DECIDE_THRESHOLD`/`_FLAG_THRESHOLD` (0.5), причина брака собирается из флагов с вероятностями; `shadow` — решает chat, decide идёт рядом, оба вердикта в `final_check_shadow` базы конвейера, `--shadow-report` сравнивает. Прод переведён в `shadow`. 386 тестов. LIVE at `58f4f1f`.
+- Why: владелец предложил jev для задач «да/нет»; финальный контроль — точное попадание: ~$0,00006 и 0,3–0,7 с против чат-вызова, порог вместо «сомневаешься — бракуй». Живьём: 4 реальные отобранные новости одобрены (P≥0.95), синтетический некролог и реклама забракованы нужными флагами (0.99/0.95).
+- Files: pipeline/evaluator.py, tests/test_evaluator.py, deploy/pipeline.env.example, docs/services.md, README.md, AGENTS/SPEC.md; AGENTS/ENV.md
+- Next: через неделю `--shadow-report`, подобрать пороги, перевести env в `decide`; затем рубрика через choice и теневой прогон 20 осей.
+
 ## 2026-09-18 · Картинки и vision-проверка через OpenRouter вместо выключенного codex-oauth
 - What: умолчания конвейера — генерация `openrouter`/`openai/gpt-image-2.5-sunburst` (ручная строка реестра роутера с `images_api`, ~$0,005 за картинку, JPEG), vision-проверка `openrouter`/`z-ai/glm-5.3-flash`, чат «Картины дня» через слот — `openai/gpt-5.6-sol`. Параметры пишутся по-провайдерски (`evaluator.reasoning_params`/`image_params`: OpenRouter — `reasoning:{effort}`, `aspect_ratio` + `output_format:jpeg`; codex-oauth — `reasoning_effort`, `size`); `daypic._image_size` меряет и JPEG. 359 тестов. LIVE at `7f270a7` (git pull, скрипты работают по месту).
 - Why: владелец выключил провайдер `codex-oauth` в роутере — проверка, иллюстрации и «Картина дня» падали. GLM выбран по живому сравнению (7/7 верно, luna ошиблась на фото операции); без закреплённой модели запрос на OpenRouter уходит в `openrouter/auto`, который отвечает текстом. Парная правка краулера — миграция `0018`.

@@ -12,6 +12,20 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- **Final check runs in `shadow` mode on prod since 2026-09-21 ~13:40 UTC (LIVE at `58f4f1f`,
+  `git pull` in /opt/posinus; `/etc/posinus/pipeline.env` got `EVALUATOR_FINAL_CHECK_MODE=shadow`).**
+  The chat model (prod: `openrouter` / `z-ai/glm-5.3-flash` — the env pins it, not deepseek)
+  still decides; the decision model `~typesafe/jev-latest` (router tool `decide`, served as
+  `typesafe/jev-1.13-20260917`) answers the same question as five nouls beside it, and both
+  verdicts land in `final_check_shadow` in the pipeline DB. Live smoke through the router: four
+  real selected stories (pt-BR, en) approved at P≥0.95, ~$0.00006 and 0.3–0.7 s each (router
+  log 26847–26850); a synthetic obituary vetoed by `death_central` 0.99, a synthetic advert by
+  `advertising` 0.95, a successful mine rescue approved at 0.98. The queue was empty at deploy
+  time, so the first shadow rows come with the next crawl. **Calibration week:** after ~7 days
+  run `sudo -u posinus-pipeline python3 /opt/posinus/pipeline/evaluator.py --shadow-report`,
+  read the disagreements, pick `EVALUATOR_DECIDE_THRESHOLD` / `_FLAG_THRESHOLD`, then switch
+  the env to `decide`. Base rate for sizing: last 30 days 776 selected, 14 vetoes, ~9 operator
+  overrides in 90 days. 386 tests.
 - **All picture calls go through OpenRouter since 2026-09-18 ~21:26 UTC (LIVE at `7f270a7`,
   `git pull` in /opt/posinus; the scripts run in place).** The router's `codex-oauth` provider
   is switched off (every `chat`/`generate_image` to it answers «Provider 'codex-oauth' is
