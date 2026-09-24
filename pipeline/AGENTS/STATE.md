@@ -40,8 +40,8 @@ a publish-ready retelling, and posts them to the platforms.
   A replay of the 14 past chat vetoes (texts re-fetched: the DB purges rejected items) and 106
   approved stories: `v1` caught 9/14 with 5/106 false vetoes; `v2` (rewritten flags + own
   advertising threshold 0.6) 11/14 with 1/106. Still missed: 13398 (Taliban-backdrop
-  column), 13427 (Chernobyl wildlife — `v2` deliberately treats past harm as background;
-  owner's call), 13264 (a digest page that has since changed). Remaining false veto: 19343
+  column), 13427 (Chernobyl wildlife — the owner ruled on 2026-09-24 it is good news, so `v2`
+  is right and the chat veto was wrong), 13264 (a digest page that has since changed). Remaining false veto: 19343
   (village public debate, political 0.65). The wording was tuned on these same items, so
   the real check is the new week. **Next:** ~2026-10-01 run
   `sudo -u posinus-pipeline python3 /opt/posinus/pipeline/evaluator.py --shadow-report`
