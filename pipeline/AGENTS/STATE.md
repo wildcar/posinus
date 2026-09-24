@@ -644,6 +644,16 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Open questions
 
+- Scoring and topics through jev (replay 2026-09-24, 300 glm-scored news, 150/150 by verdict,
+  no code change). Topics as one `choice`: 82% agree with glm (glm vs its own rerun: 89%);
+  Russian descriptions from `exchange_topic` work as well as English. 20 axes as `score`
+  (6 steps, EV x2 -> 0–10) in one call with the topic: $0.00015 and ~0.3 s per news vs glm
+  $0.00078. Emotional axes track glm (r 0.86–0.98), judgement axes less so (interestingness
+  0.71, memorability 0.72, importance 0.67, impact_scale 0.63; glm-vs-glm 0.87–0.93).
+  Selection by profile r6: best-fit jev thresholds (positivity >= 6, highlight >= 7.5, gates
+  <= 6) agree with glm on 248/299, vs 264/299 for glm against its own rerun, 233 against the
+  rerun. Not a drop-in; who is right in the ~50 disagreements needs the owner's eye.
+  Scripts were scratchpad-only.
 - Long-term model choice. Bake-off 2026-08-26 over 100 scored news (30 baseline-positive)
   against v4-pro under profile r4: `z-ai/glm-5.3-flash` (via openrouter, adopted in the
   router registry) keeps 14/30 with 2 false and tracks best after loosening to
