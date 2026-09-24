@@ -34,6 +34,14 @@ HIGHLIGHT_AXES = (
     "pride_humanity", "pride_russia", "inspiration", "beauty",
     "interestingness", "surprise", "uniqueness",
 )
+# News about Russia (owner, 2026-09-24): on strength alone they never made it
+# out, so from pride_russia >= RUSSIA_MIN an item gets RUSSIA_BONUS, and the
+# publisher lifts the best of them to the front until its daily quota
+# (`russia_per_day` in its run config) is met. Migration 0019 carries the same
+# numbers into `exchange_publication_order`.
+RUSSIA_AXIS = "pride_russia"
+RUSSIA_MIN = 5
+RUSSIA_BONUS = 1.0
 
 QUEUE_SQL = """
 SELECT p.news_id, p.retold_title, p.prepared_at, p.error,
@@ -86,6 +94,7 @@ class QueueItem:
     rank: int = 0
     hold_until: datetime | None = None
     note: str = ""
+    pride_russia: int = 0
 
     @property
     def moved(self) -> bool:
@@ -136,7 +145,55 @@ def strength(scores: dict[str, int]) -> float:
     best_highlight = max((scores.get(axis, 0) for axis in HIGHLIGHT_AXES), default=0)
     value = STRENGTH_HIGHLIGHT_WEIGHT * best_highlight
     value += sum(weight * scores.get(axis, 0) for axis, weight in STRENGTH_WEIGHTS.items())
-    return round(value, 1)
+    if scores.get(RUSSIA_AXIS, 0) >= RUSSIA_MIN:
+        value += RUSSIA_BONUS
+    return round(min(value, 10.0), 1)
+
+
+def _config_zone(config: dict):
+    """The publisher's local zone, the last word of its recorded slots or window."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    for key in ("slots", "window"):
+        words = str(config.get(key) or "").split()
+        if len(words) > 1:
+            try:
+                return ZoneInfo(words[-1])
+            except (ZoneInfoNotFoundError, ValueError):
+                continue
+    return timezone.utc
+
+
+def _russia_first(items: list[QueueItem], publications: list, config: dict, now: datetime) -> list[QueueItem]:
+    """The publisher's daily quota of news about Russia, replayed for the screen.
+
+    The same rule as `russia_first` in pipeline/publisher.py: while fewer than
+    `russia_per_day` such items first appeared today, the best one in the queue
+    goes right after the operator's raised items. A publisher that did not record
+    the setting predates the quota, so nothing moves.
+    """
+    per_day = int(config.get("russia_per_day") or 0)
+    threshold = int(config.get("russia_min") or RUSSIA_MIN)
+    if per_day <= 0:
+        return items
+    day_start = now.astimezone(_config_zone(config)).replace(hour=0, minute=0, second=0, microsecond=0)
+    first_ok: dict[int, datetime] = {}
+    for row in publications:
+        moment = _moment(row["updated_at"]) if row["status"] == "ok" else None
+        if moment and (row["news_id"] not in first_ok or moment < first_ok[row["news_id"]]):
+            first_ok[row["news_id"]] = moment
+    today = [news_id for news_id, moment in first_ok.items() if moment >= day_start]
+    shown = sum(1 for values in _scores_for(today).values() if values.get(RUSSIA_AXIS, 0) >= threshold)
+    if shown >= per_day:
+        return items
+    for index, item in enumerate(items):
+        if item.pride_russia >= threshold and item.rank == 0:
+            break
+    else:
+        return items
+    rest = items[:index] + items[index + 1:]
+    raised = sum(1 for other in rest if other.rank < 0)
+    return rest[:raised] + [items[index]] + rest[raised:]
 
 
 def _scores_for(news_ids: list[int]) -> dict[int, dict[str, int]]:
@@ -302,6 +359,7 @@ def queue() -> tuple[list[QueueItem], dict]:
                 rank=plan.rank if plan else 0,
                 hold_until=plan.hold_until if plan else None,
                 note=plan.note if plan else "",
+                pride_russia=scores.get(row["news_id"], {}).get(RUSSIA_AXIS, 0),
             )
         )
 
@@ -315,6 +373,7 @@ def queue() -> tuple[list[QueueItem], dict]:
     config = publisher_settings()
     last_ok = None
     publications = fetch_all(PUBLICATIONS_SQL)
+    items = _russia_first(items, publications, config, now)
     for row in publications:
         if row["status"] == "ok":
             moment = _moment(row["updated_at"])

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -1414,6 +1415,96 @@ class QueueOrderTests(unittest.TestCase):
 
     def test_missing_crawler_db_is_not_fatal(self):
         self.assertEqual(publisher.load_plan("/nonexistent/posinus.sqlite3"), {})
+
+
+class RussiaQuotaTests(unittest.TestCase):
+    """One news about Russia a day goes first; on strength alone they all expired."""
+
+    Row = QueueOrderTests.Row
+
+    def _rows(self, *news_ids):
+        return [self.Row(news_id=news_id) for news_id in news_ids]
+
+    def _ids(self, rows):
+        return [row["news_id"] for row in rows]
+
+    def setUp(self):
+        self.plan = {
+            1: publisher.PlanRow(strength=8.5),
+            2: publisher.PlanRow(strength=8.2),
+            3: publisher.PlanRow(strength=7.9, pride_russia=6),
+            4: publisher.PlanRow(strength=7.5, pride_russia=8),
+        }
+
+    def test_best_russia_item_goes_first_while_quota_is_open(self):
+        ordered = publisher.russia_first(self._rows(1, 2, 3, 4), self.plan, 0, 1, 5)
+
+        self.assertEqual(self._ids(ordered), [3, 1, 2, 4])
+
+    def test_quota_filled_keeps_the_order(self):
+        ordered = publisher.russia_first(self._rows(1, 2, 3, 4), self.plan, 1, 1, 5)
+
+        self.assertEqual(self._ids(ordered), [1, 2, 3, 4])
+
+    def test_zero_quota_is_off(self):
+        ordered = publisher.russia_first(self._rows(1, 2, 3, 4), self.plan, 0, 0, 5)
+
+        self.assertEqual(self._ids(ordered), [1, 2, 3, 4])
+
+    def test_below_threshold_is_not_about_russia(self):
+        plan = {1: publisher.PlanRow(strength=8.5), 2: publisher.PlanRow(strength=7.0, pride_russia=4)}
+
+        ordered = publisher.russia_first(self._rows(1, 2), plan, 0, 1, 5)
+
+        self.assertEqual(self._ids(ordered), [1, 2])
+
+    def test_operator_hand_stays_on_top_and_lowered_item_stays_down(self):
+        plan = dict(self.plan)
+        plan[1] = publisher.PlanRow(strength=8.5, operator_rank=-1)
+        plan[3] = publisher.PlanRow(strength=7.9, pride_russia=6, operator_rank=1)
+
+        ordered = publisher.russia_first(self._rows(1, 2, 4, 3), plan, 0, 1, 5)
+
+        self.assertEqual(self._ids(ordered), [1, 4, 2, 3])
+
+    def test_counts_only_items_that_first_appeared_today(self):
+        con = sqlite3.connect(":memory:")
+        con.row_factory = sqlite3.Row
+        con.executescript(publisher.PUBLICATION_SCHEMA_SQL.replace(
+            "REFERENCES prepared_item(news_id) ON DELETE CASCADE", ""))
+        rows = [
+            (3, "telegram", "ok", "2026-09-24T07:00:00+00:00"),    # 10:00 MSK today
+            (4, "telegram", "ok", "2026-09-23T19:00:00+00:00"),    # 22:00 MSK yesterday
+            (4, "vk", "ok", "2026-09-24T08:00:00+00:00"),          # a late retry, same item
+            (1, "telegram", "ok", "2026-09-24T09:00:00+00:00"),    # today, not about Russia
+            (5, "telegram", "error", "2026-09-24T09:00:00+00:00"),
+        ]
+        con.executemany("INSERT INTO publication (news_id, platform, status, updated_at) VALUES (?, ?, ?, ?)", rows)
+        plan = dict(self.plan)
+        plan[5] = publisher.PlanRow(pride_russia=9)
+        cfg = publisher.PublisherConfig()
+        now = datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc)
+
+        self.assertEqual(publisher.russia_shown_today(con, plan, cfg, now), 1)
+
+    def test_plan_reads_pride_russia_and_survives_an_older_view(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "news.sqlite3")
+            con = sqlite3.connect(path)
+            con.execute("CREATE VIEW exchange_publication_order AS SELECT 7 AS news_id, 8.0 AS strength, "
+                        "0 AS operator_rank, NULL AS hold_until, NULL AS dropped_at, 6 AS pride_russia")
+            con.commit()
+            con.close()
+            self.assertEqual(publisher.load_plan(path)[7].pride_russia, 6)
+
+            con = sqlite3.connect(path)
+            con.execute("DROP VIEW exchange_publication_order")
+            con.execute("CREATE VIEW exchange_publication_order AS SELECT 7 AS news_id, 8.0 AS strength, "
+                        "0 AS operator_rank, NULL AS hold_until, NULL AS dropped_at")
+            con.commit()
+            con.close()
+            plan = publisher.load_plan(path)
+            self.assertEqual((plan[7].strength, plan[7].pride_russia), (8.0, 0))
 
 
 class ExpiryTests(unittest.TestCase):

@@ -324,6 +324,54 @@ def test_the_view_gives_the_publisher_the_same_order(operator, source, make_news
 
 
 @pytest.mark.django_db
+def test_news_about_russia_gets_the_bonus_in_the_view_and_on_screen(source, make_news, make_review):
+    from django.db import connection
+
+    plain = make_news("Plain", source, day=10, seed="r1")
+    make_review(plain, {"positivity": 9, "uniqueness": 9, "interestingness": 8}, key="r1")
+    russia = make_news("Russia", source, day=10, seed="r2")
+    make_review(russia, {"positivity": 8, "pride_russia": 6, "inspiration": 7, "interestingness": 6}, key="r2")
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT news_id, strength, pride_russia FROM exchange_publication_order ORDER BY news_id")
+        rows = cursor.fetchall()
+
+    # 0.5*9 + 0.3*9 + 0.2*8 = 8.8; 0.5*7 + 0.3*8 + 0.2*6 + 1.0 = 8.1
+    assert rows == [(plain.pk, 8.8, 0), (russia.pk, 8.1, 6)]
+    assert broadcast.strength({"positivity": 8, "pride_russia": 6, "inspiration": 7, "interestingness": 6}) == 8.1
+    assert broadcast.strength({"positivity": 10, "pride_russia": 10, "interestingness": 10}) == 10.0
+
+
+@pytest.mark.django_db
+def test_queue_puts_one_russia_item_first_until_it_appeared_today(operator, source, make_news, make_review, pipeline):
+    strong = make_news("Strong", source, day=10, seed="k1")
+    make_review(strong, {"positivity": 9, "uniqueness": 9, "interestingness": 9}, key="k1")
+    russia = make_news("Russia", source, day=10, seed="k2")
+    make_review(russia, {"positivity": 8, "pride_russia": 5, "interestingness": 4}, key="k2")
+    for item in (strong, russia):
+        pipeline(
+            "INSERT INTO prepared_item (news_id, status, retold_title, prepared_at) VALUES (?, 'prepared', ?, ?)",
+            (item.pk, f"Пересказ {item.pk}", "2026-07-24T09:00:00+00:00"),
+        )
+    pipeline(
+        "INSERT INTO service_run (service, status, started_at, config) VALUES ('publisher', 'ok', ?, ?)",
+        (timezone.now().isoformat(),
+         '{"min_interval_minutes": 60, "window": "", "russia_per_day": 1, "russia_min": 5}'),
+    )
+
+    assert [item.news_id for item in broadcast.queue()[0]] == [russia.pk, strong.pk]
+
+    earlier = make_news("Earlier", source, day=10, seed="k3")
+    make_review(earlier, {"positivity": 9, "pride_russia": 9}, key="k3")
+    pipeline(
+        "INSERT INTO publication (news_id, platform, status, updated_at) VALUES (?, 'telegram', 'ok', ?)",
+        (earlier.pk, timezone.now().isoformat()),
+    )
+
+    assert [item.news_id for item in broadcast.queue()[0]] == [strong.pk, russia.pk]
+
+
+@pytest.mark.django_db
 def test_queue_action_rejects_nonsense(operator):
     response = operator.post(reverse("queue_action"), {"news_id": "abc", "action": "explode"}, follow=True)
 

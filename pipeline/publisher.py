@@ -151,7 +151,13 @@ VK_POST_MODES = ("photo", "link")
 # whatever the operator changed by hand. Preparation time is the fallback and the
 # worst signal there is — it says when the machine got round to the item.
 PLAN_SQL = """
-SELECT news_id, strength, operator_rank, hold_until, dropped_at
+SELECT news_id, strength, operator_rank, hold_until, dropped_at, pride_russia
+FROM exchange_publication_order
+"""
+# A crawler before migration 0019 has no `pride_russia` column: the order still
+# works, only the daily quota of news about Russia has nothing to go on.
+PLAN_SQL_WITHOUT_RUSSIA = """
+SELECT news_id, strength, operator_rank, hold_until, dropped_at, 0 AS pride_russia
 FROM exchange_publication_order
 """
 
@@ -226,6 +232,12 @@ class PublisherConfig:
     min_interval_minutes: int = 120
     max_attempts: int = 8
     expire_after_days: int = EXPIRE_AFTER_DAYS
+    # Daily quota of news about Russia (owner, 2026-09-24): until
+    # `russia_per_day` items with pride_russia >= `russia_min` have appeared
+    # today (local day in `window_tz`), the best such item in the queue goes
+    # first. On strength alone they never made it out and expired. 0 = off.
+    russia_per_day: int = 1
+    russia_min: int = 5
     # Publication window (used by the slot-grid fallback and by notify): a new
     # item appears only between these local times. An empty start or end
     # switches the window off entirely.
@@ -268,6 +280,8 @@ class PublisherConfig:
         cfg.min_interval_minutes = int(env.get("PUB_MIN_INTERVAL_MINUTES", cfg.min_interval_minutes))
         cfg.max_attempts = int(env.get("PUB_MAX_ATTEMPTS", cfg.max_attempts))
         cfg.expire_after_days = int(env.get("PUB_EXPIRE_AFTER_DAYS", cfg.expire_after_days))
+        cfg.russia_per_day = int(env.get("PUB_RUSSIA_PER_DAY", cfg.russia_per_day))
+        cfg.russia_min = int(env.get("PUB_RUSSIA_MIN", cfg.russia_min))
         cfg.window_start = env.get("PUB_WINDOW_START", cfg.window_start).strip()
         cfg.window_end = env.get("PUB_WINDOW_END", cfg.window_end).strip()
         cfg.window_tz = env.get("PUB_WINDOW_TZ", cfg.window_tz).strip() or "UTC"
@@ -1498,6 +1512,7 @@ class PlanRow:
     operator_rank: int = 0
     hold_until: str | None = None
     dropped_at: str | None = None
+    pride_russia: int = 0
 
 
 def load_plan(news_db: str) -> dict[int, PlanRow]:
@@ -1515,14 +1530,21 @@ def load_plan(news_db: str) -> dict[int, PlanRow]:
     try:
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA query_only = ON")
+        try:
+            rows = con.execute(PLAN_SQL).fetchall()
+        except sqlite3.OperationalError as exc:
+            if "pride_russia" not in str(exc):
+                raise
+            rows = con.execute(PLAN_SQL_WITHOUT_RUSSIA).fetchall()
         return {
             row["news_id"]: PlanRow(
                 strength=float(row["strength"] or 0),
                 operator_rank=int(row["operator_rank"] or 0),
                 hold_until=row["hold_until"],
                 dropped_at=row["dropped_at"],
+                pride_russia=int(row["pride_russia"] or 0),
             )
-            for row in con.execute(PLAN_SQL)
+            for row in rows
         }
     except sqlite3.Error as exc:
         # An older crawler has no such view; order by preparation time as before.
@@ -1551,6 +1573,44 @@ def order_queue(rows: list[sqlite3.Row], plan: dict[int, PlanRow], now: datetime
         ordered.append(((entry.operator_rank, -entry.strength, position), row))
     ordered.sort(key=lambda pair: pair[0])
     return [row for _, row in ordered]
+
+
+def russia_first(
+    ordered: list[sqlite3.Row], plan: dict[int, PlanRow], shown_today: int,
+    per_day: int, threshold: int,
+) -> list[sqlite3.Row]:
+    """Lift the best news about Russia to the front while today's quota is open.
+
+    `shown_today` is how many such items have already appeared today. The lifted
+    item goes right after whatever the operator raised by hand; an item the
+    operator lowered stays where they put it. Anything else keeps its order.
+    """
+    if per_day <= 0 or shown_today >= per_day:
+        return ordered
+    for index, row in enumerate(ordered):
+        entry = plan.get(row["news_id"], PlanRow())
+        if entry.pride_russia >= threshold and entry.operator_rank == 0:
+            break
+    else:
+        return ordered
+    rest = ordered[:index] + ordered[index + 1:]
+    raised = sum(1 for other in rest if plan.get(other["news_id"], PlanRow()).operator_rank < 0)
+    return rest[:raised] + [ordered[index]] + rest[raised:]
+
+
+def russia_shown_today(
+    con: sqlite3.Connection, plan: dict[int, PlanRow], cfg: PublisherConfig, now: datetime,
+) -> int:
+    """How many news about Russia first appeared on any platform today (local day)."""
+    zone = _window_zone(cfg.window_tz)
+    day_start = now.astimezone(zone).replace(hour=0, minute=0, second=0, microsecond=0)
+    since = day_start.astimezone(timezone.utc).isoformat(timespec="seconds")
+    rows = con.execute(
+        "SELECT news_id FROM publication WHERE status = 'ok' "
+        "GROUP BY news_id HAVING MIN(updated_at) >= ?", (since,),
+    ).fetchall()
+    return sum(1 for row in rows
+               if plan.get(row["news_id"], PlanRow()).pride_russia >= cfg.russia_min)
 
 
 def publication_status(con: sqlite3.Connection, news_id: int) -> dict[str, str]:
@@ -1818,6 +1878,8 @@ def run(cfg: PublisherConfig, limit: int, dry_run: bool, only: int | None,
         # within the hour, not at half past three.
         stale = set(expire_stale(own, waiting, plan, now, cfg.expire_after_days, dry_run))
         prepared = order_queue([row for row in waiting if row["news_id"] not in stale], plan, now)
+        prepared = russia_first(prepared, plan, russia_shown_today(own, plan, cfg, now),
+                                cfg.russia_per_day, cfg.russia_min)
         last_ok = last_success_at(own)
         last_ok_at = None
         if last_ok:
@@ -1941,6 +2003,8 @@ def main(argv: list[str] | None = None) -> int:
         "slots": f"{cfg.slots} {cfg.window_tz}" if _parse_slots(cfg.slots) else "",
         "min_interval_minutes": cfg.min_interval_minutes,
         "window": f"{cfg.window_start}-{cfg.window_end} {cfg.window_tz}",
+        "russia_per_day": cfg.russia_per_day,
+        "russia_min": cfg.russia_min,
     }
     with runlog.record("publisher", cfg.own_db, settings) as counters:
         return run(cfg, limit=args.limit, dry_run=False, only=args.news_id, counters=counters)
