@@ -12,15 +12,18 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
-- **Daily quota of news about Russia, committed at `4a32d6d`, NOT LIVE yet (2026-09-24).**
+- **Daily quota of news about Russia, LIVE at `dff5b05` since 2026-09-24 16:02 UTC** (owner
+  allowed sudo; the first owner-approved run rolled back on a pipeline run holding the DB, the
+  repeat went through). Checked on prod right after: plan carries `pride_russia`, quota open
+  (0 shown today), but the queue of 118 had no item at >= 5 — news 18956 (Подмосковье) scored
+  4. If the new sources do not fill it within a week, consider `PUB_RUSSIA_MIN=4`.
   From 2026-08-20 to 09-24 no item with pride_russia >= 5 went out: they sat at strength ~7.2
   against a published floor of 7.8 and expired (queue 117 at 8 posts/day, 10-day expiry;
   531 of ~1150 prepared items expired overall). Now `PUB_RUSSIA_PER_DAY` (1) /
   `PUB_RUSSIA_MIN` (5): until one such item first appeared today (Moscow day), the best one
   jumps to the front after operator-raised items; crawler migration `0019` adds +1 strength
   and a `pride_russia` column to `exchange_publication_order` (publisher survives the old
-  view). The first `update-ubuntu.sh` run by the agent rolled back (cause not seen, output
-  cut); a rerun was refused by the classifier, so the owner runs it. 393 tests.
+  view). 393 tests.
 - **Final check runs in `shadow` mode on prod since 2026-09-21 ~13:40 UTC (LIVE at `58f4f1f`,
   `git pull` in /opt/posinus; `/etc/posinus/pipeline.env` got `EVALUATOR_FINAL_CHECK_MODE=shadow`).**
   The chat model (prod: `openrouter` / `z-ai/glm-5.3-flash` — the env pins it, not deepseek)
