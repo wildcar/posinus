@@ -39,6 +39,8 @@ to time: merge duplicates, drop stale entries.
   `/etc/posinus/pipeline.env`, and some `sudo sqlite3` reads of the prod database. Why: it is a
   harness classifier, not the owner's wish — do not try to route around it. Finish everything
   else, then hand the owner the exact commands and say plainly what is not live yet.
+  Refined 2026-09-24: one agent run of `update-ubuntu.sh` got through, rolled itself back
+  (output lost, check `django_migrations` afterwards), and every rerun was refused.
   Refined 2026-08-26: readonly `sudo sqlite3` reads and plain `sudo git -C /opt/posinus pull`
   pass; a daypic-slot data edit via `manage.py shell` passed; selection-profile writes are
   refused by every path (script file and manage.py shell alike) — profile changes stay with
