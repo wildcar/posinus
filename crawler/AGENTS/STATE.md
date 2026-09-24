@@ -6,6 +6,16 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 ## Now
 
+- **robots.txt parser and 11 new Russian sources, committed 2026-09-24, NOT LIVE yet.** Own
+  RFC 9309 parser replaces `urllib.robotparser` (it turned `Disallow: /?` into «whole site
+  forbidden»: active source 315 vokrugsveta.ru failed every run; the old per-host cache also
+  answered every URL with the first one's verdict). On the live robots.txt of all 305
+  active/probation endpoints only 5 verdicts change: vokrugsveta and naked-science now
+  allowed, one `/*/feed/` URL now correctly forbidden. `sources/ru-2026-09-24.json` (6 active:
+  sdelanounas, strana-rosatom, portal-kultura, kronoki, pravmir, naked-science; 5 probation:
+  nkj, poisknews, mk science, naukatv, ecosphere), applied by
+  `manage.py importsources`. Rejected candidates and reasons: this session's research
+  (nplus1/tass behind 403 robots, indicator.ru needs JS wait, takiedela relative RSS links).
 - **Migration `0019` committed at `4a32d6d`, NOT LIVE yet (2026-09-24)**: news about Russia
   (pride_russia >= 5) gets +1 strength in `exchange_publication_order`, capped at 10, and the
   view returns `pride_russia` for the publisher's daily quota; «Эфир» replays both from the

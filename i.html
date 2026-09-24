@@ -1,7 +1,30 @@
+<!DOCTYPE html>
 <html>
-<head><title>302 Found</title></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auth-controller</title>
+  <script async id='authControllerScript' src="./auth-controller.js"></script>
+  <script>
+    (function () {
+      const authFallback = '/?utm_auth=false';
+      const goAuthFallback = function() {
+        window.location.replace(authFallback);
+      };
+      const script = document.getElementById('authControllerScript');
+      script.onload = function () {
+        if (window.startSSO) {
+          window.startSSO().catch(function () {
+            goAuthFallback();
+          });
+        } else {
+          goAuthFallback();
+        }
+      }
+      script.onerror = goAuthFallback;
+    })();
+  </script>
+</head>
 <body>
-<center><h1>302 Found</h1></center>
-<hr><center>nginx</center>
 </body>
 </html>

@@ -5,7 +5,6 @@ import socket
 import time
 import urllib.error
 import urllib.request
-import urllib.robotparser
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -67,25 +66,93 @@ def decode_html(result: FetchResult) -> str:
     return str(detected) if detected is not None else result.body.decode("utf-8", errors="replace")
 
 
-def allowed_by_robots(url: str) -> bool:
-    validate_public_url(url)
-    parts = urlsplit(url)
-    robots_url = f"{parts.scheme}://{parts.netloc}/robots.txt"
+@dataclass
+class RobotsRules:
+    """The rules of one robots.txt group, matched as RFC 9309 says.
+
+    `urllib.robotparser` is not used: it reduces `Disallow: /?` (a common line
+    in Yandex-style files, «no query URLs») to `Disallow: /`, which forbade
+    whole sites such as vokrugsveta.ru (2026-09-24), and it knows neither `*`
+    nor `$`.
+    """
+
+    rules: list[tuple[bool, str]] = field(default_factory=list)  # (allow, pattern)
+
+    def allows(self, url: str) -> bool:
+        parts = urlsplit(url)
+        path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+        if path == "/robots.txt":
+            return True
+        best_length, allowed = -1, True
+        for allow, pattern in self.rules:
+            if _robots_match(pattern, path) and (
+                len(pattern) > best_length or (len(pattern) == best_length and allow)
+            ):
+                best_length, allowed = len(pattern), allow
+        return allowed
+
+
+def _robots_match(pattern: str, path: str) -> bool:
+    anchored = pattern.endswith("$")
+    body = pattern[:-1] if anchored else pattern
+    regex = ".*".join(re.escape(piece) for piece in body.split("*"))
+    return re.match(regex + ("$" if anchored else ""), path) is not None
+
+
+def parse_robots(text: str, user_agent: str) -> RobotsRules:
+    """Pick the group for our product token, falling back to `*`; merge repeats."""
+    token = user_agent.split("/")[0].strip().lower()
+    groups: dict[str, list[tuple[bool, str]]] = {}
+    agents: list[str] = []
+    in_rules = False
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if ":" not in line:
+            continue
+        key, value = (part.strip() for part in line.split(":", 1))
+        key = key.lower()
+        if key == "user-agent":
+            if in_rules:
+                agents, in_rules = [], False
+            agents.append(value.lower())
+            for agent in agents:
+                groups.setdefault(agent, [])
+        elif key in {"allow", "disallow"} and agents:
+            in_rules = True
+            if value:  # an empty Disallow allows everything and adds no rule
+                for agent in agents:
+                    groups[agent].append((key == "allow", value))
+    for agent, rules in groups.items():
+        if agent != "*" and agent in token:
+            return RobotsRules(rules)
+    return RobotsRules(groups.get("*", []))
+
+
+def _robots_for(robots_url: str) -> RobotsRules | None:
+    """The rules for a host, cached for ten minutes; None means «do not crawl»."""
     cached = _ROBOTS_CACHE.get(robots_url)
     if cached and time.monotonic() - cached[0] < 600:
         return cached[1]
-    parser = urllib.robotparser.RobotFileParser(robots_url)
     try:
         request = urllib.request.Request(robots_url, headers={"User-Agent": settings.POSINUS_USER_AGENT})
         with urllib.request.build_opener(SafeRedirectHandler()).open(request, timeout=10) as response:
-            parser.parse(response.read(1_000_000).decode("utf-8", errors="replace").splitlines())
-        allowed = parser.can_fetch(settings.POSINUS_USER_AGENT, url)
+            text = response.read(1_000_000).decode("utf-8", errors="replace")
+        rules = parse_robots(text, settings.POSINUS_USER_AGENT)
     except urllib.error.HTTPError as exc:
-        allowed = exc.code == 404
+        rules = RobotsRules() if exc.code == 404 else None
     except (urllib.error.URLError, TimeoutError, ValueError):
-        allowed = False
-    _ROBOTS_CACHE[robots_url] = (time.monotonic(), allowed)
-    return allowed
+        rules = None
+    _ROBOTS_CACHE[robots_url] = (time.monotonic(), rules)
+    return rules
+
+
+def allowed_by_robots(url: str) -> bool:
+    # The cache holds the rules, not a verdict: a verdict cached per host
+    # answered every URL of the site with whatever the first one got.
+    validate_public_url(url)
+    parts = urlsplit(url)
+    rules = _robots_for(f"{parts.scheme}://{parts.netloc}/robots.txt")
+    return rules is not None and rules.allows(url)
 
 
 def fetch_url(url: str, *, etag="", last_modified="", playwright=False, delay=0.0) -> FetchResult:

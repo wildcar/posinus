@@ -35,6 +35,8 @@ External selector <- exchange views -> append-only review events-+
 - ✅ Source acquisition cascade: RSS/Atom, sitemap (including gzip/index), HTML listing, opt-in Playwright.
 - ✅ Preserve feed ETag and Last-Modified values.
 - ✅ Obey robots, identify the user agent, apply delays/timeouts/backoff, reject private/reserved addresses and protected paths.
+- ✅ robots.txt is read as RFC 9309 says (own parser in `collector/services/fetch.py`, since 2026-09-24): our product-token group or else `*`, `*` and `$` wildcards, the longest matching rule wins, Allow wins a tie. The parsed rules are cached per host for ten minutes and every URL is checked against them. Any answer but 200 or 404 still means «do not crawl». `urllib.robotparser` read `Disallow: /?` as `Disallow: /` and forbade whole sites (vokrugsveta.ru, naked-science.ru), and the old cache kept one verdict per host.
+- ✅ `manage.py importsources <file.json>` adds sources in bulk through the operator's `SourceForm` (banned domains, endpoints, audit event); a known base URL or domain is skipped whatever its status, so paused sources stay paused. Lists live in `crawler/sources/`.
 - ✅ Extract title, text, author, date, language, canonical URL, metadata, and outbound links.
 - ✅ Save only articles published on the current date in the active time zone (`TIME_ZONE`, UTC in production); reject undated articles and skip stale feed entries before download.
 - ✅ Allow per-source URL regexes, CSS selectors, delay, interval, and Playwright setting.

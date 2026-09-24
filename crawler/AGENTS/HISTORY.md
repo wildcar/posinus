@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-09-24 · Разбор robots.txt по RFC 9309 и новые российские источники
+- What: свой парсер robots.txt вместо `urllib.robotparser`, кэш хранит правила хоста, а не вердикт; команда `importsources` добавляет источники через `SourceForm`, список `sources/ru-2026-09-24.json` на 11 сайтов. 175 тестов.
+- Why: `Disallow: /?` читался как запрет всего сайта (vokrugsveta.ru падал на каждом прогоне), русскоязычная доля сбора упала с ~80% до ~4%; старые паузы владелец размораживать не велел.
+- Files: crawler/collector/services/fetch.py, collector/management/commands/importsources.py, sources/ru-2026-09-24.json, tests/test_robots.py, tests/test_importsources.py, AGENTS/SPEC.md
+- Next: владелец запускает `update-ubuntu.sh` и `importsources`; через неделю смотреть долю русскоязычного и выход по квоте.
+
 ## 2026-09-24 · Надбавка к силе для новостей про Россию, миграция 0019
 - What: `exchange_publication_order` даёт +1 к силе (не больше 10) при pride_russia ≥ 5 и отдаёт столбец `pride_russia`; `broadcast.strength` и очередь «Эфира» повторяют надбавку и суточную квоту публикатора. 165 тестов.
 - Why: новости про Россию стояли ниже всех и протухали; парная квота конвейера — в его HISTORY.
