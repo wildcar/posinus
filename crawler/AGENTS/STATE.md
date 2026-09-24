@@ -6,6 +6,12 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 ## Now
 
+- **Migration `0019` committed at `4a32d6d`, NOT LIVE yet (2026-09-24)**: news about Russia
+  (pride_russia >= 5) gets +1 strength in `exchange_publication_order`, capped at 10, and the
+  view returns `pride_russia` for the publisher's daily quota; «Эфир» replays both from the
+  publisher's recorded config. The agent's `update-ubuntu.sh` run rolled back (cause unseen),
+  the rerun is the owner's. Supply side: Russian-language share of collection fell from ~80%
+  (July) to ~4%; new Russian sources are being added, paused ones stay paused (owner). 165 tests.
 - **Since 2026-09-18 ~21:27 UTC the «Картина дня» slot runs on OpenRouter**: chat
   `openrouter` / `openai/gpt-5.6-sol` (medium, search on), picture `openrouter` /
   `openai/gpt-image-2.5-sunburst`. The router's `codex-oauth` provider is switched off, so

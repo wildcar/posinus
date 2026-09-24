@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-09-24 · Надбавка к силе для новостей про Россию, миграция 0019
+- What: `exchange_publication_order` даёт +1 к силе (не больше 10) при pride_russia ≥ 5 и отдаёт столбец `pride_russia`; `broadcast.strength` и очередь «Эфира» повторяют надбавку и суточную квоту публикатора. 165 тестов.
+- Why: новости про Россию стояли ниже всех и протухали; парная квота конвейера — в его HISTORY.
+- Files: crawler/collector/migrations/0019_publication_order_russia.py, collector/services/broadcast.py, tests/test_broadcast.py, AGENTS/SPEC.md; docs/contracts/database-contract.md
+- Next: владелец запускает `update-ubuntu.sh`; новые российские источники.
+
 ## 2026-09-18 · Слот «Картины дня» переведён с codex-oauth на OpenRouter
 - What: миграция `0018` переводит слоты с провайдером `codex-oauth` на `openrouter`: чат-модель — на её OpenRouter-идентификатор (`gpt-5.6-sol` → `openai/gpt-5.6-sol`, `gpt-5.5` → `openai/gpt-5.5`, …), картинка — на `openai/gpt-image-2.5-sunburst`; обратная миграция возвращает. Подсказки формы и текст страницы называют openrouter. 163 теста.
 - Why: провайдер `codex-oauth` в роутере выключен, слот оставался без промпта и картинки. Парная правка конвейера — в его HISTORY.
