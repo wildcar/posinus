@@ -652,8 +652,11 @@ a publish-ready retelling, and posts them to the platforms.
   0.71, memorability 0.72, importance 0.67, impact_scale 0.63; glm-vs-glm 0.87–0.93).
   Selection by profile r6: best-fit jev thresholds (positivity >= 6, highlight >= 7.5, gates
   <= 6) agree with glm on 248/299, vs 264/299 for glm against its own rerun, 233 against the
-  rerun. Not a drop-in; who is right in the ~50 disagreements needs the owner's eye.
-  Scripts were scratchpad-only.
+  rerun. Second pass with concrete 6-step ladders per axis
+  (`docs/experiments/2026-09-24-jev-axes.md`): importance 0.67 -> 0.85, impact_scale -> 0.71,
+  memorability -> 0.77, interestingness unchanged 0.71; selection cross-validated 248/298 vs
+  glm-vs-rerun 263/298 (generic steps 245). The gap to glm's own noise shrank but stayed
+  (~5 points). Not a drop-in; who is right in the ~45 disagreements needs the owner's eye.
 - Long-term model choice. Bake-off 2026-08-26 over 100 scored news (30 baseline-positive)
   against v4-pro under profile r4: `z-ai/glm-5.3-flash` (via openrouter, adopted in the
   router registry) keeps 14/30 with 2 false and tracks best after loosening to
