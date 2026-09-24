@@ -879,6 +879,7 @@ class FinalCheckModeConfigTests(unittest.TestCase):
         self.assertEqual(cfg.decide_model, "~typesafe/jev-latest")
         self.assertEqual(cfg.decide_provider, "openrouter")
         self.assertEqual((cfg.decide_threshold, cfg.decide_flag_threshold), (0.5, 0.5))
+        self.assertEqual(cfg.decide_advertising_threshold, 0.6)
         self.assertEqual(cfg.own_db_path, evaluator.runlog.DEFAULT_DB)
 
     def test_env_sets_mode_model_and_thresholds(self):
@@ -888,12 +889,14 @@ class FinalCheckModeConfigTests(unittest.TestCase):
             "EVALUATOR_DECIDE_PROVIDER": "",
             "EVALUATOR_DECIDE_THRESHOLD": "0.7",
             "EVALUATOR_DECIDE_FLAG_THRESHOLD": "0.6",
+            "EVALUATOR_DECIDE_ADVERTISING_THRESHOLD": "0.75",
             "EVALUATOR_DB_PATH": "/tmp/own.sqlite3",
         })
         self.assertEqual(cfg.final_check_mode, "shadow")
         self.assertEqual(cfg.decide_model, "typesafe/jev-1.13")
         self.assertEqual(cfg.decide_provider, "")
         self.assertEqual((cfg.decide_threshold, cfg.decide_flag_threshold), (0.7, 0.6))
+        self.assertEqual(cfg.decide_advertising_threshold, 0.75)
         self.assertEqual(cfg.own_db_path, "/tmp/own.sqlite3")
 
     def test_unknown_mode_falls_back_to_chat(self):
@@ -946,13 +949,26 @@ class JudgeDecideAnswersTests(unittest.TestCase):
 
     def test_confident_flag_vetoes_even_when_umbrella_says_yes(self):
         ok, reason, _ = evaluator.judge_decide_answers(
-            self.cfg, _decide_reply(appropriate=0.8, death=0.82, ads=0.55)["answers"])
+            self.cfg, _decide_reply(appropriate=0.8, death=0.82, ads=0.65)["answers"])
         self.assertFalse(ok)
         self.assertEqual(
             reason,
             "модель решений забраковала: уместность 0.80, "
-            "смерть или тяжёлая болезнь в центре события 0.82, реклама 0.55",
+            "смерть или тяжёлая болезнь в центре события 0.82, реклама 0.65",
         )
+
+    def test_advertising_has_its_own_higher_threshold(self):
+        # 0.55 would fire any other flag; advertising waits for 0.6.
+        ok, _, _ = self.judge_ads(0.55)
+        self.assertTrue(ok)
+        ok, reason, _ = self.judge_ads(0.6)
+        self.assertFalse(ok)
+        self.assertEqual(reason, "модель решений забраковала: уместность 0.90, реклама 0.60")
+        ok, _, _ = evaluator.judge_decide_answers(self.cfg, _decide_reply(harm=0.55)["answers"])
+        self.assertFalse(ok)
+
+    def judge_ads(self, ads):
+        return evaluator.judge_decide_answers(self.cfg, _decide_reply(ads=ads)["answers"])
 
     def test_thresholds_come_from_config(self):
         self.cfg.decide_threshold = 0.95
@@ -1123,6 +1139,7 @@ class RunFinalCheckModeTests(RunFinalCheckTests):
         self.assertEqual(json.loads(shadow["probabilities"])["death_central"], 0.9)
         self.assertEqual(shadow["decide_cost_usd"], 0.00002)
         self.assertEqual(shadow["error"], "")
+        self.assertEqual(shadow["questions"], evaluator.FINAL_CHECK_QUESTIONS_VERSION)
 
     def test_shadow_mode_veto_by_chat_still_records_agreement(self):
         rc, counters, _, _ = self._run_mode(
@@ -1171,6 +1188,32 @@ class RunFinalCheckModeTests(RunFinalCheckTests):
         self.assertIn("shadow rows: 1, decide failed: 0, agree: 0, disagree: 1", text)
         self.assertIn('"news_id": 1', text)
         self.assertIn("уместность 0.20", text)
+
+    def test_old_shadow_table_gains_the_questions_column_as_v1(self):
+        # The table as prod created it on 2026-09-21, before the column.
+        con = sqlite3.connect(self.own_db)
+        con.executescript(evaluator.SHADOW_SCHEMA_SQL.replace(
+            ",\n    questions TEXT NOT NULL DEFAULT 'v1'  -- FINAL_CHECK_QUESTIONS_VERSION", ""))
+        self.assertNotIn("questions", {r[1] for r in con.execute("PRAGMA table_info(final_check_shadow)")})
+        con.execute("INSERT INTO final_check_shadow (news_id, created_at, chat_appropriate, "
+                    "decide_appropriate) VALUES (7, '2026-09-22', 1, 0)")
+        con.commit()
+        con.close()
+        self._run_mode(
+            "shadow", {"text": '{"appropriate": true, "reason": "ок"}'}, _decide_reply())
+        self.assertEqual(
+            [(r["news_id"], r["questions"]) for r in self._shadow_rows()],
+            [(7, "v1"), (1, evaluator.FINAL_CHECK_QUESTIONS_VERSION)],
+        )
+        import io
+        out = io.StringIO()
+        evaluator.shadow_report(self.own_db, out=out)
+        # The v1 disagreement is not part of the current wording's report.
+        self.assertIn("shadow rows: 1, decide failed: 0, agree: 1, disagree: 0", out.getvalue())
+        self.assertNotIn('"news_id": 7', out.getvalue())
+        out = io.StringIO()
+        evaluator.shadow_report(self.own_db, out=out, questions="v1")
+        self.assertIn('"news_id": 7', out.getvalue())
 
     # The inherited chat-mode tests run again here with the own DB set; they
     # exercise the default `chat` mode and must still pass unchanged.

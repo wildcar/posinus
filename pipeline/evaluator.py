@@ -262,9 +262,12 @@ class Config:
     decide_provider: str = OPENROUTER
     decide_model: str = "~typesafe/jev-latest"
     # P(appropriate) at or above this reads as appropriate, and any red flag at
-    # or above the flag threshold vetoes on its own. Both are noul probabilities.
+    # or above the flag threshold vetoes on its own. All are noul probabilities.
+    # Advertising has its own, higher bar: in the 2026-09-24 replay it never
+    # fired on a real veto yet reached 0.56 on an approved story.
     decide_threshold: float = 0.5
     decide_flag_threshold: float = 0.5
+    decide_advertising_threshold: float = 0.6
     # The pipeline-owned DB (shared with the preparer), home of the shadow table.
     own_db_path: str = runlog.DEFAULT_DB
 
@@ -299,6 +302,8 @@ class Config:
             cfg.decide_threshold = float(value)
         if value := env.get("EVALUATOR_DECIDE_FLAG_THRESHOLD"):
             cfg.decide_flag_threshold = float(value)
+        if value := env.get("EVALUATOR_DECIDE_ADVERTISING_THRESHOLD"):
+            cfg.decide_advertising_threshold = float(value)
         cfg.own_db_path = env.get("EVALUATOR_DB_PATH", cfg.own_db_path)
         return cfg
 
@@ -835,39 +840,62 @@ FINAL_CHECK_QUESTIONS: dict[str, dict[str, Any]] = {
     "death_central": {
         "type": "noul",
         "instructions": (
-            "Is the main event of this story a death, a fatal accident, or a "
-            "grave illness of a person or animal? An obituary or a tribute to "
-            "someone who has just died counts as yes, even when the tone is warm. "
-            "A successful rescue in which everyone survived counts as no."
+            "Is this story, at its heart, about a death or a grave illness? Answer yes when: "
+            "the main event is a death, a fatal accident or a life-threatening illness of a "
+            "person or animal; or the piece is an obituary, tribute, memorial or look back at "
+            "the life and legacy of someone who has died, even when the tone is warm, the "
+            "death is only hinted at (\"left this world\", \"her legacy\", \"rest in peace\") and "
+            "most of the text is about their life and good deeds. Answer no when a death or "
+            "illness is only background to a story whose main event is a success, and when "
+            "a rescue or recovery succeeded and everyone is well."
         ),
     },
     "unresolved_harm": {
         "type": "noul",
         "instructions": (
-            "Does this story report a disaster, war, crime, violence or conflict "
-            "that has not been resolved with a happy outcome within the story? "
-            "A rescue, recovery or reconciliation that succeeded counts as no."
+            "Is the main subject of this story a specific person, animal or community "
+            "that is still in serious danger or suffering at the end of the story? Harm "
+            "includes a disaster, war, crime, violence, conflict, and a life-threatening "
+            "illness or injury. Answer yes when, for example, a patient is still waiting "
+            "for a transplant, a cure or a surgery; people are still trapped, displaced or "
+            "under attack; the story is built around a catastrophe or a war whose damage "
+            "is still being felt. A hopeful or upbeat tone does not make it resolved. "
+            "Answer no when the rescue, treatment or recovery is completed within the "
+            "story; when past harm is only background to a present success; and when a "
+            "broad problem (climate change, an endangered species, a disease in general, "
+            "poverty, bullying) is the backdrop to a discovery, a project or an "
+            "achievement that works against it."
         ),
     },
     "political": {
         "type": "noul",
         "instructions": (
-            "Is this story political campaigning or a politically divisive "
-            "message: praising or attacking politicians, parties, governments or "
-            "ideologies, or agitating on a polarizing issue? A government "
-            "programme reported neutrally counts as no."
+            "Does this story take a side in politics? Answer yes for political campaigning; "
+            "praising or attacking politicians, parties, governments or ideologies; an "
+            "opinion column or editorial arguing a political or diplomatic position; "
+            "agitating on a polarizing issue such as abortion, immigration, gender, guns "
+            "or elections. In a digest of several stories, answer yes if any item does "
+            "this. Answer no for a government programme or a court ruling reported "
+            "neutrally, and for stories about civic life, public debate, community "
+            "self-organisation or charity that do not take a political side."
         ),
     },
     "advertising": {
         "type": "noul",
         "instructions": (
-            "Is this story advertising: a press release, sponsored content or "
-            "promotion of a product, service, brand or company? A scientific or "
-            "engineering achievement reported as news counts as no, even when a "
-            "company is named."
+            "Is the main purpose of this text to sell or promote something: a press "
+            "release, sponsored content, a product review written to sell, or promotion "
+            "of a product, service, brand or company? A news story that merely names a "
+            "company, shop, book, film, award, charity, event or a person's business counts "
+            "as no, and so does a scientific or engineering achievement reported as news."
         ),
     },
 }
+
+# Bumped whenever a question above is reworded; shadow rows carry it, so a
+# calibration report compares only the verdicts of one wording. v2 (2026-09-24):
+# the flags rewritten after replaying 14 past chat vetoes and 106 approved stories.
+FINAL_CHECK_QUESTIONS_VERSION = "v2"
 
 # Russian names for the red flags in a veto reason (operator-facing, event `reason`).
 FINAL_CHECK_FLAG_TITLES = {
@@ -916,13 +944,20 @@ def _noul(answers: dict[str, Any], name: str) -> float:
     return float(value)
 
 
+def flag_threshold(cfg: Config, name: str) -> float:
+    if name == "advertising":
+        return cfg.decide_advertising_threshold
+    return cfg.decide_flag_threshold
+
+
 def judge_decide_answers(
     cfg: Config, answers: Any
 ) -> tuple[bool, str, dict[str, float]]:
     """Turn the five probabilities into a verdict and a Russian reason.
 
     Appropriate when P(appropriate) reaches `decide_threshold` and no red flag
-    reaches `decide_flag_threshold`. The flags are judged independently — the
+    reaches its threshold: `decide_advertising_threshold` for advertising,
+    `decide_flag_threshold` for the rest. The flags are judged independently — the
     model promises no arithmetic between a question and its negation — so a
     confident flag vetoes even when the umbrella question says yes.
     """
@@ -931,7 +966,7 @@ def judge_decide_answers(
     probs = {name: _noul(answers, name) for name in FINAL_CHECK_QUESTIONS}
     fired = [
         name for name in FINAL_CHECK_FLAG_TITLES
-        if probs[name] >= cfg.decide_flag_threshold
+        if probs[name] >= flag_threshold(cfg, name)
     ]
     appropriate = probs["appropriate"] >= cfg.decide_threshold and not fired
     parts = [f"уместность {probs['appropriate']:.2f}"]
@@ -972,7 +1007,8 @@ CREATE TABLE IF NOT EXISTS final_check_shadow (
     probabilities TEXT NOT NULL DEFAULT '{}',
     decide_cost_usd REAL,
     decide_ms INTEGER,
-    error TEXT NOT NULL DEFAULT ''
+    error TEXT NOT NULL DEFAULT '',
+    questions TEXT NOT NULL DEFAULT 'v1'  -- FINAL_CHECK_QUESTIONS_VERSION
 );
 CREATE INDEX IF NOT EXISTS idx_final_check_shadow_news ON final_check_shadow(news_id);
 """
@@ -985,6 +1021,12 @@ def open_shadow_db(path: str) -> sqlite3.Connection | None:
         return None
     try:
         con.executescript(SHADOW_SCHEMA_SQL)
+        # Rows from before the column existed were asked the v1 questions.
+        columns = {row[1] for row in con.execute("PRAGMA table_info(final_check_shadow)")}
+        if "questions" not in columns:
+            con.execute(
+                "ALTER TABLE final_check_shadow ADD COLUMN questions TEXT NOT NULL DEFAULT 'v1'"
+            )
         con.commit()
     except sqlite3.Error as exc:
         log.warning("cannot create final_check_shadow at %s: %s", path, exc)
@@ -1018,7 +1060,8 @@ def shadow_final_check(
                     "INSERT INTO final_check_shadow (news_id, created_at, title, chat_model, "
                     "chat_appropriate, chat_reason, chat_cost_usd, decide_model, "
                     "decide_appropriate, decide_reason, probabilities, decide_cost_usd, "
-                    "decide_ms, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "decide_ms, error, questions) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         news["news_id"], datetime.now(timezone.utc).isoformat(timespec="seconds"),
                         (news["title"] or "")[:200], chat_reply.get("model_id") or cfg.model_id,
@@ -1026,7 +1069,7 @@ def shadow_final_check(
                         reply.get("served_model_id") or reply.get("model_id") or cfg.decide_model,
                         None if decide_appropriate is None else int(decide_appropriate),
                         reason, json.dumps(probs, ensure_ascii=False), reply.get("cost_usd"),
-                        reply.get("elapsed_ms"), error[:500],
+                        reply.get("elapsed_ms"), error[:500], FINAL_CHECK_QUESTIONS_VERSION,
                     ),
                 )
         except sqlite3.Error as exc:
@@ -1040,8 +1083,12 @@ def shadow_final_check(
     return decide_appropriate
 
 
-def shadow_report(path: str, out=sys.stdout) -> int:
-    """Print how the two final checks compared so far: totals, then every disagreement."""
+def shadow_report(path: str, out=sys.stdout, questions: str = FINAL_CHECK_QUESTIONS_VERSION) -> int:
+    """Print how the two final checks compared so far: totals, then every disagreement.
+
+    Only the rows asked the given question wording count: a verdict under old
+    questions says nothing about the thresholds for the new ones.
+    """
     con = open_shadow_db(path)
     if con is None:
         print(f"cannot open {path}", file=sys.stderr)
@@ -1051,20 +1098,22 @@ def shadow_report(path: str, out=sys.stdout) -> int:
             "SELECT COUNT(*), SUM(decide_appropriate IS NULL), "
             "SUM(decide_appropriate = chat_appropriate), "
             "SUM(decide_appropriate IS NOT NULL AND decide_appropriate <> chat_appropriate) "
-            "FROM final_check_shadow"
+            "FROM final_check_shadow WHERE questions = ?", (questions,)
         ).fetchone()
         costs = con.execute(
             "SELECT COALESCE(SUM(chat_cost_usd), 0), COALESCE(SUM(decide_cost_usd), 0), "
-            "COALESCE(AVG(decide_ms), 0) FROM final_check_shadow WHERE decide_appropriate IS NOT NULL"
+            "COALESCE(AVG(decide_ms), 0) FROM final_check_shadow "
+            "WHERE decide_appropriate IS NOT NULL AND questions = ?", (questions,)
         ).fetchone()
-        print(f"shadow rows: {total}, decide failed: {failed or 0}, "
+        print(f"questions {questions}; shadow rows: {total}, decide failed: {failed or 0}, "
               f"agree: {agree or 0}, disagree: {disagree or 0}", file=out)
         print(f"cost: chat ${costs[0]:.4f}, decide ${costs[1]:.4f}; decide avg {costs[2]:.0f} ms", file=out)
         rows = con.execute(
             "SELECT news_id, created_at, title, chat_appropriate, chat_reason, "
             "decide_appropriate, decide_reason, probabilities, error FROM final_check_shadow "
-            "WHERE decide_appropriate IS NULL OR decide_appropriate <> chat_appropriate "
-            "ORDER BY id"
+            "WHERE questions = ? "
+            "AND (decide_appropriate IS NULL OR decide_appropriate <> chat_appropriate) "
+            "ORDER BY id", (questions,)
         ).fetchall()
         for row in rows:
             print(json.dumps({key: row[key] for key in row.keys()}, ensure_ascii=False), file=out)

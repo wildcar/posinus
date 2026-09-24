@@ -36,10 +36,12 @@ tables, so all prepared artifacts and publication state live here, keyed by `new
 - `illustration(id, news_id, position, file_path, caption, source_url, downloaded_at)`
 - `publication(news_id, platform, status, url, error, attempts, updated_at)` — one row per
   `(news_id, platform)`; `status` is `ok` or `error`.
-- `final_check_shadow(id, news_id, created_at, title, chat_*, decide_*, probabilities, error)`
-  — written by the evaluator in `EVALUATOR_FINAL_CHECK_MODE=shadow`: the chat verdict that
-  was written beside the decision model's verdict, probabilities, cost and latency of both.
-  Read it with `evaluator.py --shadow-report`. Created on first use.
+- `final_check_shadow(id, news_id, created_at, title, chat_*, decide_*, probabilities, error,
+  questions)` — written by the evaluator in `EVALUATOR_FINAL_CHECK_MODE=shadow`: the chat
+  verdict that was written beside the decision model's verdict, probabilities, cost and
+  latency of both, and the question wording (`FINAL_CHECK_QUESTIONS_VERSION`; rows from before
+  the column are `v1`, the column is added on open). Read it with `evaluator.py
+  --shadow-report`, which counts only the current wording. Created on first use.
 
 The DB runs in WAL with a 30-second busy timeout, so a reader cannot block the write
 that records an already-sent post. That write retries on a lock and, if it still fails,
