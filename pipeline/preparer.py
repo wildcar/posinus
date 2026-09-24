@@ -37,8 +37,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import urllib.robotparser
+import dataclasses
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -87,7 +88,8 @@ CREATE TABLE IF NOT EXISTS prepared_item (
     edited_at TEXT,       -- set when the operator fixed the retelling by hand
     edited_by TEXT,
     images_purged_at TEXT, -- set by retention.py when the pictures were deleted
-    expired_at TEXT       -- set by publisher.py when the item waited too long
+    expired_at TEXT,      -- set by publisher.py when the item waited too long
+    duplicate_of INTEGER  -- status 'duplicate': the news this one retells again
 );
 CREATE TABLE IF NOT EXISTS illustration (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,6 +142,14 @@ class PreparerConfig:
     # fraction of the GPT price.
     image_check_provider: str = "openrouter"
     image_check_model: str = "z-ai/glm-5.3-flash"
+    # The repeat check (2026-09-24): positive-news sites reprint each other in
+    # other languages days apart, and the crawler's simhash cannot see that —
+    # Christian Bale's foster village went out three times from English, Polish
+    # and Portuguese copies. After the retelling everything is Russian, so the
+    # new item is compared with what went out or waits in the queue. Same
+    # off-switch convention: an empty provider turns the check off.
+    duplicate_check_provider: str = "openrouter"
+    duplicate_check_model: str = "z-ai/glm-5.3-flash"
 
     @classmethod
     def from_env(cls, env: dict[str, str] = os.environ) -> "PreparerConfig":
@@ -152,6 +162,8 @@ class PreparerConfig:
         cfg.image_model = env.get("IMAGE_MODEL", cfg.image_model)
         cfg.image_check_provider = env.get("IMAGE_CHECK_PROVIDER", cfg.image_check_provider)
         cfg.image_check_model = env.get("IMAGE_CHECK_MODEL", cfg.image_check_model)
+        cfg.duplicate_check_provider = env.get("DUPLICATE_CHECK_PROVIDER", cfg.duplicate_check_provider)
+        cfg.duplicate_check_model = env.get("DUPLICATE_CHECK_MODEL", cfg.duplicate_check_model)
         return cfg
 
 
@@ -768,6 +780,98 @@ def retell(
     raise evaluator.EvaluationInvalid(last_error)
 
 
+# -------------------------------------------------------- repeat check
+
+
+DUPLICATE_WINDOW_DAYS = 30
+DUPLICATE_CANDIDATES = 8
+# Word-stem overlap of title + tags. On the 18 known repeats of 2026-08/09 the
+# original was always among the top three and never below 0.29; unrelated
+# stories reach 0.3 too, which is why the overlap only picks candidates and
+# the model decides.
+DUPLICATE_MIN_OVERLAP = 0.15
+_STEM_STOP = frozenset(
+    "и в во на с со к по из за для от до что как это его её их о об а но не же бы ли "
+    "при после через под над все также чтобы".split()
+)
+
+DUPLICATE_PROMPT = (
+    "Ты выпускающий редактор ленты позитивных новостей. Ниже новая новость и список "
+    "уже вышедших или ждущих выхода. Это повтор, если новая рассказывает о том же самом "
+    "событии или человеке по тому же поводу, пусть другими словами или с другими "
+    "подробностями. Похожая тема не повтор: два разных спасённых кота, два разных "
+    "рекорда долгожителей — разные новости.\n\n"
+    "Новая новость:\n{new}\n\nУже есть:\n{known}\n\n"
+    'Ответь только JSON: {{"duplicate_of": <номер из списка или null>, "reason": "<одно предложение>"}}'
+)
+
+
+def title_stems(text: str) -> set[str]:
+    words = re.findall(r"[а-яёa-z0-9]+", (text or "").lower())
+    return {word[:5] for word in words if len(word) > 2 and word not in _STEM_STOP}
+
+
+def duplicate_candidates(
+    con: sqlite3.Connection, news_id: int, title: str, tags: list[str], now: datetime,
+) -> list[tuple[int, str]]:
+    """The few queued or published items that look most like this one, best first."""
+    since = (now - timedelta(days=DUPLICATE_WINDOW_DAYS)).isoformat(timespec="seconds")
+    mine = title_stems(f"{title} {' '.join(tags)}")
+    if not mine:
+        return []
+    scored = []
+    for row in con.execute(
+        "SELECT news_id, retold_title, tags FROM prepared_item "
+        "WHERE status IN ('prepared', 'published') AND news_id <> ? "
+        "AND COALESCE(published_at, prepared_at) >= ?", (news_id, since),
+    ):
+        theirs = title_stems(f"{row['retold_title'] or ''} {row['tags'] or ''}")
+        if not theirs:
+            continue
+        overlap = len(mine & theirs) / len(mine | theirs)
+        if overlap >= DUPLICATE_MIN_OVERLAP:
+            scored.append((overlap, row["news_id"], row["retold_title"] or ""))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [(other, other_title) for _, other, other_title in scored[:DUPLICATE_CANDIDATES]]
+
+
+def find_duplicate(
+    cfg: PreparerConfig, router_cfg: "evaluator.Config", news_id: int,
+    title: str, paragraphs: list[str], candidates: list[tuple[int, str]],
+) -> tuple[int, str] | None:
+    """Ask a cheap model whether the new item repeats one of the candidates.
+
+    Lenient: a router failure or a reply that names no listed item lets the
+    item through. A rare repeat is better than a queue stalled by the check.
+    """
+    if not candidates or not cfg.duplicate_check_provider:
+        return None
+    lead = paragraphs[0] if paragraphs else ""
+    text = DUPLICATE_PROMPT.format(
+        new=f"{title}\n{lead[:400]}",
+        known="\n".join(f"{other}: {other_title}" for other, other_title in candidates),
+    )
+    check_cfg = dataclasses.replace(
+        router_cfg, provider=cfg.duplicate_check_provider, model_id=cfg.duplicate_check_model,
+        tier="", params=evaluator.reasoning_params(cfg.duplicate_check_provider, "low"),
+    )
+    try:
+        reply = evaluator.chat(check_cfg, [{"role": "user", "content": text}])
+        payload = evaluator.extract_json_object(reply["text"])
+    except (evaluator.McpError, evaluator.EvaluationInvalid, urllib.error.URLError, OSError) as exc:
+        log.warning("news %s: repeat check failed, letting it through: %s", news_id, exc)
+        return None
+    original = payload.get("duplicate_of")
+    if isinstance(original, str) and original.strip().isdigit():
+        original = int(original.strip())
+    if not isinstance(original, int) or isinstance(original, bool):
+        return None
+    if original not in {other for other, _ in candidates}:
+        log.warning("news %s: repeat check named %r, not one of the candidates; ignored", news_id, original)
+        return None
+    return original, str(payload.get("reason") or "")
+
+
 # ------------------------------------------------------------ markdown
 
 
@@ -834,6 +938,10 @@ def migrate_own_db(con: sqlite3.Connection) -> None:
         # Items prepared before tags existed keep NULL here; the publisher still
         # sends them out with the constant tags it adds itself.
         con.execute("ALTER TABLE prepared_item ADD COLUMN tags TEXT")
+        con.commit()
+    columns = {row["name"] for row in con.execute("PRAGMA table_info(prepared_item)")}
+    if columns and "duplicate_of" not in columns:
+        con.execute("ALTER TABLE prepared_item ADD COLUMN duplicate_of INTEGER")
         con.commit()
     columns = {row["name"] for row in con.execute("PRAGMA table_info(prepared_item)")}
     if not columns or "retold_body_md" in columns:
@@ -919,6 +1027,25 @@ def save_prepared(
         )
 
 
+def save_duplicate(
+    con: sqlite3.Connection, news_id: int, title: str, body_md: str,
+    model_id: str, tags: list[str] | None, original: int, reason: str,
+) -> None:
+    """Keep the retelling for the operator to read, but never in the queue."""
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with con:
+        con.execute("DELETE FROM illustration WHERE news_id = ?", (news_id,))
+        con.execute(
+            "INSERT INTO prepared_item (news_id, status, retold_title, retold_body_md, tags, model_id, "
+            "prepared_at, error, duplicate_of) VALUES (?, 'duplicate', ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(news_id) DO UPDATE SET status='duplicate', retold_title=excluded.retold_title, "
+            "retold_body_md=excluded.retold_body_md, tags=excluded.tags, model_id=excluded.model_id, "
+            "prepared_at=excluded.prepared_at, error=excluded.error, duplicate_of=excluded.duplicate_of",
+            (news_id, title, body_md, ", ".join(tags) if tags else None, model_id, now,
+             reason[:1000] or None, original),
+        )
+
+
 def record_error(con: sqlite3.Connection, news_id: int, message: str) -> None:
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with con:
@@ -933,7 +1060,8 @@ def record_error(con: sqlite3.Connection, news_id: int, message: str) -> None:
 
 
 def prepare_one(cfg: PreparerConfig, router_cfg: "evaluator.Config", news: sqlite3.Row, dry_run: bool,
-                ignored: frozenset[str] = frozenset()) -> dict[str, Any]:
+                ignored: frozenset[str] = frozenset(),
+                own_con: sqlite3.Connection | None = None) -> dict[str, Any]:
     # The article is fetched BEFORE the model call: the illustration captions
     # go into the same retelling request and come back translated, so the
     # pictures are not signed in English under a Russian text — and it costs
@@ -956,6 +1084,17 @@ def prepare_one(cfg: PreparerConfig, router_cfg: "evaluator.Config", news: sqlit
             if candidate["caption"].strip():
                 candidate["caption"] = next(translated)
 
+    source_url = news["primary_url"] or ""
+    # Before any picture is fetched or generated: a repeat needs none.
+    if own_con is not None:
+        candidates_seen = duplicate_candidates(own_con, news["news_id"], title, tags, datetime.now(timezone.utc))
+        repeat = find_duplicate(cfg, router_cfg, news["news_id"], title, paragraphs, candidates_seen)
+        if repeat is not None:
+            body_md = build_markdown(title, paragraphs, source_url, source_name_from_url(source_url) if source_url else "")
+            return {"title": title, "paragraphs": paragraphs, "model_id": model_id, "images": [],
+                    "body_md": body_md, "tags": tags, "generated": False, "images_dropped": 0,
+                    "duplicate_of": repeat[0], "duplicate_reason": repeat[1]}
+
     generated = False
     dropped = 0
     if not dry_run:
@@ -974,7 +1113,6 @@ def prepare_one(cfg: PreparerConfig, router_cfg: "evaluator.Config", news: sqlit
         if not candidates and cfg.image_provider:  # a dry run must not spend an image call
             log.info("news %s [dry-run]: no pictures, one would be generated via %s",
                      news["news_id"], cfg.image_provider)
-    source_url = news["primary_url"] or ""
     body_md = build_markdown(title, paragraphs, source_url, source_name_from_url(source_url) if source_url else "")
     return {"title": title, "paragraphs": paragraphs, "model_id": model_id, "images": images,
             "body_md": body_md, "tags": tags, "generated": generated, "images_dropped": dropped}
@@ -1046,15 +1184,24 @@ def run(cfg: PreparerConfig, router_cfg: "evaluator.Config", limit: int, dry_run
             queue = [n for n in selected if n["news_id"] not in done][:limit]
         log.info("selected %d, prepared %d, queue %d (limit %d)", len(selected), len(done), len(queue), limit)
 
-        prepared, failed, generated, dropped = 0, 0, 0, 0
+        prepared, failed, generated, dropped, repeats = 0, 0, 0, 0, 0
         for news in queue:
             try:
-                result = prepare_one(cfg, router_cfg, news, dry_run, ignored)
+                result = prepare_one(cfg, router_cfg, news, dry_run, ignored, own_con)
             except (evaluator.EvaluationInvalid, evaluator.McpError, urllib.error.URLError) as exc:
                 failed += 1
                 log.error("news %s: preparation failed: %s", news["news_id"], exc)
                 if not dry_run:
                     record_error(own_con, news["news_id"], str(exc))
+                continue
+            if result.get("duplicate_of") is not None:
+                repeats += 1
+                log.info("news %s: '%s' repeats news %s (%s)%s", news["news_id"], result["title"],
+                         result["duplicate_of"], result["duplicate_reason"], " [dry-run]" if dry_run else "")
+                if not dry_run:
+                    save_duplicate(own_con, news["news_id"], result["title"], result["body_md"],
+                                   result["model_id"], result.get("tags"), result["duplicate_of"],
+                                   result["duplicate_reason"])
                 continue
             if dry_run:
                 log.info("news %s [dry-run]: '%s', %d paragraphs, %d images, tags [%s]",
@@ -1069,10 +1216,10 @@ def run(cfg: PreparerConfig, router_cfg: "evaluator.Config", limit: int, dry_run
             prepared += 1
             generated += 1 if result.get("generated") else 0
             dropped += result.get("images_dropped", 0)
-        log.info("finished: %d prepared (%d with a generated picture, %d pictures dropped by the vision check), %d failed",
-                 prepared, generated, dropped, failed)
+        log.info("finished: %d prepared (%d with a generated picture, %d pictures dropped by the vision check), "
+                 "%d repeats, %d failed", prepared, generated, dropped, repeats, failed)
         if counters is not None:
-            counters.update(queue=len(selected), prepared=prepared, failed=failed,
+            counters.update(queue=len(selected), prepared=prepared, failed=failed, repeats=repeats,
                             images_generated=generated, images_dropped=dropped)
         return 0 if failed == 0 else 1
     finally:

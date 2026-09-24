@@ -14,7 +14,7 @@ SCHEMA = """
 CREATE TABLE prepared_item (
     news_id INTEGER PRIMARY KEY, status TEXT NOT NULL, retold_title TEXT,
     retold_body_md TEXT, model_id TEXT, prepared_at TEXT, published_at TEXT, error TEXT,
-    edited_at TEXT, edited_by TEXT, images_purged_at TEXT, expired_at TEXT
+    edited_at TEXT, edited_by TEXT, images_purged_at TEXT, expired_at TEXT, duplicate_of INTEGER
 );
 CREATE TABLE illustration (
     id INTEGER PRIMARY KEY AUTOINCREMENT, news_id INTEGER NOT NULL, position INTEGER NOT NULL,
@@ -534,6 +534,26 @@ def test_an_item_taken_off_the_queue_is_shown_not_vanished(operator, source, mak
     assert "Снятые с очереди" in html
     assert "Ждала слишком долго" in html
     assert "удалены" in html
+
+
+@pytest.mark.django_db
+def test_a_repeat_is_listed_with_its_original(operator, source, make_news, make_review, pipeline):
+    original = make_news("Bale village", source, day=10, seed="dup-1")
+    repeat = make_news("Bale vila", source, day=10, seed="dup-2")
+    make_review(repeat, {"positivity": 9}, key="dup-2")
+    pipeline("INSERT INTO prepared_item (news_id, status, retold_title) VALUES (?, 'published', 'Бейл открыл деревню')",
+             (original.pk,))
+    pipeline(
+        "INSERT INTO prepared_item (news_id, status, retold_title, prepared_at, error, duplicate_of) "
+        "VALUES (?, 'duplicate', 'Бейл открыл деревню снова', ?, 'та же деревня', ?)",
+        (repeat.pk, "2026-09-22T10:00:00+00:00", original.pk),
+    )
+
+    html = operator.get(reverse("broadcast")).content.decode()
+    assert "Повторы" in html and "Бейл открыл деревню снова" in html and "та же деревня" in html
+    assert reverse("news_detail", args=[original.pk]) in html
+
+    assert "повтор" in operator.get(reverse("news_list")).content.decode()
 
 
 @pytest.mark.django_db

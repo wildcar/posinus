@@ -98,6 +98,21 @@
   {% endfor %}
 </table>
 {% endif %}
+{% if duplicates %}
+<h2>Повторы</h2>
+<p class="muted">Эту историю уже рассказали: она вышла или ждёт в очереди под другим номером, часто из перепечатки на другом языке. В очередь такие новости не попадают. Решает модель, поэтому стоит изредка проверять её решения.</p>
+<table>
+  <tr><th>Новость</th><th>Повторяет</th><th>Почему</th><th>Подготовлена</th></tr>
+  {% for row in duplicates %}
+  <tr class="held">
+    <td><a href="{% url 'news_detail' row.news_id %}">{{ row.title }}</a></td>
+    <td><a href="{% url 'news_detail' row.original_id %}">{{ row.original_title }}</a></td>
+    <td class="muted">{{ row.reason|default:"—" }}</td>
+    <td class="num">{{ row.prepared_at|date:"d.m.Y" }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
 {% if failed %}
 <h2>Не удалось подготовить</h2>
 <p class="muted">Эти новости вернутся в очередь сами: подготовка повторится в следующий прогон.</p>

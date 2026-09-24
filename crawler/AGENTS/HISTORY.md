@@ -2,6 +2,12 @@
 
 Newest first. Each entry is at most five lines using the format defined in `AGENTS.md`.
 
+## 2026-09-24 · «Эфир» показывает повторы
+- What: список «Повторы» (новость, оригинал, причина) и метка «повтор» в потоке для статуса `duplicate`, который ставит препаратор конвейера. 176 тестов.
+- Why: решение о повторе принимает модель; ошибку надо видеть. Парная правка — в HISTORY конвейера.
+- Files: crawler/collector/services/broadcast.py, collector/services/stages.py, templates/collector/broadcast.html, tests/test_broadcast.py
+- Next: перезапуск веба через `update-ubuntu.sh`.
+
 ## 2026-09-24 · Разбор robots.txt по RFC 9309 и новые российские источники
 - What: свой парсер robots.txt вместо `urllib.robotparser`, кэш хранит правила хоста, а не вердикт; команда `importsources` добавляет источники через `SourceForm`, список `sources/ru-2026-09-24.json` на 11 сайтов. 175 тестов.
 - Why: `Disallow: /?` читался как запрет всего сайта (vokrugsveta.ru падал на каждом прогоне), русскоязычная доля сбора упала с ~80% до ~4%; старые паузы владелец размораживать не велел.

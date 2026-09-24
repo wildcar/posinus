@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -318,7 +319,7 @@ class IgnoredImageTests(unittest.TestCase):
             fake_news_con.execute.return_value.fetchall.return_value = [{"news_id": 8}]
             seen: dict[str, frozenset] = {}
 
-            def fake_prepare_one(cfg_, router_cfg, news, dry_run, ignored=frozenset()):
+            def fake_prepare_one(cfg_, router_cfg, news, dry_run, ignored=frozenset(), own_con=None):
                 seen["ignored"] = ignored
                 return {"title": "t", "paragraphs": [], "model_id": "m", "images": [], "body_md": "md"}
 
@@ -885,6 +886,97 @@ class PrepareOneGenerationTests(unittest.TestCase):
         review.assert_not_called()
         self.assertEqual(result["images"], downloaded)
         self.assertEqual(result["images_dropped"], 0)
+
+
+class RepeatCheckTests(unittest.TestCase):
+    """Positive-news sites reprint each other in other languages; after the retelling it is all Russian."""
+
+    NOW = datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc)
+    NEWS = {"news_id": 30, "primary_url": "https://s.test/bale",
+            "title": "Christian Bale inaugura vila", "body_text": "B.", "language": "pt-BR"}
+    RETOLD = {"text": '{"title": "Кристиан Бейл открыл в Калифорнии деревню для приёмных детей", '
+                      '"body": ["Деревня помогает братьям и сёстрам жить вместе."], '
+                      '"tags": ["приёмные дети", "Кристиан Бейл"]}', "model_id": "m"}
+
+    def setUp(self):
+        self.con = open_own_db(":memory:")
+        rows = [
+            (10, "published", "Кристиан Бейл открыл посёлок для приёмных детей", "приёмные дети, Кристиан Бейл",
+             "2026-09-11T10:00:00+00:00", "2026-09-11T12:00:00+00:00"),
+            (11, "prepared", "Кот спас хозяйку от пожара", "коты", "2026-09-20T10:00:00+00:00", None),
+            (12, "published", "Кристиан Бейл снялся в новом фильме", "кино", "2026-07-01T10:00:00+00:00",
+             "2026-07-02T10:00:00+00:00"),  # older than the window
+            (13, "expired", "Кристиан Бейл открыл деревню для детей", "", "2026-09-12T10:00:00+00:00", None),
+        ]
+        self.con.executemany("INSERT INTO prepared_item (news_id, status, retold_title, tags, prepared_at, published_at) "
+                             "VALUES (?, ?, ?, ?, ?, ?)", rows)
+        self.con.commit()
+
+    def tearDown(self):
+        self.con.close()
+
+    def test_candidates_are_recent_live_items_that_share_words(self):
+        found = preparer.duplicate_candidates(
+            self.con, 30, "Кристиан Бейл открыл в Калифорнии деревню для приёмных детей", ["приёмные дети"], self.NOW)
+        self.assertEqual([news_id for news_id, _ in found], [10])
+
+    def _check(self, reply):
+        with mock.patch.object(evaluator, "chat", return_value=reply) as chat:
+            result = preparer.find_duplicate(preparer.PreparerConfig(), evaluator.Config(), 30, "Т", ["А."],
+                                             [(10, "Бейл"), (11, "Кот")])
+        return result, chat
+
+    def test_model_verdict_names_the_original(self):
+        result, chat = self._check({"text": '{"duplicate_of": 10, "reason": "та же деревня"}'})
+        self.assertEqual(result, (10, "та же деревня"))
+        arguments = chat.call_args.args[0]
+        self.assertEqual((arguments.provider, arguments.model_id), ("openrouter", "z-ai/glm-5.3-flash"))
+
+    def test_null_or_unknown_id_lets_it_through(self):
+        self.assertIsNone(self._check({"text": '{"duplicate_of": null, "reason": "разное"}'})[0])
+        self.assertIsNone(self._check({"text": '{"duplicate_of": 99, "reason": "?"}'})[0])
+        self.assertEqual(self._check({"text": '{"duplicate_of": "11", "reason": "да"}'})[0], (11, "да"))
+
+    def test_router_failure_lets_it_through(self):
+        with mock.patch.object(evaluator, "chat", side_effect=evaluator.McpError("down")):
+            self.assertIsNone(preparer.find_duplicate(preparer.PreparerConfig(), evaluator.Config(), 30, "Т", [],
+                                                      [(10, "Бейл")]))
+
+    def test_no_candidates_or_empty_provider_skip_the_model(self):
+        with mock.patch.object(evaluator, "chat") as chat:
+            self.assertIsNone(preparer.find_duplicate(preparer.PreparerConfig(), evaluator.Config(), 30, "Т", [], []))
+            self.assertIsNone(preparer.find_duplicate(preparer.PreparerConfig(duplicate_check_provider=""),
+                                                      evaluator.Config(), 30, "Т", [], [(10, "Бейл")]))
+        chat.assert_not_called()
+
+    def test_a_repeat_fetches_no_pictures_and_is_saved_out_of_the_queue(self):
+        replies = [self.RETOLD, {"text": '{"duplicate_of": 10, "reason": "та же деревня"}', "model_id": "g"}]
+        with mock.patch.object(preparer, "allowed_by_robots", return_value=True), \
+             mock.patch.object(preparer, "fetch", return_value=("https://s.test/bale", "text/html", b"")), \
+             mock.patch.object(preparer, "extract_illustrations", return_value=[]), \
+             mock.patch.object(preparer, "download_illustrations") as download, \
+             mock.patch.object(preparer, "generate_illustration") as generate, \
+             mock.patch.object(evaluator, "chat", side_effect=replies):
+            result = preparer.prepare_one(preparer.PreparerConfig(fetch_delay=0), evaluator.Config(), self.NEWS,
+                                          False, frozenset(), self.con)
+        download.assert_not_called()
+        generate.assert_not_called()
+        self.assertEqual(result["duplicate_of"], 10)
+
+        preparer.save_duplicate(self.con, 30, result["title"], result["body_md"], result["model_id"],
+                                result["tags"], result["duplicate_of"], result["duplicate_reason"])
+        row = self.con.execute("SELECT status, duplicate_of, error FROM prepared_item WHERE news_id = 30").fetchone()
+        self.assertEqual((row["status"], row["duplicate_of"], row["error"]), ("duplicate", 10, "та же деревня"))
+        self.assertIn(30, prepared_ids(self.con))  # never retold again
+
+    def test_migration_adds_the_column(self):
+        con = sqlite3.connect(":memory:")
+        con.row_factory = sqlite3.Row
+        con.execute("CREATE TABLE prepared_item (news_id INTEGER PRIMARY KEY, status TEXT NOT NULL, "
+                    "retold_title TEXT, retold_body_md TEXT)")
+        preparer.migrate_own_db(con)
+        columns = {row["name"] for row in con.execute("PRAGMA table_info(prepared_item)")}
+        self.assertIn("duplicate_of", columns)
 
 
 class RouterIdentityTests(unittest.TestCase):

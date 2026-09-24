@@ -42,6 +42,7 @@ PROGRESS_TITLES = {
     "partial": "вышла частично",
     "published": "опубликована",
     "expired": "снята с очереди",
+    "duplicate": "повтор",
 }
 
 
@@ -124,6 +125,8 @@ def _progress(news_ids: list[int]) -> dict[int, tuple[str, tuple[str, ...]]]:
             # Waited past its date and was taken off the queue. Never silently:
             # this is where 112 items would otherwise just stop appearing.
             progress = "expired"
+        elif status == "duplicate":
+            progress = "duplicate"   # the preparer found it already out or queued
         elif status == "error":
             progress = "failed"
         elif published:

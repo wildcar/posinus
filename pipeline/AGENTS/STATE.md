@@ -12,6 +12,14 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- **Repeat check in the preparer (2026-09-24).** After the retelling, before pictures: top-8
+  queued/published items of the last 30 days by title+tag stem overlap (>= 0.15), then
+  `openrouter` / `z-ai/glm-5.3-flash` says whether it is the same story; a repeat is saved as
+  `status='duplicate'` with `duplicate_of`, never queued. Live router check on real items:
+  15/15 known repeats caught, 0 false alarms on 10 look-alikes; it also found the Bolivian
+  wild cat posted three times (18232, 18302, 18782). «Эфир» lists repeats with their original.
+  Items already queued are not rechecked: the owner drops 17706, 19353, 17772, 19455 by hand
+  (the agent's drop via `manage.py shell` was refused). 400 tests.
 - **Daily quota of news about Russia, LIVE at `dff5b05` since 2026-09-24 16:02 UTC** (owner
   allowed sudo; the first owner-approved run rolled back on a pipeline run holding the DB, the
   repeat went through). Checked on prod right after: plan carries `pride_russia`, quota open

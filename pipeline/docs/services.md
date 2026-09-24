@@ -142,6 +142,10 @@ Config (in `/etc/posinus/pipeline.env`):
   samples in the live comparison, at ~1/20 of the price; before that codex-oauth
   `gpt-5.6-terra`) — the vision check of downloaded pictures; empty provider turns it off.
   The `low` reasoning effort is spelled per provider (`evaluator.reasoning_params`).
+- `DUPLICATE_CHECK_PROVIDER` (default `openrouter`), `DUPLICATE_CHECK_MODEL` (default
+  `z-ai/glm-5.3-flash`) — the repeat check after the retelling; empty provider turns it off.
+  A repeat is stored with `status = 'duplicate'`, `duplicate_of` = the original's news id and
+  the model's reason in `error`; no pictures are fetched for it.
 
 ## publisher.py
 

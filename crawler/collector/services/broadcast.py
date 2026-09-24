@@ -480,6 +480,41 @@ def expired_items() -> list[dict]:
     ]
 
 
+DUPLICATES_SQL = """
+SELECT d.news_id, d.retold_title, d.prepared_at, d.error, d.duplicate_of,
+       o.retold_title AS original_title
+FROM prepared_item d
+LEFT JOIN prepared_item o ON o.news_id = d.duplicate_of
+WHERE d.status = 'duplicate'
+ORDER BY d.prepared_at DESC, d.news_id DESC
+LIMIT 50
+"""
+
+
+def duplicate_items() -> list[dict]:
+    """What the preparer recognised as a story already out or queued.
+
+    Shown so a wrong call can be seen: the model decides, and a false «повтор»
+    would otherwise silently eat a good news item. A pipeline too old for the
+    `duplicate_of` column simply has none.
+    """
+    try:
+        rows = fetch_all(DUPLICATES_SQL)
+    except PipelineUnavailable:
+        return []
+    return [
+        {
+            "news_id": row["news_id"],
+            "title": row["retold_title"] or f"Новость {row['news_id']}",
+            "prepared_at": _moment(row["prepared_at"]),
+            "reason": row["error"] or "",
+            "original_id": row["duplicate_of"],
+            "original_title": row["original_title"] or f"Новость {row['duplicate_of']}",
+        }
+        for row in rows
+    ]
+
+
 def held_items() -> list[dict]:
     """What the operator took out of the queue, and how to put it back."""
     now = datetime.now(timezone.utc)
@@ -605,6 +640,7 @@ def broadcast_state() -> tuple[dict, str]:
             "failed": failed_preparations(),
             "held": held_items(),
             "expired": expired_items(),
+            "duplicates": duplicate_items(),
         }, ""
     except PipelineUnavailable as exc:
         return {}, str(exc)
