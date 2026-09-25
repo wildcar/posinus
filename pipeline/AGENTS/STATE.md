@@ -656,7 +656,10 @@ a publish-ready retelling, and posts them to the platforms.
   (`docs/experiments/2026-09-24-jev-axes.md`): importance 0.67 -> 0.85, impact_scale -> 0.71,
   memorability -> 0.77, interestingness unchanged 0.71; selection cross-validated 248/298 vs
   glm-vs-rerun 263/298 (generic steps 245). The gap to glm's own noise shrank but stayed
-  (~5 points). Not a drop-in; who is right in the ~45 disagreements needs the owner's eye.
+  (~5 points). Owner's blind review 2026-09-25 of the 45 disagreements: glm right 18, jev 13,
+  unsure 14. jev lets in lifestyle/service pieces (recipes, style tips) and undervalues
+  science discoveries; it catches small animal and kindness stories glm drops. Decision so
+  far: scoring stays on glm, jev stays on the final check. Detail in the experiment doc.
 - Long-term model choice. Bake-off 2026-08-26 over 100 scored news (30 baseline-positive)
   against v4-pro under profile r4: `z-ai/glm-5.3-flash` (via openrouter, adopted in the
   router registry) keeps 14/30 with 2 false and tracks best after loosening to
