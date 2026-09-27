@@ -110,6 +110,48 @@ class ExtractIllustrationsTests(unittest.TestCase):
                           "https://site.test/up/surgery-1024x683.jpg"])
         self.assertEqual(items[0]["caption"], "Pierre")
 
+    def test_see_also_teasers_avatars_and_chrome_are_dropped(self):
+        html = (
+            b'<html><head><meta property="og:image" content="https://site.test/lead.jpg"></head><body>'
+            b'<nav><img src="/logo.png"></nav>'
+            b'<article><a href="/author/jane/"><img src="/avatar.png" alt="Jane"></a>'
+            b'<figure><img src="/photo.jpg"><figcaption>Own photo</figcaption></figure>'
+            b'<figure><a href="/big/photo2.jpg"><img src="/photo2-s.jpg"></a></figure>'
+            b'<figure><a href="?p=3"><img src="/gallery3.jpg"></a></figure>'
+            b'<p>text</p></article>'
+            b'<div class="related"><a href="/news/other-story/"><img src="/other.jpg" alt="Other story"></a>'
+            b'<a href="https://elsewhere.test/x"><figure><img src="/ext.jpg"></figure></a></div>'
+            b'<footer><img src="/badge.png"></footer></body></html>'
+        )
+        items = extract_illustrations(html, "https://site.test/news/this-story/", limit=10)
+        self.assertEqual([i["url"] for i in items], [
+            "https://site.test/lead.jpg", "https://site.test/photo.jpg",
+            "https://site.test/photo2-s.jpg", "https://site.test/gallery3.jpg",
+        ])
+        self.assertNotIn("Other story", [i["caption"] for i in items])
+
+    def test_svg_avatars_and_icons_take_no_slot(self):
+        html = (
+            b'<img src="/icons/star.svg"><img src="https://secure.gravatar.com/avatar/ab?s=100">'
+            b'<img src="/pixel.gif" width="1" height="1"><img src="/share.png" width="32" height="32">'
+            b'<img src="/one.jpg" width="800" height="600"><img src="/two.jpg">'
+        )
+        items = extract_illustrations(html, "https://site.test/p", limit=2)
+        self.assertEqual([i["url"] for i in items],
+                         ["https://site.test/one.jpg", "https://site.test/two.jpg"])
+
+    def test_resizing_proxy_keeps_pictures_apart(self):
+        # lemediapositif serves everything through /_next/image?url=...: with
+        # the query dropped, all its pictures used to fold into the first one
+        html = (
+            b'<figure><img src="/_next/image?url=https%3A%2F%2Fcdn.test%2Fa.jpg&amp;w=1920"></figure>'
+            b'<figure><img src="/_next/image?url=https%3A%2F%2Fcdn.test%2Fb.jpg&amp;w=1920"></figure>'
+            b'<figure><img src="/_next/image?url=https%3A%2F%2Fcdn.test%2Fa.jpg&amp;w=640"></figure>'
+            b'<figure><img src="/_next/image?url=%2Fimg%2Fc.jpg&amp;w=640"></figure>'
+        )
+        items = extract_illustrations(html, "https://site.test/p", limit=10)
+        self.assertEqual(len(items), 3)
+
     def test_legacy_ignored_key_with_a_size_suffix_still_matches(self):
         con = sqlite3.connect(":memory:")
         con.execute("CREATE TABLE ignored_image (url_key TEXT PRIMARY KEY)")

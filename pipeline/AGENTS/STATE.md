@@ -12,6 +12,12 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- **"See also" filter, committed 2026-09-27, NOT deployed yet.** `extract_illustrations` drops
+  an <img> wrapped in a link to another page, anything in <nav>/<footer>, SVG, `avatar` URLs
+  and <img> declared <= 50 px, before the limit; `/_next/image?url=` keys by the inner URL
+  (lemediapositif used to fold into one picture). Live replay on 86 articles: candidates
+  330 -> 209, 56 of the vision check's past rejects gone, 0 of its keeps lost. Blacklist
+  grew 13 -> 43 the same day. 410 tests.
 - **Duplicate pictures at other sizes, LIVE at `59084a5` since 2026-09-27 10:52 UTC (owner-approved
   deploy).** Candidate key drops the WordPress `-WxH` suffix (largest copy kept); after download
   a 64-bit dHash via ffmpeg (<= `IMAGE_DUP_DISTANCE` 8 bits) folds the same photo, larger file
