@@ -12,7 +12,7 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
-- **"See also" filter, committed 2026-09-27, NOT deployed yet.** `extract_illustrations` drops
+- **"See also" filter, LIVE at `0cde26c` since 2026-09-27 11:41 UTC (owner-approved deploy).** `extract_illustrations` drops
   an <img> wrapped in a link to another page, anything in <nav>/<footer>, SVG, `avatar` URLs
   and <img> declared <= 50 px, before the limit; `/_next/image?url=` keys by the inner URL
   (lemediapositif used to fold into one picture). Live replay on 86 articles: candidates
