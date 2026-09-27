@@ -93,6 +93,33 @@ class ExtractIllustrationsTests(unittest.TestCase):
                          ["https://site.test/img/one.jpg", "https://site.test/img/two.jpg"])
         self.assertNotIn("Optimist daily", [i["caption"] for i in items])
 
+    def test_wordpress_sizes_of_one_upload_fold_into_the_largest(self):
+        # news 18394: the original, -1024x638 and a -218x150 thumbnail crop
+        # of one goodnewsnetwork upload went out as three pictures
+        html = (
+            b'<html><head><meta property="og:image" '
+            b'content="https://site.test/up/chimp-1024x638.jpg"></head><body>'
+            b'<figure><img src="/up/chimp.jpg"><figcaption>Pierre</figcaption></figure>'
+            b'<figure><img src="/up/surgery-1024x683.jpg"></figure>'
+            b'<img src="/up/chimp-218x150.jpg">'
+            b"</body></html>"
+        )
+        items = extract_illustrations(html, "https://site.test/", limit=10)
+        self.assertEqual([i["url"] for i in items],
+                         ["https://site.test/up/chimp.jpg",
+                          "https://site.test/up/surgery-1024x683.jpg"])
+        self.assertEqual(items[0]["caption"], "Pierre")
+
+    def test_legacy_ignored_key_with_a_size_suffix_still_matches(self):
+        con = sqlite3.connect(":memory:")
+        con.execute("CREATE TABLE ignored_image (url_key TEXT PRIMARY KEY)")
+        con.execute("INSERT INTO ignored_image VALUES "
+                    "('https://site.test/up/GNN-logo-300x100.png')")
+        ignored = preparer.ignored_image_keys(con)
+        html = b'<img src="/up/GNN-logo-326x53.png"><img src="/up/real.jpg">'
+        items = extract_illustrations(html, "https://site.test/", limit=10, ignored=ignored)
+        self.assertEqual([i["url"] for i in items], ["https://site.test/up/real.jpg"])
+
     def test_caption_donated_even_past_the_limit(self):
         html = (
             b'<html><head><meta property="og:image" '
@@ -376,6 +403,69 @@ class DownloadDedupTests(unittest.TestCase):
                 saved = preparer.download_illustrations(cfg, 9, candidates)
         self.assertEqual([s["source_url"] for s in saved], ["https://a.test/real.jpg"])
         self.assertEqual(Path(saved[0]["path"]).suffix, ".jpg")
+
+
+def _pattern(source: str, width: int, height: int, ext: str) -> bytes:
+    """A synthetic photograph from an ffmpeg test source, encoded as `ext`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / f"x{ext}"
+        subprocess.run(
+            [preparer.FFMPEG, "-y", "-nostdin", "-loglevel", "error", "-f", "lavfi",
+             "-i", f"{source}=size=1200x800", "-frames:v", "1",
+             "-vf", f"scale={width}:{height}", str(out)],
+            check=True, capture_output=True,
+        )
+        return out.read_bytes()
+
+
+@unittest.skipUnless(shutil.which(preparer.FFMPEG) and shutil.which(preparer.FFPROBE),
+                     "ffmpeg is not on this host")
+class PerceptualDedupTests(unittest.TestCase):
+    def _download(self, bodies: dict[str, tuple[str, bytes]], captions: dict[str, str]):
+        def fake_fetch(url, user_agent, timeout=0):
+            content_type, body = bodies[url]
+            return url, content_type, body
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        cfg = preparer.PreparerConfig(media_dir=tmp.name, fetch_delay=0)
+        candidates = [{"url": url, "caption": captions.get(url, "")} for url in bodies]
+        with mock.patch.object(preparer, "allowed_by_robots", return_value=True), \
+             mock.patch.object(preparer, "fetch", fake_fetch):
+            saved = preparer.download_illustrations(cfg, 9, candidates)
+        return saved, sorted(p.name for p in (Path(tmp.name) / "9").iterdir())
+
+    def test_resized_copy_is_dropped_and_the_larger_one_keeps_the_slot(self):
+        # og:image as a small PNG first, the figure as a large JPEG later:
+        # different bytes, different URLs, one photograph
+        bodies = {
+            "https://a.test/og.png": ("image/png", _pattern("testsrc2", 300, 200, ".png")),
+            "https://a.test/other.jpg": ("image/jpeg", _pattern("smptehdbars", 900, 600, ".jpg")),
+            "https://a.test/figure.jpg": ("image/jpeg", _pattern("testsrc2", 1200, 800, ".jpg")),
+        }
+        saved, files = self._download(bodies, {"https://a.test/og.png": "Подпись"})
+        self.assertEqual([s["source_url"] for s in saved],
+                         ["https://a.test/figure.jpg", "https://a.test/other.jpg"])
+        self.assertEqual(saved[0]["caption"], "Подпись")  # the dropped copy's caption stays
+        self.assertEqual([Path(s["path"]).name for s in saved], ["1.jpg", "2.jpg"])
+        self.assertEqual(files, ["1.jpg", "2.jpg"])  # the small PNG is gone from disk
+
+    def test_smaller_later_copy_is_skipped(self):
+        bodies = {
+            "https://a.test/big.jpg": ("image/jpeg", _pattern("testsrc2", 1200, 800, ".jpg")),
+            "https://a.test/thumb.webp": ("image/webp", _pattern("testsrc2", 240, 160, ".webp")),
+        }
+        saved, files = self._download(bodies, {})
+        self.assertEqual([s["source_url"] for s in saved], ["https://a.test/big.jpg"])
+        self.assertEqual(files, ["1.jpg"])
+
+    def test_unreadable_picture_is_kept(self):
+        bodies = {
+            "https://a.test/1.jpg": ("image/jpeg", _pattern("testsrc2", 600, 400, ".jpg")),
+            "https://a.test/2.jpg": ("image/jpeg", b"J" * 4000),
+        }
+        saved, _ = self._download(bodies, {})
+        self.assertEqual(len(saved), 2)
 
 
 def _noise_png(path: Path, width: int = 2000, height: int = 1500) -> None:

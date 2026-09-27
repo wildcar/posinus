@@ -12,6 +12,11 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- **Duplicate pictures at other sizes, committed 2026-09-27, NOT deployed yet.** Candidate key
+  drops the WordPress `-WxH` suffix (largest copy kept); after download a 64-bit dHash via
+  ffmpeg (<= `IMAGE_DUP_DISTANCE` 8 bits) folds the same photo, larger file keeps the slot.
+  Both run before the vision check. Offline on 740 prod pictures: 106/352 news carry such a
+  copy. Items already queued keep theirs. 407 tests.
 - **Repeat check in the preparer, LIVE at `0f7b9d0` since 2026-09-24 (owner-approved deploy).** After the retelling, before pictures: top-8
   queued/published items of the last 30 days by title+tag stem overlap (>= 0.15), then
   `openrouter` / `z-ai/glm-5.3-flash` says whether it is the same story; a repeat is saved as

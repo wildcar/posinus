@@ -63,7 +63,14 @@ MAX_IMAGE_BYTES = 12_000_000
 IMAGE_RECODE_BYTES = 400_000
 IMAGE_MAX_WIDTH = 1600
 FFMPEG = "ffmpeg"
+FFPROBE = "ffprobe"
 FFMPEG_TIMEOUT = 120.0
+# Two saved pictures whose 64-bit difference hashes differ in at most this
+# many bits are one photograph at another size or quality. Measured on the
+# 740 stored pictures on 2026-09-27: every pair at <= 8 was the same image,
+# at 9-10 distinct frames of one scene (a kitten, a portrait with another
+# inset) begin to appear.
+IMAGE_DUP_DISTANCE = 8
 FETCH_TIMEOUT = 30.0
 
 SELECTED_SQL = """
@@ -102,7 +109,7 @@ CREATE TABLE IF NOT EXISTS illustration (
 );
 CREATE INDEX IF NOT EXISTS idx_illustration_news ON illustration(news_id);
 CREATE TABLE IF NOT EXISTS ignored_image (
-    url_key TEXT PRIMARY KEY,  -- URL without query/fragment, as _image_key builds it
+    url_key TEXT PRIMARY KEY,  -- URL without query/fragment/size suffix, as _image_key builds it
     note TEXT,
     added_at TEXT
 );
@@ -264,13 +271,28 @@ class _ArticleImageParser(HTMLParser):
             self._caption_parts.append(data)
 
 
+# WordPress stores every upload in several sizes next to the original:
+# `photo.jpg`, `photo-1024x638.jpg`, `photo-218x150.jpg`. The small ones are
+# often crops, so the content hash misses them; the URL does not.
+_SIZE_SUFFIX = re.compile(r"-(\d{2,5})x(\d{2,5})(?=\.[A-Za-z0-9]+$)")
+
+
 def _image_key(url: str) -> str:
-    """De-duplication key: the URL without query and fragment. og:image is
-    usually the lead figure again, served with different sizing parameters
-    (`?w=1200` vs `?w=800`), which used to make the first two saved pictures
-    the same photograph."""
+    """De-duplication key: the URL without query, fragment and a WordPress
+    `-WxH` size suffix. og:image is usually the lead figure again, served with
+    different sizing parameters (`?w=1200` vs `?w=800`) or as another size of
+    the same upload, which used to make the saved pictures the same
+    photograph two or three times (news 18394)."""
     parts = urllib.parse.urlsplit(url)
-    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+    path = _SIZE_SUFFIX.sub("", parts.path)
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+
+
+def _declared_area(url: str) -> float:
+    """Pixel area a WordPress size suffix declares; the unsuffixed original is
+    the largest copy there is."""
+    match = _SIZE_SUFFIX.search(urllib.parse.urlsplit(url).path)
+    return int(match[1]) * int(match[2]) if match else float("inf")
 
 
 def ignored_image_keys(con: sqlite3.Connection) -> frozenset[str]:
@@ -278,7 +300,9 @@ def ignored_image_keys(con: sqlite3.Connection) -> frozenset[str]:
 
     Fed by `--ignore-image`; the typical entry is a source site's own logo,
     which the article parser keeps mistaking for an illustration."""
-    return frozenset(row[0] for row in con.execute("SELECT url_key FROM ignored_image"))
+    # Rows added before the key learnt the WordPress size suffix (2026-09-27)
+    # still carry it; re-keying them makes one entry cover every size.
+    return frozenset(_image_key(row[0]) for row in con.execute("SELECT url_key FROM ignored_image"))
 
 
 def extract_illustrations(
@@ -314,6 +338,8 @@ def extract_illustrations(
         if key in kept:
             if candidate["caption"] and not kept[key]["caption"]:
                 kept[key]["caption"] = candidate["caption"]
+            if _declared_area(absolute) > _declared_area(kept[key]["url"]):
+                kept[key]["url"] = absolute  # same slot, the larger copy
             continue
         if len(result) >= limit:
             continue  # keep scanning: a duplicate may still donate its caption
@@ -361,13 +387,50 @@ def shrink_image(path: Path) -> Path:
     return target
 
 
+def image_fingerprint(path: Path) -> tuple[int, int] | None:
+    """(64-bit difference hash, pixel area) of a picture, or None.
+
+    The hash is dHash: the image squeezed to 9x8 grey pixels, one bit per
+    horizontal neighbour pair. It survives resizing and re-encoding, which is
+    what separates the copies a page links (og:image, the figure, a
+    thumbnail). Lenient: when ffmpeg cannot read the file the picture simply
+    takes no part in the comparison."""
+    try:
+        raw = subprocess.run(
+            [FFMPEG, "-nostdin", "-loglevel", "error", "-i", str(path), "-frames:v", "1",
+             "-vf", "scale=9:8:flags=area,format=gray", "-f", "rawvideo", "-"],
+            check=True, capture_output=True, timeout=FFMPEG_TIMEOUT,
+        ).stdout
+        probe = subprocess.run(
+            [FFPROBE, "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "csv=p=0", str(path)],
+            check=True, capture_output=True, text=True, timeout=FFMPEG_TIMEOUT,
+        ).stdout
+        width, height = (int(v) for v in probe.strip().split(",")[:2])
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        log.info("image %s: no fingerprint, duplicate check skipped: %s", path, exc)
+        return None
+    if len(raw) != 72:
+        return None
+    bits = 0
+    for row in range(8):
+        for col in range(8):
+            bits = (bits << 1) | (raw[row * 9 + col] > raw[row * 9 + col + 1])
+    return bits, width * height
+
+
 def download_illustrations(
     cfg: PreparerConfig, news_id: int, candidates: list[dict[str, str]]
 ) -> list[dict[str, str]]:
-    """Download image bytes into media_dir/<news_id>/; skip icons and oversized files."""
+    """Download image bytes into media_dir/<news_id>/; skip icons and oversized files.
+
+    A picture that looks like an already saved one (`image_fingerprint`
+    within IMAGE_DUP_DISTANCE bits) is the same photograph at another size:
+    the larger copy keeps the earlier slot, the smaller one is deleted."""
     target_dir = Path(cfg.media_dir) / str(news_id)
     target_dir.mkdir(parents=True, exist_ok=True)
     saved: list[dict[str, str]] = []
+    prints: list[tuple[int, int] | None] = []
     seen_digests: set[str] = set()
     for candidate in candidates:
         url = candidate["url"]
@@ -402,7 +465,30 @@ def download_illustrations(
         path = target_dir / filename
         path.write_bytes(body)
         path = shrink_image(path)
-        saved.append({"path": str(path), "caption": candidate["caption"], "source_url": url})
+        entry = {"path": str(path), "caption": candidate["caption"], "source_url": url}
+        fingerprint = image_fingerprint(path)
+        twin = next((i for i, other in enumerate(prints) if fingerprint and other
+                     and bin(fingerprint[0] ^ other[0]).count("1") <= IMAGE_DUP_DISTANCE), None)
+        if twin is None:
+            saved.append(entry)
+            prints.append(fingerprint)
+            continue
+        kept = saved[twin]
+        if fingerprint[1] > prints[twin][1]:
+            # the larger copy takes the earlier slot under a name of its own
+            final = target_dir / f"{twin + 1}{path.suffix}"
+            Path(kept["path"]).unlink(missing_ok=True)
+            os.replace(path, final)
+            entry["caption"] = entry["caption"] or kept["caption"]
+            entry["path"] = str(final)
+            saved[twin], prints[twin] = entry, fingerprint
+            log.info("news %s: image %s is a larger copy of %s, replaced it",
+                     news_id, url, kept["source_url"])
+        else:
+            path.unlink(missing_ok=True)
+            kept["caption"] = kept["caption"] or entry["caption"]
+            log.info("news %s: image %s is a smaller copy of %s, skipped",
+                     news_id, url, kept["source_url"])
     return saved
 
 
