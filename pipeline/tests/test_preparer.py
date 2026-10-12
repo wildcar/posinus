@@ -70,6 +70,12 @@ class ExtractIllustrationsTests(unittest.TestCase):
                                 "https://site.test/lazy-2x.jpg",
                                 "https://res.test/w_900,h_600/a.jpg"])
 
+    def test_wordpress_scaled_original_folds_with_its_sizes(self):
+        html = (b'<img src="https://cdn.test/up/chad-150x150.jpg?width=1200">'
+                b'<img src="https://cdn.test/up/chad-scaled.jpg">')
+        self.assertEqual([i["url"] for i in extract_illustrations(html, "https://site.test/", 10)],
+                         ["https://cdn.test/up/chad-scaled.jpg"])
+
     def test_limit_and_dedup(self):
         items = extract_illustrations(ARTICLE_HTML, "https://site.test/", limit=2)
         self.assertEqual(len(items), 2)

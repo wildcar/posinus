@@ -324,6 +324,10 @@ class _ArticleImageParser(HTMLParser):
 # `photo.jpg`, `photo-1024x638.jpg`, `photo-218x150.jpg`. The small ones are
 # often crops, so the content hash misses them; the URL does not.
 _SIZE_SUFFIX = re.compile(r"-(\d{2,5})x(\d{2,5})(?=\.[A-Za-z0-9]+$)")
+# Since WordPress 5.3 a large upload is stored as `photo-scaled.jpg` (the
+# original cut down to 2560 px), and its sizes keep the bare stem
+# (`photo-1024x768.jpg`): the same picture again.
+_SCALED_SUFFIX = re.compile(r"-scaled(?=\.[A-Za-z0-9]+$)")
 
 
 def _image_key(url: str) -> str:
@@ -340,7 +344,7 @@ def _image_key(url: str) -> str:
         inner = urllib.parse.urljoin(url, inner)
     if inner.startswith(("http://", "https://")) and inner != url:
         return _image_key(inner)
-    path = _SIZE_SUFFIX.sub("", parts.path)
+    path = _SCALED_SUFFIX.sub("", _SIZE_SUFFIX.sub("", parts.path))
     return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
