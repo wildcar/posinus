@@ -13,7 +13,9 @@ a publish-ready retelling, and posts them to the platforms.
 ## Now
 
 - **Pictures from srcset (2026-10-12).** `_img_src` takes the widest `srcset` candidate over
-  `src`; nicenews served 150x150 thumbnails stretched to 1200 px in `src`. 411 tests.
+  `src`; nicenews served 150x150 thumbnails stretched to 1200 px in `src`. The key also drops
+  WordPress `-scaled`. LIVE at `2b5f1ef`; the 11 already published nicenews items got
+  full-size pictures on wildcar.org and wildcar.ru by hand the same day. 412 tests.
 - **"See also" filter, LIVE at `0cde26c` since 2026-09-27 11:41 UTC (owner-approved deploy).** `extract_illustrations` drops
   an <img> wrapped in a link to another page, anything in <nav>/<footer>, SVG, `avatar` URLs
   and <img> declared <= 50 px, before the limit; `/_next/image?url=` keys by the inner URL
