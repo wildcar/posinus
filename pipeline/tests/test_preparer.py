@@ -55,6 +55,21 @@ class ExtractIllustrationsTests(unittest.TestCase):
         self.assertEqual(by_url["https://site.test/img/one.jpg"], "Caption one")
         self.assertEqual(by_url["https://site.test/news/lazy.webp"], "loose alt")
 
+    def test_srcset_widest_candidate_beats_a_stretched_thumbnail_in_src(self):
+        # nicenews: src is a 150x150 thumbnail upscaled by the CDN, the real
+        # sizes are only in srcset (news on wildcar.ru, 2026-10-12)
+        html = (
+            b'<figure><img src="https://cdn.test/kiss-150x150.jpg?width=1200" '
+            b'srcset="https://cdn.test/kiss-300x198.jpg 300w, https://cdn.test/kiss-2048x1349.jpg 2048w, '
+            b'https://cdn.test/kiss-1024x674.jpg 1024w"></figure>'
+            b'<img data-srcset="/lazy-1x.jpg 1x,/lazy-2x.jpg 2x" src="data:image/gif;base64,AAAA">'
+            b'<img srcset="https://res.test/w_300,h_200/a.jpg 300w, https://res.test/w_900,h_600/a.jpg 900w">'
+        )
+        urls = [i["url"] for i in extract_illustrations(html, "https://site.test/", 10)]
+        self.assertEqual(urls, ["https://cdn.test/kiss-2048x1349.jpg",
+                                "https://site.test/lazy-2x.jpg",
+                                "https://res.test/w_900,h_600/a.jpg"])
+
     def test_limit_and_dedup(self):
         items = extract_illustrations(ARTICLE_HTML, "https://site.test/", limit=2)
         self.assertEqual(len(items), 2)
@@ -1088,6 +1103,9 @@ class RepeatCheckTests(unittest.TestCase):
              mock.patch.object(preparer, "extract_illustrations", return_value=[]), \
              mock.patch.object(preparer, "download_illustrations") as download, \
              mock.patch.object(preparer, "generate_illustration") as generate, \
+             mock.patch.object(preparer, "duplicate_candidates",  # pin the clock: the fixture ages out
+                               side_effect=lambda con, nid, title, tags, _now, real=preparer.duplicate_candidates:
+                               real(con, nid, title, tags, self.NOW)), \
              mock.patch.object(evaluator, "chat", side_effect=replies):
             result = preparer.prepare_one(preparer.PreparerConfig(fetch_delay=0), evaluator.Config(), self.NEWS,
                                           False, frozenset(), self.con)

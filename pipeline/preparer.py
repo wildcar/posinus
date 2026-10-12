@@ -210,6 +210,30 @@ def fetch(url: str, user_agent: str, timeout: float = FETCH_TIMEOUT) -> tuple[st
 
 # ------------------------------------------------------- image extraction
 
+# Candidates are comma-separated, but a URL may carry commas of its own
+# (Cloudinary `w_300,h_200`): split only on a comma followed by whitespace
+# or right after a `300w` / `2x` descriptor.
+_SRCSET_SPLIT = re.compile(r",\s+|(?<=\d[wx]),")
+
+
+def _widest_srcset_url(srcset: str) -> str | None:
+    """The largest candidate of a srcset by its `w` (or `x`) descriptor;
+    a candidate without one counts as `1x`. None when nothing usable."""
+    best: tuple[float, str] | None = None
+    for part in _SRCSET_SPLIT.split(srcset.strip()):
+        fields = part.strip().rstrip(",").split()
+        if not fields or fields[0].startswith("data:"):
+            continue
+        size = 1.0
+        if len(fields) > 1 and fields[1][-1:] in ("w", "x"):
+            try:
+                size = float(fields[1][:-1])
+            except ValueError:
+                continue
+        if best is None or size > best[0]:
+            best = (size, fields[0])
+    return best[1] if best else None
+
 
 class _ArticleImageParser(HTMLParser):
     """Collect candidate illustrations: og:image, <figure> images with their
@@ -233,6 +257,13 @@ class _ArticleImageParser(HTMLParser):
 
     @staticmethod
     def _img_src(attrs: dict[str, str]) -> str | None:
+        # srcset wins over src: nicenews puts a 150x150 thumbnail stretched
+        # by its CDN (`kiss-150x150.jpg?width=1200`) in src and the real
+        # sizes, up to 2048 px, only in srcset.
+        for key in ("srcset", "data-srcset", "data-lazy-srcset"):
+            best = _widest_srcset_url(attrs.get(key, ""))
+            if best:
+                return best
         for key in ("src", "data-src", "data-original", "data-lazy-src"):
             value = attrs.get(key)
             if value and not value.startswith("data:"):

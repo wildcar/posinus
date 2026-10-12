@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-10-12 · Картинки берутся из srcset в полном размере
+- What: `_img_src` выбирает самый широкий вариант `srcset`/`data-srcset`/`data-lazy-srcset` вместо `src`. Тест повторов закреплён на своей дате: фикстура вышла из 30-дневного окна и тест падал. 411 тестов.
+- Why: у nicenews вторая и следующие картинки публиковались мутными: в `src` миниатюра `-150x150.jpg?width=1200`, растянутая CDN, полный размер только в `srcset`.
+- Files: pipeline/preparer.py, tests/test_preparer.py, AGENTS/SPEC.md
+- Next: уже подготовленные новости nicenews в очереди держат старые миниатюры.
+
 ## 2026-09-27 · Фильтр «смотрите также» на проде
 - What: `0cde26c` выкачен через `update-ubuntu.sh` (бэкап `pre-update-20260927T114139Z`), веб и воркер работают.
 - Why: решение владельца.
