@@ -12,15 +12,15 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
-- **VK pictures through the VK ID token, code LIVE at `628c4cc` (2026-10-14), not switched on.**
-  devsupport granted `wall`+`photos` to app 54692110; the owner re-authorized; store
-  `/var/lib/posinus/pipeline/vk-id.json` has scope `photos wall vkid.personal_info`. With
-  `VK_ID_STORE` set the photo mode posts with that token and `vk_id_token` rolls it over 5 min
-  before expiry (atomic rewrite under `vk-id.json.lock`); link mode and the daypic story keep
-  `VK_ACCESS_TOKEN`. Prod check without posting: forced refresh + `photos.getWallUploadServer`
-  ok. **Waiting on the owner** to set `VK_POST_MODE=photo` and add `VK_ID_STORE=…` in
-  `/etc/posinus/pipeline.env` (the agent's edit was blocked); prod still runs `link`. Then:
-  watch the first post; daypic will post a wall picture as well as the story. 419 tests.
+- **VK posts carry pictures again, LIVE at `a12fa75` since 2026-10-14 20:15 UTC.** devsupport
+  granted `wall`+`photos` to VK ID app 54692110; the owner re-authorized and set
+  `VK_POST_MODE=photo` + `VK_ID_STORE=/var/lib/posinus/pipeline/vk-id.json` in pipeline.env.
+  The photo mode posts with that user token; `vk_id_token` rolls it over 5 min before expiry
+  (atomic rewrite under `vk-id.json.lock`); link mode and the daypic story keep
+  `VK_ACCESS_TOKEN`. An empty `photo` from an upload server is retried on a fresh server, 3
+  attempts (the 20:00 run hit one). First post: vk.ru/wall-233237778_744 (news 25618), photo
+  attached, from the community. Daypic now puts a wall picture too, besides the story — watch
+  the 08:00 MSK issue. A dead refresh token = `vk_id` errors, log in again via the tool. 421 tests.
 - **Pictures from srcset (2026-10-12).** `_img_src` takes the widest `srcset` candidate over
   `src`; nicenews served 150x150 thumbnails stretched to 1200 px in `src`. The key also drops
   WordPress `-scaled`. LIVE at `2b5f1ef`; the 11 already published nicenews items got
