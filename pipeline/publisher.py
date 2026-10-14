@@ -1346,6 +1346,9 @@ def vk_jpeg_bytes(image_path: str) -> tuple[str, bytes]:
         return target.name, target.read_bytes()
 
 
+VK_UPLOAD_ATTEMPTS = 3
+
+
 def vk_upload_photo(cfg: PublisherConfig, image_path: str, token: str = "") -> str:
     """Upload a wall photo and return its attachment string (photo{owner}_{id}).
 
@@ -1357,19 +1360,26 @@ def vk_upload_photo(cfg: PublisherConfig, image_path: str, token: str = "") -> s
     and a link attachment needs wall.parseAttachedLink, refused too. A
     community key posts text; that is `VK_POST_MODE=link`."""
     name, image = vk_jpeg_bytes(image_path)
-    try:
-        server = vk_call(cfg, "photos.getWallUploadServer", {"group_id": cfg.vk_group_id}, token)
-    except PublishError as exc:
-        if " 27 " in f" {exc} ":
-            raise PublishError(f"{exc} — this key cannot put photos on the wall; set VK_POST_MODE=link") from exc
-        raise
-    upload_url = server.get("upload_url")
-    if not upload_url:
-        raise PublishError("vk: no upload_url from getWallUploadServer")
     content_type, body = encode_multipart({}, {"photo": (name, image, "image/jpeg")})
-    uploaded = _post_json_result(upload_url, body, content_type, HTTP_TIMEOUT)
-    if not uploaded.get("photo") or uploaded.get("photo") == "[]":
-        raise PublishError(f"vk: upload server returned no photo: {uploaded}")
+    # An upload server now and then answers a good JPEG with an empty `photo`
+    # (2026-10-14: news 25618 failed, the same bytes passed on the next two
+    # servers), so an empty answer gets a fresh server, VK_UPLOAD_ATTEMPTS in all.
+    for attempt in range(1, VK_UPLOAD_ATTEMPTS + 1):
+        try:
+            server = vk_call(cfg, "photos.getWallUploadServer", {"group_id": cfg.vk_group_id}, token)
+        except PublishError as exc:
+            if " 27 " in f" {exc} ":
+                raise PublishError(f"{exc} — this key cannot put photos on the wall; set VK_POST_MODE=link") from exc
+            raise
+        upload_url = server.get("upload_url")
+        if not upload_url:
+            raise PublishError("vk: no upload_url from getWallUploadServer")
+        uploaded = _post_json_result(upload_url, body, content_type, HTTP_TIMEOUT)
+        if uploaded.get("photo") and uploaded.get("photo") != "[]":
+            break
+        if attempt == VK_UPLOAD_ATTEMPTS:
+            raise PublishError(f"vk: upload server returned no photo {attempt} times: {uploaded}")
+        log.warning("vk: upload server returned no photo (attempt %d), trying a fresh server", attempt)
     saved = vk_call(cfg, "photos.saveWallPhoto", {
         "group_id": cfg.vk_group_id,
         "server": uploaded["server"], "photo": uploaded["photo"], "hash": uploaded["hash"],

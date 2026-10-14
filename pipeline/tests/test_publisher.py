@@ -640,6 +640,46 @@ class VkPublishTests(unittest.TestCase):
             publisher.publish_vk(cfg, self.make_item("", "https://wildcar.ru/all/x/"), dry_run=False)
         self.assertEqual(tokens, ["key"])
 
+    def test_an_empty_upload_answer_gets_a_fresh_server(self):
+        cfg = PublisherConfig(vk_token="tok", vk_group_id="7", vk_post_mode="photo")
+        calls: list[str] = []
+        answers = iter([{"server": 1, "photo": "", "hash": "h"}, {"server": 2, "photo": "[{}]", "hash": "h"}])
+
+        def fake_post(url, data, content_type, timeout):
+            calls.append(url.rsplit("/", 1)[-1])
+            if url.endswith("photos.getWallUploadServer"):
+                return {"response": {"upload_url": "https://up.test/x"}}
+            if url == "https://up.test/x":
+                return next(answers)
+            if url.endswith("photos.saveWallPhoto"):
+                self.assertEqual(urllib.parse.parse_qs(data.decode("utf-8"))["server"][0], "2")
+                return {"response": [{"owner_id": -7, "id": 55}]}
+            return {"response": {"post_id": 9}}
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg") as f:
+            f.write(b"\xff\xd8img")
+            f.flush()
+            with mock.patch.object(publisher, "_post_json_result", fake_post):
+                publisher.publish_vk(cfg, self.make_item(f.name), dry_run=False)
+        self.assertEqual(calls, ["photos.getWallUploadServer", "x", "photos.getWallUploadServer", "x",
+                                 "photos.saveWallPhoto", "wall.post"])
+
+    def test_an_upload_server_empty_every_time_is_an_error(self):
+        cfg = PublisherConfig(vk_token="tok", vk_group_id="7", vk_post_mode="photo")
+
+        def fake_post(url, data, content_type, timeout):
+            if url.endswith("photos.getWallUploadServer"):
+                return {"response": {"upload_url": "https://up.test/x"}}
+            return {"server": 1, "photo": "", "hash": "h"}
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg") as f:
+            f.write(b"\xff\xd8img")
+            f.flush()
+            with mock.patch.object(publisher, "_post_json_result", fake_post):
+                with self.assertRaises(PublishError) as ctx:
+                    publisher.publish_vk(cfg, self.make_item(f.name), dry_run=False)
+        self.assertIn("3 times", str(ctx.exception))
+
     def test_a_community_key_is_told_to_switch_to_link_mode(self):
         # a community key gets 27 from the wall upload server, and no other
         # upload route puts a picture on the wall (2026-09-10, posts 425/426)
