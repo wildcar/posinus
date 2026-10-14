@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-10-14 · Публикатор: VK с картинкой через токен VK ID
+- What: `VK_ID_STORE` — путь к хранилищу `tools/vk_id_auth.py`; в режиме `photo` загрузка, `saveWallPhoto` и `wall.post` идут с токеном пользователя, `vk_id_token` обновляет его за 5 минут до конца, перезаписывая хранилище атомарно под `vk-id.json.lock`. `link` и история картины дня остаются на ключе сообщества. Выкачено `git pull` (`628c4cc`), на проде проверены принудительный refresh и `getWallUploadServer`, ничего не опубликовано. 419 тестов.
+- Why: просьба владельца после выдачи прав; refresh-токен одноразовый, новости и картина дня могут обновлять одновременно.
+- Files: pipeline/publisher.py, tests/test_publisher.py, AGENTS/SPEC.md, docs/services.md, deploy/pipeline.env.example
+- Next: владелец ставит в pipeline.env `VK_POST_MODE=photo` и `VK_ID_STORE` (правку агента заблокировал классификатор), затем смотрим первый пост.
+
 ## 2026-10-14 · VK ID: права wall и photos выданы, токен перевыпущен
 - What: devsupport выдал приложению 54692110 права; владелец заново вошёл по ссылке `url --scope "wall photos groups"`, `exchange` и `probe` на проде: scope `photos wall vkid.personal_info`, `account.getAppPermissions` 8196, `photos.getWallUploadServer` отвечает адресом загрузки. После `refresh` права те же. `groups` не выдан.
 - Why: права приложения попадают только в токен, выданный после одобрения; старый токен и его refresh остались бы с `vkid.personal_info`.

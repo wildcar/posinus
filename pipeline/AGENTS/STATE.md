@@ -12,13 +12,15 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
-- **VK ID token carries `wall`+`photos` (2026-10-14).** devsupport granted the rights to app
-  54692110; the owner re-authorized (a token keeps the scope it was issued with). Store
-  `/var/lib/posinus/pipeline/vk-id.json`: scope `photos wall vkid.personal_info`,
-  `account.getAppPermissions` 8196, `photos.getWallUploadServer` ok for group 233237778;
-  `refresh` keeps the scope. `groups` was not granted. Not wired into the publisher yet:
-  VK still posts text via `VK_ACCESS_TOKEN`. Next: rolling-token store in the publisher, then
-  `VK_POST_MODE=photo`.
+- **VK pictures through the VK ID token, code LIVE at `628c4cc` (2026-10-14), not switched on.**
+  devsupport granted `wall`+`photos` to app 54692110; the owner re-authorized; store
+  `/var/lib/posinus/pipeline/vk-id.json` has scope `photos wall vkid.personal_info`. With
+  `VK_ID_STORE` set the photo mode posts with that token and `vk_id_token` rolls it over 5 min
+  before expiry (atomic rewrite under `vk-id.json.lock`); link mode and the daypic story keep
+  `VK_ACCESS_TOKEN`. Prod check without posting: forced refresh + `photos.getWallUploadServer`
+  ok. **Waiting on the owner** to set `VK_POST_MODE=photo` and add `VK_ID_STORE=…` in
+  `/etc/posinus/pipeline.env` (the agent's edit was blocked); prod still runs `link`. Then:
+  watch the first post; daypic will post a wall picture as well as the story. 419 tests.
 - **Pictures from srcset (2026-10-12).** `_img_src` takes the widest `srcset` candidate over
   `src`; nicenews served 150x150 thumbnails stretched to 1200 px in `src`. The key also drops
   WordPress `-scaled`. LIVE at `2b5f1ef`; the 11 already published nicenews items got
