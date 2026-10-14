@@ -12,6 +12,13 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- **VK ID token carries `wall`+`photos` (2026-10-14).** devsupport granted the rights to app
+  54692110; the owner re-authorized (a token keeps the scope it was issued with). Store
+  `/var/lib/posinus/pipeline/vk-id.json`: scope `photos wall vkid.personal_info`,
+  `account.getAppPermissions` 8196, `photos.getWallUploadServer` ok for group 233237778;
+  `refresh` keeps the scope. `groups` was not granted. Not wired into the publisher yet:
+  VK still posts text via `VK_ACCESS_TOKEN`. Next: rolling-token store in the publisher, then
+  `VK_POST_MODE=photo`.
 - **Pictures from srcset (2026-10-12).** `_img_src` takes the widest `srcset` candidate over
   `src`; nicenews served 150x150 thumbnails stretched to 1200 px in `src`. The key also drops
   WordPress `-scaled`. LIVE at `2b5f1ef`; the 11 already published nicenews items got

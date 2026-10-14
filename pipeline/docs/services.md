@@ -448,7 +448,11 @@ the tool sends it in the request body, for `exchange` and `refresh` alike; both 
 that token `users.get` and `groups.getById` answer, `account.getAppPermissions` is 1051 (not
 for VK ID tokens) and `photos.getWallUploadServer` is 15 «cannot be called with current
 scopes». The request for `wall` and `photos` is drafted in `docs/vk-id-devsupport.md`.
-Wiring the rolling token into the publisher is the step after the rights are granted.
+On 2026-10-14 devsupport granted the rights and the owner logged in again (a token keeps the
+scope it was issued with, so the old one and its refresh would never gain them): the scope is
+`photos wall vkid.personal_info`, `account.getAppPermissions` 8196 and
+`photos.getWallUploadServer` answers for the group; `refresh` keeps the scope; `groups` was not
+granted. Wiring the rolling token into the publisher is the next step.
 
 Or blank `VK_ACCESS_TOKEN` to disable VK: the items settle on the remaining platforms at
 once, without the 8 retries, and the `platform:vk` / `daypic-platform:vk` alarms stop. A

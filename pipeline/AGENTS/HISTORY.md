@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-10-14 · VK ID: права wall и photos выданы, токен перевыпущен
+- What: devsupport выдал приложению 54692110 права; владелец заново вошёл по ссылке `url --scope "wall photos groups"`, `exchange` и `probe` на проде: scope `photos wall vkid.personal_info`, `account.getAppPermissions` 8196, `photos.getWallUploadServer` отвечает адресом загрузки. После `refresh` права те же. `groups` не выдан.
+- Why: права приложения попадают только в токен, выданный после одобрения; старый токен и его refresh остались бы с `vkid.personal_info`.
+- Files: pipeline/AGENTS/STATE.md, pipeline/docs/services.md
+- Next: хранилище продлеваемого токена в публикаторе и возврат `VK_POST_MODE=photo`.
+
 ## 2026-10-12 · Картинки nicenews заменены на опубликованных страницах
 - What: 14 растянутых миниатюр в 11 опубликованных новостях (20949, 21081, 21082, 21513, 21805, 22636, 22777, 23932, 24167, 24691, 24713) перекачаны в полном размере. На wildcar.org файлы перезаписаны под теми же именами, на wildcar.ru заметки отредактированы через форму Эгеи (дата публикации не менялась), `illustration.source_url` обновлён. Ключ дедупликации теперь снимает WordPress-суффикс `-scaled` (`2b5f1ef`), 412 тестов.
 - Why: просьба владельца; у nicenews `srcset` указывает на `nicenews.com/wp-content`, а `src` на `media.nicenews.com`, и полный размер бывает только `-scaled`.
