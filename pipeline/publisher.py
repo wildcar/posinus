@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import argparse
 import email.utils
+import fcntl
 import gzip
 import html
 import http.cookiejar
@@ -215,6 +216,11 @@ class PublisherConfig:
     # since 2026-09-08 (Kate Mobile cut off) the only key there is.
     vk_token: str = ""
     vk_group_id: str = ""
+    # The VK ID user token store (tools/vk_id_auth.py writes it, the publisher
+    # rolls it over): when set, the photo mode posts with this token instead of
+    # `vk_token`. Since 2026-10-14 app 54692110 has `wall` and `photos`.
+    vk_id_store: str = ""
+    vk_id_service_token: str = ""
     vk_api_version: str = "5.199"
     vk_post_mode: str = "photo"
     # The footer's channel list (owner, 2026-09-10): Telegram from the channel
@@ -270,6 +276,8 @@ class PublisherConfig:
         cfg.wildcar_wait_seconds = int(env.get("WILDCAR_ORG_WAIT_SECONDS", cfg.wildcar_wait_seconds))
         cfg.vk_token = env.get("VK_ACCESS_TOKEN", cfg.vk_token)
         cfg.vk_group_id = env.get("VK_GROUP_ID", cfg.vk_group_id)
+        cfg.vk_id_store = env.get("VK_ID_STORE", cfg.vk_id_store).strip()
+        cfg.vk_id_service_token = env.get("VK_ID_SERVICE_TOKEN", cfg.vk_id_service_token)
         cfg.vk_api_version = env.get("VK_API_VERSION", cfg.vk_api_version)
         cfg.vk_post_mode = (env.get("VK_POST_MODE", cfg.vk_post_mode) or "photo").strip().lower()
         cfg.dzen_url = env.get("DZEN_CHANNEL_URL", cfg.dzen_url).strip()
@@ -301,7 +309,7 @@ class PublisherConfig:
             platforms.append("telegram")
         if self.site_password:
             platforms.append("site")
-        if self.vk_token and self.vk_group_id:
+        if (self.vk_token or self.vk_id_store) and self.vk_group_id:
             platforms.append("vk")
         return platforms
 
@@ -1240,9 +1248,61 @@ def publish_wildcar_org(cfg: PublisherConfig, item: PreparedNews, dry_run: bool)
 # ----------------------------------------------------------------- platform: vk
 
 
-def vk_call(cfg: PublisherConfig, method: str, params: dict[str, Any]) -> Any:
+VK_ID_TOKEN_URL = "https://id.vk.ru/oauth2/auth"
+VK_ID_REFRESH_MARGIN = 300   # seconds: refresh a token this close to expiry
+
+
+def vk_id_token(cfg: PublisherConfig) -> str:
+    """The VK ID user access token from `cfg.vk_id_store`, rolled over first
+    when it is within VK_ID_REFRESH_MARGIN of expiry.
+
+    Access tokens live an hour and every refresh hands out a new refresh token
+    and kills the old one, so the store is rewritten atomically under an
+    exclusive lock: two runs (news and daypic) refreshing at once would
+    otherwise leave one of them with a dead refresh token. The store's format
+    is the one tools/vk_id_auth.py writes."""
+    store = Path(cfg.vk_id_store)
+    try:
+        lock = open(store.with_name(store.name + ".lock"), "a")
+    except OSError as exc:
+        raise PublishError(f"vk_id: cannot open the lock next to {store}: {exc}") from exc
+    with lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            data = json.loads(store.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise PublishError(f"vk_id: cannot read the token store {store}: {exc}") from exc
+        if data.get("access_token") and int(data.get("expires_at") or 0) - VK_ID_REFRESH_MARGIN > time.time():
+            return data["access_token"]
+        if not data.get("refresh_token"):
+            raise PublishError(f"vk_id: no refresh token in {store}; log in again with tools/vk_id_auth.py")
+        state = uuid.uuid4().hex
+        fields = {"grant_type": "refresh_token", "refresh_token": data["refresh_token"],
+                  "client_id": data.get("client_id", ""), "device_id": data.get("device_id", ""), "state": state}
+        if cfg.vk_id_service_token:
+            fields["service_token"] = cfg.vk_id_service_token
+        reply = _post_json_result(VK_ID_TOKEN_URL, urllib.parse.urlencode(fields).encode("utf-8"),
+                                  "application/x-www-form-urlencoded", HTTP_TIMEOUT)
+        if "access_token" not in reply:
+            raise PublishError(f"vk_id: refresh failed: {reply.get('error')} {reply.get('error_description', '')}".rstrip())
+        if reply.get("state") not in (None, state):
+            raise PublishError("vk_id: state mismatch in the refresh reply")
+        data.update(access_token=reply["access_token"],
+                    refresh_token=reply.get("refresh_token") or data["refresh_token"],
+                    token_scope=reply.get("scope", data.get("token_scope")),
+                    expires_at=int(time.time()) + int(reply.get("expires_in") or 0))
+        tmp = store.with_name(store.name + ".tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=2)
+        os.replace(tmp, store)
+        log.info("vk_id: token refreshed, scope %r, %s s", data["token_scope"], reply.get("expires_in"))
+        return data["access_token"]
+
+
+def vk_call(cfg: PublisherConfig, method: str, params: dict[str, Any], token: str = "") -> Any:
     query = dict(params)
-    query["access_token"] = cfg.vk_token
+    query["access_token"] = token or cfg.vk_token
     query["v"] = cfg.vk_api_version
     payload = _post_json_result(
         f"https://api.vk.ru/method/{method}",
@@ -1286,7 +1346,7 @@ def vk_jpeg_bytes(image_path: str) -> tuple[str, bytes]:
         return target.name, target.read_bytes()
 
 
-def vk_upload_photo(cfg: PublisherConfig, image_path: str) -> str:
+def vk_upload_photo(cfg: PublisherConfig, image_path: str, token: str = "") -> str:
     """Upload a wall photo and return its attachment string (photo{owner}_{id}).
 
     Needs a user token of a group admin: photos.getWallUploadServer refuses a
@@ -1298,7 +1358,7 @@ def vk_upload_photo(cfg: PublisherConfig, image_path: str) -> str:
     community key posts text; that is `VK_POST_MODE=link`."""
     name, image = vk_jpeg_bytes(image_path)
     try:
-        server = vk_call(cfg, "photos.getWallUploadServer", {"group_id": cfg.vk_group_id})
+        server = vk_call(cfg, "photos.getWallUploadServer", {"group_id": cfg.vk_group_id}, token)
     except PublishError as exc:
         if " 27 " in f" {exc} ":
             raise PublishError(f"{exc} — this key cannot put photos on the wall; set VK_POST_MODE=link") from exc
@@ -1313,7 +1373,7 @@ def vk_upload_photo(cfg: PublisherConfig, image_path: str) -> str:
     saved = vk_call(cfg, "photos.saveWallPhoto", {
         "group_id": cfg.vk_group_id,
         "server": uploaded["server"], "photo": uploaded["photo"], "hash": uploaded["hash"],
-    })
+    }, token)
     photo = saved[0]
     return f"photo{photo['owner_id']}_{photo['id']}"
 
@@ -1341,11 +1401,14 @@ def publish_vk(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
                  cfg.vk_post_mode, bool(item.lead_image) and not link_mode, item.page_url or "-",
                  len(item.image_urls) if link_mode else 0, len(message))
         return "(dry-run)"
-    attachment = "" if link_mode or not item.lead_image else vk_upload_photo(cfg, item.lead_image)
+    # the photo mode posts as the admin's VK ID user token when there is a
+    # store; the link mode and stories stay on the community key
+    token = vk_id_token(cfg) if cfg.vk_id_store and not link_mode else ""
+    attachment = "" if link_mode or not item.lead_image else vk_upload_photo(cfg, item.lead_image, token)
     response = vk_call(cfg, "wall.post", {
         "owner_id": f"-{cfg.vk_group_id}", "from_group": 1,
         "message": message, "attachments": attachment,
-    })
+    }, token)
     post_id = response.get("post_id")
     return f"https://vk.ru/wall-{cfg.vk_group_id}_{post_id}"
 

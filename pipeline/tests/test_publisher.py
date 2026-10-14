@@ -10,6 +10,7 @@ import os
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -601,6 +602,43 @@ class VkPublishTests(unittest.TestCase):
                 out = publisher.publish_vk(cfg, self.make_item(f.name, "https://wildcar.ru/all/x/"), dry_run=False)
         self.assertEqual(out, "https://vk.ru/wall-7_9")
         self.assertEqual(calls, ["photos.getWallUploadServer", "x", "photos.saveWallPhoto", "wall.post"])
+
+    def test_photo_mode_with_a_vk_id_store_posts_as_the_user(self):
+        # upload, save and wall.post all carry the VK ID token, not the key
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "vk-id.json"
+            store.write_text(json.dumps({"access_token": "user", "expires_at": int(time.time()) + 3600}))
+            cfg = PublisherConfig(vk_token="key", vk_group_id="7", vk_post_mode="photo", vk_id_store=str(store))
+            tokens: list[str] = []
+
+            def fake_post(url, data, content_type, timeout):
+                if url.startswith("https://api.vk.ru/"):
+                    tokens.append(urllib.parse.parse_qs(data.decode("utf-8"))["access_token"][0])
+                if url.endswith("photos.getWallUploadServer"):
+                    return {"response": {"upload_url": "https://up.test/x"}}
+                if url == "https://up.test/x":
+                    return {"server": 1, "photo": "[{}]", "hash": "h"}
+                if url.endswith("photos.saveWallPhoto"):
+                    return {"response": [{"owner_id": -7, "id": 55}]}
+                return {"response": {"post_id": 9}}
+
+            img = Path(tmp) / "a.jpg"
+            img.write_bytes(b"\xff\xd8img")
+            with mock.patch.object(publisher, "_post_json_result", fake_post):
+                publisher.publish_vk(cfg, self.make_item(str(img)), dry_run=False)
+        self.assertEqual(tokens, ["user", "user", "user"])
+
+    def test_link_mode_stays_on_the_community_key_with_a_store(self):
+        cfg = PublisherConfig(vk_token="key", vk_group_id="7", vk_post_mode="link", vk_id_store="/nonexistent")
+        tokens: list[str] = []
+
+        def fake_post(url, data, content_type, timeout):
+            tokens.append(urllib.parse.parse_qs(data.decode("utf-8"))["access_token"][0])
+            return {"response": {"post_id": 9}}
+
+        with mock.patch.object(publisher, "_post_json_result", fake_post):
+            publisher.publish_vk(cfg, self.make_item("", "https://wildcar.ru/all/x/"), dry_run=False)
+        self.assertEqual(tokens, ["key"])
 
     def test_a_community_key_is_told_to_switch_to_link_mode(self):
         # a community key gets 27 from the wall upload server, and no other
@@ -1612,3 +1650,60 @@ class ExpiryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VkIdTokenTests(unittest.TestCase):
+    """vk_id_token: the stored token while it is fresh, a refresh near expiry
+    that rewrites the store (new refresh token, mode 0600), an error otherwise."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = Path(self.tmp.name) / "vk-id.json"
+        self.cfg = PublisherConfig(vk_id_store=str(self.store), vk_id_service_token="svc")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, **data):
+        self.store.write_text(json.dumps({"client_id": "54692110", "device_id": "dev", **data}))
+
+    def test_a_fresh_token_is_returned_without_a_call(self):
+        self.write(access_token="a1", refresh_token="r1", expires_at=int(time.time()) + 3600)
+        with mock.patch.object(publisher, "_post_json_result", side_effect=AssertionError("no call")):
+            self.assertEqual(publisher.vk_id_token(self.cfg), "a1")
+
+    def test_a_token_near_expiry_is_refreshed_and_the_store_rewritten(self):
+        self.write(access_token="a1", refresh_token="r1", expires_at=int(time.time()) + 60)
+        sent = {}
+
+        def fake_post(url, data, content_type, timeout):
+            sent.update({k: v[0] for k, v in urllib.parse.parse_qs(data.decode("utf-8")).items()})
+            return {"access_token": "a2", "refresh_token": "r2", "expires_in": 3600,
+                    "scope": "photos wall", "state": sent["state"]}
+
+        with mock.patch.object(publisher, "_post_json_result", fake_post):
+            self.assertEqual(publisher.vk_id_token(self.cfg), "a2")
+        self.assertEqual((sent["grant_type"], sent["refresh_token"], sent["service_token"], sent["device_id"]),
+                         ("refresh_token", "r1", "svc", "dev"))
+        data = json.loads(self.store.read_text())
+        self.assertEqual((data["access_token"], data["refresh_token"], data["client_id"]), ("a2", "r2", "54692110"))
+        self.assertGreater(data["expires_at"], time.time() + 3000)
+        self.assertEqual(self.store.stat().st_mode & 0o777, 0o600)
+
+    def test_a_failed_refresh_is_an_error_and_keeps_the_store(self):
+        self.write(access_token="a1", refresh_token="r1", expires_at=0)
+        before = self.store.read_text()
+        with mock.patch.object(publisher, "_post_json_result",
+                               return_value={"error": "invalid_grant", "error_description": "expired"}):
+            with self.assertRaises(PublishError) as ctx:
+                publisher.vk_id_token(self.cfg)
+        self.assertIn("invalid_grant", str(ctx.exception))
+        self.assertEqual(self.store.read_text(), before)
+
+    def test_a_missing_store_is_an_error(self):
+        with self.assertRaises(PublishError):
+            publisher.vk_id_token(self.cfg)
+
+    def test_the_store_alone_turns_vk_on(self):
+        self.assertIn("vk", PublisherConfig(vk_id_store="/x", vk_group_id="7").enabled_platforms())
+        self.assertEqual(PublisherConfig.from_env({"VK_ID_STORE": " /x "}).vk_id_store, "/x")

@@ -452,7 +452,9 @@ On 2026-10-14 devsupport granted the rights and the owner logged in again (a tok
 scope it was issued with, so the old one and its refresh would never gain them): the scope is
 `photos wall vkid.personal_info`, `account.getAppPermissions` 8196 and
 `photos.getWallUploadServer` answers for the group; `refresh` keeps the scope; `groups` was not
-granted. Wiring the rolling token into the publisher is the next step.
+granted. The publisher reads the store from `VK_ID_STORE` and rolls the token over itself
+(`publisher.vk_id_token`, atomic rewrite under `vk-id.json.lock`); the photo mode posts with
+it, the link mode and the daypic story keep the community key `VK_ACCESS_TOKEN`.
 
 Or blank `VK_ACCESS_TOKEN` to disable VK: the items settle on the remaining platforms at
 once, without the 8 retries, and the `platform:vk` / `daypic-platform:vk` alarms stop. A
