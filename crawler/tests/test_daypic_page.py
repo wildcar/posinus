@@ -63,7 +63,7 @@ def test_the_migration_seeds_the_day_slot_switched_off():
 
 
 @pytest.mark.django_db
-def test_the_day_slot_asks_the_web_for_the_date_and_hides_a_surprise():
+def test_the_day_slot_asks_the_web_for_the_date_and_draws_one_main_event():
     """Migration 0015 set codex-oauth gpt-5.5, medium reasoning, search on;
     0018 moved the call to OpenRouter (gpt-5.5 -> openai/gpt-5.5) and the
     picture to openai/gpt-image-2.5-sunburst."""
@@ -74,8 +74,9 @@ def test_the_day_slot_asks_the_web_for_the_date_and_hides_a_surprise():
     assert slot.chat_web_search
     assert "Веб-поиска у тебя нет" not in slot.system_prompt
     assert "интернете" in slot.system_prompt
-    assert "сюрприз" in slot.prompt
     assert "сначала дата" in slot.prompt  # migration 0016: the plate opens with the date
+    assert "одно главное" in slot.prompt  # migration 0020: one main event, no surprise
+    assert "сюрприз" not in slot.prompt
 
 
 @pytest.mark.django_db
