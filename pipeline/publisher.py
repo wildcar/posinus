@@ -555,8 +555,9 @@ class PreparedNews:
     source_url: str
     source_name: str
     # Every illustration with an existing file, as (path, caption) in position
-    # order. Telegram and VK still take only the lead; wildcar.org (and hence
-    # the Dzen feed) and Эгея carry them all.
+    # order. Telegram still takes only the lead; VK's photo mode attaches up
+    # to VK_MAX_PHOTOS of them, wildcar.org (and hence the Dzen feed) and Эгея
+    # carry them all.
     images: list[tuple[str, str]] = field(default_factory=list)
     # The model's content tags plus NEWS_TAGS, for the platforms with a tag
     # field (Эгея's tags input, the wildcar.org front matter).
@@ -1347,6 +1348,7 @@ def vk_jpeg_bytes(image_path: str) -> tuple[str, bytes]:
 
 
 VK_UPLOAD_ATTEMPTS = 3
+VK_MAX_PHOTOS = 10   # wall.post takes at most 10 attachments
 
 
 def vk_upload_photo(cfg: PublisherConfig, image_path: str, token: str = "") -> str:
@@ -1388,11 +1390,23 @@ def vk_upload_photo(cfg: PublisherConfig, image_path: str, token: str = "") -> s
     return f"photo{photo['owner_id']}_{photo['id']}"
 
 
+def vk_photo_paths(item: PreparedNews) -> list[str]:
+    """The pictures for a photo-mode post: the lead first, then the rest of
+    `item.images` in position order, VK_MAX_PHOTOS at most."""
+    paths = [item.lead_image] if item.lead_image else []
+    for path, _ in item.images:
+        if path and path not in paths:
+            paths.append(path)
+    return paths[:VK_MAX_PHOTOS]
+
+
 def publish_vk(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
     """Wall post from the community, in one of two modes (`VK_POST_MODE`).
 
-    photo — upload the lead picture and attach it. Needs a user token of a
-            group admin: photos.getWallUploadServer refuses a community key.
+    photo — upload the pictures (the lead first, VK_MAX_PHOTOS at most) and
+            attach them. Needs a user token of a group admin:
+            photos.getWallUploadServer refuses a community key. A lead that
+            fails to upload fails the post; a later picture is only skipped.
     link  — upload nothing. The text carries the URL of the same story on our
             site first and VK draws a link card for it — without a picture for
             a community key, which is all such a key can do; and since VK cut
@@ -1406,18 +1420,27 @@ def publish_vk(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
         item.title, item.paragraphs, item.source_url, item.source_name, footer_plain(cfg),
         page_url=item.page_url if link_mode else "",
         image_urls=item.image_urls if link_mode else None)
+    photos = [] if link_mode else vk_photo_paths(item)
     if dry_run:
-        log.info("news %s vk [dry-run]: mode=%s, image=%s, page=%s, picture links=%d, %d chars", item.news_id,
-                 cfg.vk_post_mode, bool(item.lead_image) and not link_mode, item.page_url or "-",
+        log.info("news %s vk [dry-run]: mode=%s, images=%d, page=%s, picture links=%d, %d chars", item.news_id,
+                 cfg.vk_post_mode, len(photos), item.page_url or "-",
                  len(item.image_urls) if link_mode else 0, len(message))
         return "(dry-run)"
     # the photo mode posts as the admin's VK ID user token when there is a
     # store; the link mode and stories stay on the community key
     token = vk_id_token(cfg) if cfg.vk_id_store and not link_mode else ""
-    attachment = "" if link_mode or not item.lead_image else vk_upload_photo(cfg, item.lead_image, token)
+    attachments: list[str] = []
+    for index, path in enumerate(photos):
+        if index == 0:
+            attachments.append(vk_upload_photo(cfg, path, token))
+            continue
+        try:
+            attachments.append(vk_upload_photo(cfg, path, token))
+        except PublishError as exc:
+            log.warning("news %s vk: picture %s skipped: %s", item.news_id, Path(path).name, exc)
     response = vk_call(cfg, "wall.post", {
         "owner_id": f"-{cfg.vk_group_id}", "from_group": 1,
-        "message": message, "attachments": attachment,
+        "message": message, "attachments": ",".join(attachments),
     }, token)
     post_id = response.get("post_id")
     return f"https://vk.ru/wall-{cfg.vk_group_id}_{post_id}"

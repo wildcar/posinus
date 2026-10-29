@@ -12,6 +12,9 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
+- **VK photo posts carry every picture of the news (2026-10-29).** Lead first, 10 at most;
+  a later picture that fails to upload is skipped with a warning, the lead failing still
+  fails the platform. 424 tests. Needs a `git pull` on prod.
 - **VK posts carry pictures again, LIVE at `a12fa75` since 2026-10-14 20:15 UTC.** devsupport
   granted `wall`+`photos` to VK ID app 54692110; the owner re-authorized and set
   `VK_POST_MODE=photo` + `VK_ID_STORE=/var/lib/posinus/pipeline/vk-id.json` in pipeline.env.

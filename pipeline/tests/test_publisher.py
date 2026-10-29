@@ -603,6 +603,72 @@ class VkPublishTests(unittest.TestCase):
         self.assertEqual(out, "https://vk.ru/wall-7_9")
         self.assertEqual(calls, ["photos.getWallUploadServer", "x", "photos.saveWallPhoto", "wall.post"])
 
+    def test_photo_mode_attaches_every_picture_lead_first(self):
+        cfg = PublisherConfig(vk_token="tok", vk_group_id="7", vk_post_mode="photo")
+        uploaded: list[bytes] = []
+        sent = {}
+
+        def fake_post(url, data, content_type, timeout):
+            if url.endswith("photos.getWallUploadServer"):
+                return {"response": {"upload_url": "https://up.test/x"}}
+            if url == "https://up.test/x":
+                uploaded.append(data)
+                return {"server": 1, "photo": "[{}]", "hash": "h"}
+            if url.endswith("photos.saveWallPhoto"):
+                return {"response": [{"owner_id": -7, "id": 50 + len(uploaded)}]}
+            sent["fields"] = urllib.parse.parse_qs(data.decode("utf-8"))
+            return {"response": {"post_id": 9}}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for name in ("a.jpg", "b.jpg", "c.jpg"):
+                (Path(tmp) / name).write_bytes(b"\xff\xd8" + name.encode())
+                paths.append(str(Path(tmp) / name))
+            item = self.make_item(paths[0])
+            item.images = [(path, "") for path in paths]
+            with mock.patch.object(publisher, "_post_json_result", fake_post):
+                publisher.publish_vk(cfg, item, dry_run=False)
+        self.assertIn(b"a.jpg", uploaded[0])
+        self.assertEqual(sent["fields"]["attachments"][0], "photo-7_51,photo-7_52,photo-7_53")
+
+    def test_a_later_picture_that_fails_is_skipped_the_lead_is_not(self):
+        cfg = PublisherConfig(vk_token="tok", vk_group_id="7", vk_post_mode="photo")
+        sent = {}
+
+        def fake_post(url, data, content_type, timeout):
+            if url.endswith("photos.getWallUploadServer"):
+                return {"response": {"upload_url": "https://up.test/x"}}
+            if url == "https://up.test/x":
+                return {"server": 1, "photo": "" if b"bad" in data else "[{}]", "hash": "h"}
+            if url.endswith("photos.saveWallPhoto"):
+                return {"response": [{"owner_id": -7, "id": 55}]}
+            sent["fields"] = urllib.parse.parse_qs(data.decode("utf-8"))
+            return {"response": {"post_id": 9}}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            good, bad = Path(tmp) / "good.jpg", Path(tmp) / "bad.jpg"
+            good.write_bytes(b"\xff\xd8good")
+            bad.write_bytes(b"\xff\xd8bad")
+            item = self.make_item(str(good))
+            item.images = [(str(good), ""), (str(bad), "")]
+            with mock.patch.object(publisher, "_post_json_result", fake_post):
+                with self.assertLogs(publisher.log, level="WARNING"):
+                    publisher.publish_vk(cfg, item, dry_run=False)
+            self.assertEqual(sent["fields"]["attachments"][0], "photo-7_55")
+            item = self.make_item(str(bad))
+            item.images = [(str(bad), ""), (str(good), "")]
+            with mock.patch.object(publisher, "_post_json_result", fake_post):
+                with self.assertRaises(PublishError):
+                    publisher.publish_vk(cfg, item, dry_run=False)
+
+    def test_photo_paths_cap_at_ten_lead_first(self):
+        item = self.make_item("lead.jpg")
+        item.images = [(f"{i}.jpg", "") for i in range(12)] + [("lead.jpg", "")]
+        paths = publisher.vk_photo_paths(item)
+        self.assertEqual(paths[0], "lead.jpg")
+        self.assertEqual(len(paths), 10)
+        self.assertEqual(publisher.vk_photo_paths(self.make_item(None)), [])
+
     def test_photo_mode_with_a_vk_id_store_posts_as_the_user(self):
         # upload, save and wall.post all carry the VK ID token, not the key
         with tempfile.TemporaryDirectory() as tmp:
