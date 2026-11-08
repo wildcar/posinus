@@ -19,6 +19,7 @@ urlpatterns = [
     path("news/<int:pk>/select/", views.news_select, name="news_select"),
     path("broadcast/", views.broadcast, name="broadcast"),
     path("broadcast/queue/", views.queue_action, name="queue_action"),
+    path("broadcast/takedown/", views.takedown, name="takedown"),
     path("daypic/", views.daypic, name="daypic"),
     path("daypic/save/<slug:slot>/", views.daypic_save, name="daypic_save"),
     path("daypic/create/", views.daypic_create, name="daypic_create"),

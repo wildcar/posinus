@@ -22,7 +22,9 @@ from django.conf import settings
 from collector.models import LatestEvaluationScore, NewsItem, PublicationPlan
 from collector.services.pipeline_db import PipelineUnavailable, fetch_all
 
-PLATFORM_TITLES = {"telegram": "Telegram", "site": "wildcar.ru", "vk": "ВКонтакте"}
+PLATFORM_TITLES = {"telegram": "Telegram", "site": "wildcar.ru", "vk": "ВКонтакте", "wildcar_org": "wildcar.org"}
+# A post the editor took down (`takedown.py`): neither a success nor a failure.
+REMOVED = "removed"
 
 # Weights behind «сила» — the order the queue would take if nobody touched it.
 # Preparation time, which is what the publisher uses today, is the worst
@@ -108,6 +110,15 @@ class PublishedItem:
     published_at: datetime | None
     images: int
     platforms: list[dict] = field(default_factory=list)
+
+    @property
+    def live(self) -> bool:
+        """Still public somewhere: the takedown button has work to do."""
+        return any(row["status"] == "ok" for row in self.platforms)
+
+    @property
+    def removed(self) -> bool:
+        return any(row["status"] == REMOVED for row in self.platforms)
 
 
 @dataclass
@@ -419,6 +430,8 @@ def platforms(max_attempts: int = 8) -> list[PlatformCard]:
     cards: dict[str, PlatformCard] = {}
     for row in fetch_all(PUBLICATIONS_SQL):
         name = row["platform"]
+        if row["status"] == REMOVED:
+            continue   # taken down on purpose, not a failed send
         card = cards.setdefault(name, PlatformCard(platform=name, title=PLATFORM_TITLES.get(name, name)))
         moment = _moment(row["updated_at"])
         if row["status"] == "ok":

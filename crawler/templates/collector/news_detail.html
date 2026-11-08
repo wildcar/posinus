@@ -140,7 +140,9 @@
   <tr>
     <td>{{ row.title }}</td>
     <td>
-      {% if row.status == "ok" %}<a href="{{ row.url }}">пост вышел</a>
+      {% if row.status == "removed" %}<span class="muted">пост снят: {{ row.error }}</span>
+      {% elif row.status == "ok" and row.error %}<a href="{{ row.url }}">пост вышел</a> <span class="bad">{{ row.error }}</span>
+      {% elif row.status == "ok" %}<a href="{{ row.url }}">пост вышел</a>
       {% else %}<span class="bad">не вышло</span> <span class="muted">{{ row.error }}</span>{% endif %}
     </td>
     <td class="num">{{ row.attempts }}</td>

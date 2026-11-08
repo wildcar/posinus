@@ -11,6 +11,7 @@ from django.db.models import Count, Exists, Max, Min, OuterRef, Q
 from django.db.models.functions import Coalesce
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
@@ -51,6 +52,7 @@ from .services.pipeline_mailbox import (
     read_pause,
     request_edit,
     request_run,
+    request_takedown,
     set_pause,
 )
 from .services.pipeline_status import machine_block
@@ -753,6 +755,43 @@ def queue_action(request):
     )
     messages.success(request, f"Новость {QUEUE_ACTIONS[action]}. Публикатор увидит это в ближайший прогон.")
     return redirect("broadcast")
+
+
+TAKEDOWN_REASON = "решение редактора"
+
+
+@login_required
+@require_POST
+def takedown(request):
+    """«Снять новость»: delete a published item from every platform.
+
+    Like an edit, it travels as a request file; `takedown.py` in the pipeline
+    deletes the posts within seconds and records each platform as removed, or
+    keeps the reason it could not.
+    """
+    news_id = request.POST.get("news_id", "")
+    back = f"{reverse('broadcast')}?tab=published"
+    if not news_id.isdigit():
+        messages.error(request, "Непонятно, какую новость снимать.")
+        return redirect(back)
+    item = get_object_or_404(NewsItem, pk=int(news_id))
+    try:
+        request_takedown(item.pk, request.user.get_username(), TAKEDOWN_REASON)
+    except MailboxUnavailable as exc:
+        logger.error("Cannot write a takedown request: %s", exc)
+        messages.error(request, "Не получилось снять: нет доступа к каталогу заявок конвейера.")
+        return redirect(back)
+    OperatorEvent.objects.create(
+        event_type="news_taken_down",
+        message=f"Новость {item.pk} снята со всех площадок",
+        details={"news_id": item.pk, "reason": TAKEDOWN_REASON},
+    )
+    messages.success(
+        request,
+        f"Новость {item.pk} снимается со всех площадок. Через минуту обновите страницу: у каждой "
+        "площадки будет написано, снят пост или нет. Копии в Дзене снимаются вручную.",
+    )
+    return redirect(back)
 
 
 @login_required

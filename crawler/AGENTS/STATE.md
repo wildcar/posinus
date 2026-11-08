@@ -6,6 +6,11 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 ## Now
 
+- **«Снять новость» on «Эфир → Вышло» (2026-11-08), NOT LIVE**: button, `takedown` view,
+  `request_takedown` in the mailbox; removed platforms shown struck through and left out
+  of «Площадки» failures. 179 tests. Works only once the pipeline's
+  `posinus-takedown-run.path` is installed (its `install.sh`).
+
 - **robots.txt parser and 11 new Russian sources, LIVE at `dff5b05` since 2026-09-24
   16:02 UTC; `importsources` added all 11 (source rows created by the posinus user).** Own
   RFC 9309 parser replaces `urllib.robotparser` (it turned `Disallow: /?` into «whole site

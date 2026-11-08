@@ -13,6 +13,8 @@ Two kinds of file:
   second and the service deletes the file before it works.
 - `edit-<news_id>.json` — the operator's correction of a prepared retelling: the
   text, the lead picture, the pictures to drop.
+- `takedown-<news_id>.json` — «Снять новость»: delete a published item from every
+  platform it went out to.
 
 The directory does not exist on a development machine, and it must not exist for
 the site to work: every reader here raises `MailboxUnavailable` instead, and the
@@ -113,6 +115,22 @@ def request_edit(news_id: int, payload: dict) -> None:
     """
     body = dict(payload, news_id=int(news_id), requested_at=timezone.now().isoformat())
     _write(mailbox_dir() / f"edit-{int(news_id)}.json", json.dumps(body, ensure_ascii=False) + "\n")
+
+
+def request_takedown(news_id: int, operator: str, reason: str) -> None:
+    """Ask the pipeline to take a published item down from every platform.
+
+    `takedown.py` deletes the posts and flips their rows to `removed`; a second
+    press before it runs replaces the request, after it retries only the
+    platforms that refused.
+    """
+    body = {
+        "news_id": int(news_id),
+        "operator": operator,
+        "reason": reason,
+        "requested_at": timezone.now().isoformat(),
+    }
+    _write(mailbox_dir() / f"takedown-{int(news_id)}.json", json.dumps(body, ensure_ascii=False) + "\n")
 
 
 def request_run(service: str) -> None:

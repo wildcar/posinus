@@ -4,6 +4,12 @@ Newest first. Each entry ≤5 lines using the format defined in `AGENTS.md`.
 
 ---
 
+## 2026-11-08 · «Снять новость»: снятие со всех площадок по заявке из «Эфира»
+- What: `takedown.py` и юниты `posinus-takedown{.service,-run.path}` разбирают `takedown-<id>.json`: Telegram `deleteMessage`, VK `wall.delete` токеном VK ID, wildcar.ru `note-delete`, wildcar.org по процедуре 8949. Снятая площадка получает `removed` с причиной «решение редактора (оператор)», отказавшая остаётся `ok` с «снять не удалось: …». Публикатор пишет раздел wildcar.org под `wildcar-org.lock`. 430 тестов.
+- Why: просьба владельца, раньше новость снимали руками (8949, 12306). Парная правка веба описана в HISTORY краулера.
+- Files: pipeline/{takedown.py,publisher.py,deploy/install.sh,deploy/posinus-takedown*}, tests/test_takedown.py, AGENTS/SPEC.md, docs/services.md
+- Next: владелец запускает `install.sh`. По первому настоящему снятию проверить каждую площадку: удаление в Эгее и Telegram вживую не проверялось.
+
 ## 2026-10-29 · VK: все картинки новости в одном посте
 - What: режим `photo` загружает и прикрепляет все картинки из `item.images`, ведущую первой, до 10 (`VK_MAX_PHOTOS`, `vk_photo_paths`). Сбой ведущей — ошибка, сбой следующих — предупреждение и пропуск. 424 теста.
 - Why: просьба владельца: в VK уходила только одна картинка.

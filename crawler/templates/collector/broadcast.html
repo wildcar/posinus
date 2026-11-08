@@ -14,6 +14,11 @@
 .row-actions form{display:flex;gap:.25rem}
 .row-actions button{padding:.25rem .5rem;font-size:.8rem;background:#e5edf2;color:#17324d}
 .held td{color:#61717d}
+.post .links .gone{margin-right:.6rem;font-size:.9rem;color:#61717d;text-decoration:line-through}
+.post .links .bad{margin-right:.6rem;font-size:.9rem}
+.post.taken-down > span:nth-child(2) a{color:#61717d}
+.takedown{margin-left:auto}
+.takedown button{padding:.25rem .5rem;font-size:.8rem;background:#f6e3e3;color:#a32b2b;white-space:nowrap}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem}
 </style>
 {% endblock %}
@@ -127,14 +132,27 @@
 {% elif tab == "published" %}
 {% for item in published %}
 {% ifchanged item.published_at|date:"d.m.Y" %}<h2 class="day">{{ item.published_at|date:"d.m.Y"|default:"без даты" }}</h2>{% endifchanged %}
-<div class="post">
+<div class="post{% if item.removed and not item.live %} taken-down{% endif %}">
   <span class="when num">{{ item.published_at|date:"H:i" }}</span>
-  <span><a href="{% url 'news_detail' item.news_id %}">{{ item.title }}</a></span>
+  <span>
+    <a href="{% url 'news_detail' item.news_id %}">{{ item.title }}</a>
+    {% if item.removed %}<span class="pill">{% if item.live %}снята не везде{% else %}снята{% endif %}</span>{% endif %}
+  </span>
   <span class="links">
     {% for row in item.platforms %}
-      {% if row.url %}<a href="{{ row.url }}">{{ row.title }}</a>{% else %}<span class="bad">{{ row.title }}: не вышло</span>{% endif %}
+      {% if row.status == "removed" %}<span class="gone" title="{{ row.error }}">{{ row.title }}</span>
+      {% elif row.status == "ok" and row.error %}<a href="{{ row.url }}" class="bad" title="{{ row.error }}">{{ row.title }}: не снят, удалите вручную</a>
+      {% elif row.url %}<a href="{{ row.url }}">{{ row.title }}</a>
+      {% else %}<span class="bad">{{ row.title }}: не вышло</span>{% endif %}
     {% endfor %}
   </span>
+  {% if item.live %}
+  <form method="post" action="{% url 'takedown' %}" class="takedown"
+        onsubmit="return confirm('Снять новость «{{ item.title|escapejs }}» со всех площадок? Посты удалятся, вернуть их нельзя.');">{% csrf_token %}
+    <input type="hidden" name="news_id" value="{{ item.news_id }}">
+    <button>Снять новость</button>
+  </form>
+  {% endif %}
 </div>
 {% empty %}
 <div class="card"><p class="muted">Пока ничего не вышло.</p></div>

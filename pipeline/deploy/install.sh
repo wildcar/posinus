@@ -140,13 +140,15 @@ install -m 0644 "$REPO_DIR/deploy/posinus-daypic.service" /etc/systemd/system/po
 install -m 0644 "$REPO_DIR/deploy/posinus-daypic.timer" /etc/systemd/system/posinus-daypic.timer
 # Operator edits: no timer, it runs when the web drops an edit-*.json request.
 install -m 0644 "$REPO_DIR/deploy/posinus-apply-edits.service" /etc/systemd/system/posinus-apply-edits.service
+# «Снять новость»: no timer, it runs when the web drops a takedown-*.json request.
+install -m 0644 "$REPO_DIR/deploy/posinus-takedown.service" /etc/systemd/system/posinus-takedown.service
 # wildcar.org rebuild: no timer either, the publisher touches the marker file.
 install -m 0644 "$REPO_DIR/deploy/posinus-wildcar-org-build.service" /etc/systemd/system/posinus-wildcar-org-build.service
 install -m 0644 "$REPO_DIR/deploy/posinus-wildcar-org-watch.service" /etc/systemd/system/posinus-wildcar-org-watch.service
 install -m 0644 "$REPO_DIR/deploy/posinus-wildcar-org-watch.timer" /etc/systemd/system/posinus-wildcar-org-watch.timer
 for unit in posinus-evaluator-run.path posinus-preparer-run.path posinus-publisher-run.path \
             posinus-evaluator-backfill-run.path posinus-apply-edits-run.path \
-            posinus-wildcar-org-build.path posinus-daypic-run.path; do
+            posinus-takedown-run.path posinus-wildcar-org-build.path posinus-daypic-run.path; do
     install -m 0644 "$REPO_DIR/deploy/$unit" "/etc/systemd/system/$unit"
 done
 systemctl daemon-reload
@@ -160,6 +162,7 @@ systemctl enable --now posinus-evaluator-backfill-run.path
 systemctl enable --now posinus-notify.timer
 systemctl enable --now posinus-notify-digest.timer
 systemctl enable --now posinus-apply-edits-run.path
+systemctl enable --now posinus-takedown-run.path
 systemctl enable --now posinus-retention.timer
 systemctl enable --now posinus-wildcar-org-build.path
 systemctl enable --now posinus-wildcar-org-watch.timer
@@ -172,7 +175,7 @@ touch /etc/posinus/update-services
 for unit in posinus-evaluator.service posinus-preparer.service posinus-publisher.service \
             posinus-evaluator-backfill.service posinus-notify.service \
             posinus-notify-digest.service posinus-apply-edits.service \
-            posinus-daypic.service; do
+            posinus-takedown.service posinus-daypic.service; do
     if ! grep -qx "$unit" /etc/posinus/update-services; then
         echo "$unit" >> /etc/posinus/update-services
         echo "registered $unit in /etc/posinus/update-services"

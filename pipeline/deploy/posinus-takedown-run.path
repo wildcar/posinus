@@ -1,0 +1,9 @@
+[Unit]
+Description=Take a news item down as soon as the web asks for it
+
+[Path]
+PathExistsGlob=/var/lib/posinus/pipeline/requests/takedown-*.json
+Unit=posinus-takedown.service
+
+[Install]
+WantedBy=multi-user.target

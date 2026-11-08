@@ -316,6 +316,13 @@ operator UI runs a service without sudo and without a second job queue.
 `edit-*.json` and runs `apply_edits.py`, which reads each request, applies it and removes the
 file itself (no `ExecStartPre` here — deleting the requests up front would lose the edits).
 
+`posinus-takedown.service` works the same way for `takedown-*.json`, the «Снять новость»
+button on «Эфир → Вышло»: `takedown.py` deletes the post on every platform where the item is
+`ok` (Telegram `deleteMessage`, VK `wall.delete` with the VK ID token, wildcar.ru
+`/@actions/note-delete/`, the wildcar.org page plus an index/RSS rebuild) and flips each
+row to `removed`. A platform that refuses stays `ok` with «снять не удалось: …» in `error`.
+New units, so the owner reruns `deploy/install.sh` once. Contract: SPEC «Снятие новости».
+
 `posinus-evaluator-backfill.service` has no timer: it exists only for that last request file.
 It runs `evaluator.py --backfill --rescore-all`, which re-applies the selection thresholds in
 force to every news item already scored and writes a correcting event only where the verdict

@@ -1,0 +1,16 @@
+[Unit]
+Description=Positive News: take a published item down from every platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=posinus-pipeline
+Group=posinus-pipeline
+SupplementaryGroups=posinus
+UMask=0007
+EnvironmentFile=/etc/posinus/pipeline.env
+# No ExecStartPre: the script removes each request file itself, after reading it.
+ExecStart=/usr/bin/python3 /opt/posinus/pipeline/takedown.py
+NoNewPrivileges=true
+# No PrivateTmp: writes the wildcar.org content under /var/lib/posinus.

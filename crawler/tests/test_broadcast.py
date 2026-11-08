@@ -568,3 +568,61 @@ def test_the_flow_calls_it_snyata_s_ocheredi(operator, source, make_news, make_r
     html = operator.get(reverse("news_list")).content.decode()
 
     assert "снята с очереди" in html
+
+
+@pytest.mark.django_db
+def test_takedown_travels_as_a_file_with_the_editors_reason(operator, source, make_news, pipeline, mailbox):
+    import json
+
+    from collector.models import OperatorEvent
+
+    item = make_news("Out already", source, day=10, seed="takedown")
+    pipeline("INSERT INTO prepared_item (news_id, status, retold_title) VALUES (?, 'published', 'T')", (item.pk,))
+
+    response = operator.post(reverse("takedown"), {"news_id": str(item.pk)})
+
+    assert response.status_code == 302
+    assert response["Location"].endswith("?tab=published")
+    request = json.loads((mailbox / f"takedown-{item.pk}.json").read_text(encoding="utf-8"))
+    assert request["news_id"] == item.pk
+    assert request["reason"] == "решение редактора"
+    assert request["operator"] == "operator"
+    assert OperatorEvent.objects.filter(event_type="news_taken_down").exists()
+
+
+@pytest.mark.django_db
+def test_published_tab_shows_the_button_only_while_a_post_is_live(operator, source, make_news, pipeline):
+    live = make_news("Live", source, day=10, seed="live")
+    gone = make_news("Gone", source, day=10, seed="gone")
+    for item, title in ((live, "Живая"), (gone, "Снятая")):
+        pipeline(
+            "INSERT INTO prepared_item (news_id, status, retold_title, published_at) "
+            "VALUES (?, 'published', ?, '2026-11-08T14:00:00+00:00')",
+            (item.pk, title),
+        )
+    pipeline("INSERT INTO publication (news_id, platform, status, url) VALUES (?, 'telegram', 'ok', 'https://t.me/posinus/1')",
+             (live.pk,))
+    pipeline("INSERT INTO publication (news_id, platform, status, url, error) "
+             "VALUES (?, 'telegram', 'removed', 'https://t.me/posinus/2', 'решение редактора (wildcar)')", (gone.pk,))
+    pipeline("INSERT INTO publication (news_id, platform, status, url, error) "
+             "VALUES (?, 'vk', 'ok', 'https://vk.ru/wall-1_2', 'снять не удалось: 15 Access denied')", (gone.pk,))
+
+    items = {item.news_id: item for item in broadcast.published()}
+    assert items[live.pk].live and not items[live.pk].removed
+    assert items[gone.pk].live and items[gone.pk].removed   # VK refused: still public
+
+    page = operator.get(reverse("broadcast") + "?tab=published").content.decode()
+    assert page.count("Снять новость</button>") == 2
+    assert "снята не везде" in page
+    assert "не снят, удалите вручную" in page
+
+
+@pytest.mark.django_db
+def test_a_removed_post_is_not_a_platform_failure(pipeline):
+    pipeline("INSERT INTO publication (news_id, platform, status, url) VALUES (1, 'vk', 'removed', 'https://vk.ru/wall-1_2')")
+    pipeline("INSERT INTO publication (news_id, platform, status, url) VALUES (2, 'vk', 'ok', 'https://vk.ru/wall-1_3')")
+
+    card = broadcast.platforms()[0]
+
+    assert card.ok_count == 1
+    assert card.error_count == 0

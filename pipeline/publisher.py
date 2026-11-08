@@ -58,6 +58,7 @@ Behavior: AGENTS/SPEC.md, section «Публикация (метка "Опубл
 from __future__ import annotations
 
 import argparse
+import contextlib
 import email.utils
 import fcntl
 import gzip
@@ -1189,6 +1190,29 @@ def _wildcar_published_entries(cfg: PublisherConfig, exclude_id: int) -> list[Wi
         con.close()
 
 
+@contextlib.contextmanager
+def wildcar_lock(cfg: PublisherConfig):
+    """Serialise writers of the wildcar.org section: the publisher adding a page
+    and takedown.py removing one. Each rebuilds the index and the feed from the
+    database; without the lock a publish that read the rows just before a
+    takedown would write the removed page back into the index."""
+    path = Path(cfg.own_db).parent / "wildcar-org.lock"
+    with open(path, "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def write_wildcar_section(cfg: PublisherConfig, entries: list[WildcarEntry]) -> None:
+    """The section's navigation, index and Dzen feed, regenerated whole."""
+    zone = _window_zone(cfg.window_tz)
+    section = wildcar_section_dir(cfg)
+    section.mkdir(parents=True, exist_ok=True)
+    (section / ".nav.yml").write_text(WILDCAR_NAV_YML, encoding="utf-8")
+    (section / "index.md").write_text(build_wildcar_index(entries, zone), encoding="utf-8")
+    (section / "rss.xml").write_text(
+        build_wildcar_feed(cfg, entries[:WILDCAR_FEED_ITEMS]), encoding="utf-8")
+
+
 def publish_wildcar_org(cfg: PublisherConfig, item: PreparedNews, dry_run: bool) -> str:
     """Write the news into the content directory, ask for a site rebuild and
     wait until the page is live.
@@ -1217,18 +1241,14 @@ def publish_wildcar_org(cfg: PublisherConfig, item: PreparedNews, dry_run: bool)
         tags=item.tags,
     )
     page_dir = wildcar_page_dir(cfg, item.news_id)
-    page_dir.mkdir(parents=True, exist_ok=True)
-    for path, _ in item.images:
-        shutil.copyfile(path, page_dir / Path(path).name)
-    (page_dir / "index.md").write_text(
-        build_wildcar_page(entry, zone, wildcar_footer(cfg)), encoding="utf-8")
-
-    section = wildcar_section_dir(cfg)
-    entries = [entry] + _wildcar_published_entries(cfg, exclude_id=item.news_id)
-    (section / ".nav.yml").write_text(WILDCAR_NAV_YML, encoding="utf-8")
-    (section / "index.md").write_text(build_wildcar_index(entries, zone), encoding="utf-8")
-    (section / "rss.xml").write_text(
-        build_wildcar_feed(cfg, entries[:WILDCAR_FEED_ITEMS]), encoding="utf-8")
+    with wildcar_lock(cfg):
+        page_dir.mkdir(parents=True, exist_ok=True)
+        for path, _ in item.images:
+            shutil.copyfile(path, page_dir / Path(path).name)
+        (page_dir / "index.md").write_text(
+            build_wildcar_page(entry, zone, wildcar_footer(cfg)), encoding="utf-8")
+        write_wildcar_section(
+            cfg, [entry] + _wildcar_published_entries(cfg, exclude_id=item.news_id))
 
     Path(cfg.requests_dir, WILDCAR_REBUILD_MARKER).touch()
     deadline = time.monotonic() + max(cfg.wildcar_wait_seconds, 0)
