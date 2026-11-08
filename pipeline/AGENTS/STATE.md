@@ -12,12 +12,12 @@ a publish-ready retelling, and posts them to the platforms.
 
 ## Now
 
-- **«Снять новость» (2026-11-08), NOT LIVE.** `takedown.py` plus `posinus-takedown{.service,-run.path}`:
+- **«Снять новость», LIVE at `65fe88f` since 2026-11-08 (owner ran update + install.sh,
+  `posinus-takedown-run.path` active).** `takedown.py` plus `posinus-takedown{.service,-run.path}`:
   a `takedown-<id>.json` request from «Эфир → Вышло» deletes the post on Telegram, VK,
   wildcar.ru and wildcar.org and flips the rows to `removed` (a refusing platform stays `ok`
   with «снять не удалось: …»). The publisher's wildcar.org section writes now go under
-  `wildcar-org.lock`. 430 tests. Needs a `git pull` and then `pipeline/deploy/install.sh`
-  (new units). Not tried against the live APIs: the wildcar.ru `note-delete` field set comes
+  `wildcar-org.lock`. 430 tests. Not tried against the live APIs: the wildcar.ru `note-delete` field set comes
   from the 2026-09-10 draft removal, the agent was not allowed to probe it again. Check the
   first real takedown platform by platform.
 - **VK photo posts carry every picture of the news (2026-10-29).** Lead first, 10 at most;
