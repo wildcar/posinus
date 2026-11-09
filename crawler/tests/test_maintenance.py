@@ -152,6 +152,37 @@ def test_active_source_is_paused_after_fifty_low_yield_reviews():
 
 
 @pytest.mark.django_db
+def test_a_source_with_many_selected_news_is_kept_whatever_its_share():
+    """The Guardian, 2026-10-22: 1.98% of 3384 reviews, some 67 selected news a
+    month, paused under a 2% bar — and the queue lost two items a day."""
+    big = _reviewed_source("big.example", reviews=1000, positives=15)
+    small = _reviewed_source("small.example", reviews=100, positives=1)
+    # a generous corpus, so the bar sits at its 2% ceiling and both are under it
+    _reviewed_source("strong.example", reviews=400, positives=200)
+    evaluate_sources()
+    big.refresh_from_db()
+    small.refresh_from_db()
+    assert big.status == Source.Status.ACTIVE
+    assert small.status == Source.Status.PAUSED_LOW_YIELD
+
+
+@pytest.mark.django_db
+def test_a_resumed_big_source_leaves_probation_on_its_count():
+    """«Возобновить» puts a source back on probation; with a share under the
+    bar it would sit there for good unless the count lets it through."""
+    big = _reviewed_source("big.example", reviews=1000, positives=15)
+    _reviewed_source("strong.example", reviews=400, positives=200)
+    big.status = Source.Status.PROBATION
+    big.probation_started_at = timezone.now() - timedelta(days=1)
+    big.save()
+    big.crawl_runs.create(status="success", started_at=timezone.now(), finished_at=timezone.now(),
+                          fetched_count=10, saved_count=10)
+    evaluate_sources()
+    big.refresh_from_db()
+    assert big.status == Source.Status.ACTIVE
+
+
+@pytest.mark.django_db
 def test_low_yield_bar_follows_the_selection_profile():
     """A stricter profile must not turn the yield rule on the whole source list.
 

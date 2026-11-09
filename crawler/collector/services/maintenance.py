@@ -106,6 +106,13 @@ FRUITLESS_PROBATION_FETCHED = 150
 LOW_YIELD_SHARE_OF_CORPUS = 0.4
 LOW_YIELD_MAX_THRESHOLD = 0.02
 
+# A share alone punishes volume. The Guardian was paused on 2026-10-22 at 1.98%
+# of 3384 reviews — some 67 selected news a month, more than any other source
+# gave — and the queue lost two items a day. Evaluating its misses costs about a
+# dollar a month. So a source that brings at least this many selected news in
+# the 30-day window is never paused for its share, however low.
+LOW_YIELD_KEEP_POSITIVES = 15
+
 
 def low_yield_threshold(decisions) -> float:
     """The positive share below which a source is not worth crawling."""
@@ -143,11 +150,12 @@ def evaluate_sources():
             fetched = totals["fetched"] or 0
             saved = totals["saved"] or 0
             extraction_ok = fetched > 0 and saved / fetched >= 0.8
-            if extraction_ok and ratio >= threshold:
+            if extraction_ok and (ratio >= threshold or positives >= LOW_YIELD_KEEP_POSITIVES):
                 _change_status(source, Source.Status.ACTIVE, "Источник успешно прошел пробный режим", {"reviews": total, "positive_ratio": ratio, "threshold": threshold})
-            elif total >= 50 and ratio < threshold:
+            elif total >= 50 and ratio < threshold and positives < LOW_YIELD_KEEP_POSITIVES:
                 _change_status(source, Source.Status.PAUSED_LOW_YIELD, "Источник не прошел пробный режим", {"reviews": total, "positive_ratio": ratio, "threshold": threshold})
-        elif source.status == Source.Status.ACTIVE and total >= 50 and ratio < threshold:
+        elif (source.status == Source.Status.ACTIVE and total >= 50 and ratio < threshold
+              and positives < LOW_YIELD_KEEP_POSITIVES):
             _change_status(source, Source.Status.PAUSED_LOW_YIELD,
                            f"Автопауза: доля позитивных новостей ниже {threshold:.2%}",
                            {"reviews": total, "positive_ratio": ratio, "threshold": threshold})
