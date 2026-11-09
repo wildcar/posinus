@@ -176,7 +176,7 @@ def test_a_resumed_big_source_leaves_probation_on_its_count():
     big.probation_started_at = timezone.now() - timedelta(days=1)
     big.save()
     big.crawl_runs.create(status="success", started_at=timezone.now(), finished_at=timezone.now(),
-                          fetched_count=10, saved_count=10)
+                          fetched_count=200, saved_count=40)   # Guardian-like: listing pages too
     evaluate_sources()
     big.refresh_from_db()
     assert big.status == Source.Status.ACTIVE

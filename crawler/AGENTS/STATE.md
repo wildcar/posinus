@@ -6,12 +6,14 @@ Operate a single-host multilingual news crawler whose source list improves from 
 
 ## Now
 
-- **Big sources are not auto-paused for their share (2026-11-09), NOT LIVE.** 15+ selected
-  news in 30 days keeps a source active and lets it out of probation
-  (`LOW_YIELD_KEEP_POSITIVES`). Why: The Guardian, paused 2026-10-22 at 1.98% < 2%, gave
+- **Big sources are not auto-paused for their share (2026-11-09).** 15+ selected news in 30
+  days keeps a source active and lets it out of probation without the 80% extraction check
+  (`LOW_YIELD_KEEP_POSITIVES`). `bbe2024` LIVE; the extraction-check fix after it is not yet. Why: The Guardian, paused 2026-10-22 at 1.98% < 2%, gave
   ~2 selected news a day; with it and Maidona/Naked Science paused, collection fell from
   ~290 to 100–180 a day and the queue inflow from 15–20 to ~11 against 8 slots. After
-  deploy: «Возобновить» Guardian (source 164) → probation → active on the next nightly pass.
+  deploy: Guardian (source 164) resumed to probation 2026-11-09 19:53 UTC; 19 selected in its
+  30-day window, losing ~1 a day as the October reviews age out — it must reach the nightly
+  pass with the fix before it drops under 15. Check it is `active` on 2026-11-10.
   181 tests.
 - **«Снять новость» on «Эфир → Вышло», LIVE at `65fe88f` since 2026-11-08**: button, `takedown` view,
   `request_takedown` in the mailbox; removed platforms shown struck through and left out

@@ -150,7 +150,9 @@ def evaluate_sources():
             fetched = totals["fetched"] or 0
             saved = totals["saved"] or 0
             extraction_ok = fetched > 0 and saved / fetched >= 0.8
-            if extraction_ok and (ratio >= threshold or positives >= LOW_YIELD_KEEP_POSITIVES):
+            # 15+ selected news prove the extraction by its result; The Guardian
+            # saves ~40 articles of ~200 pages a run and would never pass 80%.
+            if (extraction_ok and ratio >= threshold) or positives >= LOW_YIELD_KEEP_POSITIVES:
                 _change_status(source, Source.Status.ACTIVE, "Источник успешно прошел пробный режим", {"reviews": total, "positive_ratio": ratio, "threshold": threshold})
             elif total >= 50 and ratio < threshold and positives < LOW_YIELD_KEEP_POSITIVES:
                 _change_status(source, Source.Status.PAUSED_LOW_YIELD, "Источник не прошел пробный режим", {"reviews": total, "positive_ratio": ratio, "threshold": threshold})
